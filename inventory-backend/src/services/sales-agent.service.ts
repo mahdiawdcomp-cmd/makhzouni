@@ -651,7 +651,8 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     if (input.priceMode) {
       const stock = sellableStock(product, shopWarehouseId);
       if (stock <= 0) throw new AppError(`«${product.name}» نفدت من المحل؛ عدّل السلة`, 409, "PRODUCT_UNAVAILABLE");
-      if (product.hiddenUnits.includes(item.unit)) throw new AppError(`وحدة «${product.name}» لم تعد متاحة`, 409, "UNIT_UNAVAILABLE");
+      // Like the public wholesale catalog, invoice-only hidden units do not restrict wholesale orders.
+      if (input.priceMode === "CARTON" && product.hiddenUnits.includes(item.unit)) throw new AppError(`وحدة «${product.name}» لم تعد متاحة`, 409, "UNIT_UNAVAILABLE");
       if (input.priceMode === "CARTON" && (item.unit !== "CARTON" ||
           !Number.isInteger(product.pcsPerCarton) || product.pcsPerCarton < 1 ||
           stock < product.pcsPerCarton || !Number.isFinite(Number(product.cartonPiecePrice)) ||

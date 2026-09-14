@@ -5,7 +5,8 @@ const id = "11111111-1111-4111-8111-111111111111";
 const customerId = "22222222-2222-4222-8222-222222222222";
 let stock = 100, cartonPrice: number | null = 750, own = true, created = 0;
 let prior: any = null, customerWhere: any;
-const product = () => ({ id, name: "مادة فحص", itemNumber: "T", category: "قسم", categoryTags: [], typeTags: [], salePrice: 1000, cartonPiecePrice: cartonPrice, pcsPerCarton: 48, boxPieces: 24, hiddenUnits: [], openingBalancePcs: 0, cartonsAvailable: 0, thumbnailUrl: null, warehouseStocks: [{ warehouseId: id, quantityPieces: stock }] });
+let hiddenUnits: Unit[] = [];
+const product = () => ({ id, name: "مادة فحص", itemNumber: "T", category: "قسم", categoryTags: [], typeTags: [], salePrice: 1000, cartonPiecePrice: cartonPrice, pcsPerCarton: 48, boxPieces: 24, hiddenUnits, openingBalancePcs: 0, cartonsAvailable: 0, thumbnailUrl: null, warehouseStocks: [{ warehouseId: id, quantityPieces: stock }] });
 mock.module("../config/database", { exports: { default: {
   product: { findMany: async () => [product()] },
   customer: { findFirst: async ({ where }: any) => own && where.salesAgentId === id ? { id: customerId, name: "زبوني", phone: "07700000000" } : null,
@@ -31,6 +32,15 @@ test("preview distribution uses stored carton piece price and performs no approv
 test("wholesale preview preserves old price and whole-unit conversions", async () => {
   const result = await service.submitAgentOrder(id, "rep", { ...input(), priceMode: "WHOLESALE" }, true);
   assert.equal(result.subtotal, 48000);
+});
+test("invoice-hidden units stay available to wholesale catalog orders", async () => {
+  hiddenUnits = [Unit.PIECE, Unit.DOZEN, Unit.BOX];
+  try {
+    for (const [unit, price] of [[Unit.PIECE, 1000], [Unit.DOZEN, 12000], [Unit.BOX, 24000], [Unit.CARTON, 48000]] as const) {
+      const result = await service.submitAgentOrder(id, "rep", { ...input(), priceMode: "WHOLESALE", items: [{ productId: id, unit, quantity: 1 }] }, true);
+      assert.equal(result.subtotal, price);
+    }
+  } finally { hiddenUnits = []; }
 });
 test("customer ownership is checked for previews too", async () => {
   own = false;

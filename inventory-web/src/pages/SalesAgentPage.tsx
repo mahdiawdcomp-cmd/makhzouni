@@ -48,6 +48,7 @@ import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 import { useAuthStore } from "../store/authStore"
 import { piecesPerUnit as sharedPiecesPerUnit } from "../utils/units"
+import { agentDefaultUnit, agentWholesaleUnits, stableThumbnailBatches } from "../utils/salesAgentCatalog"
 import { cartonEligible, cleanAgentLines, draftKey, EMPTY_DRAFT, isDefinitiveOrderRejection, mergeAgentDrafts, readAgentWorkspace, workspaceKey, type AgentDraft, type AgentMode, type AgentWorkspace, type OrderPayload } from "../utils/salesAgentDrafts"
 
 /* ── types ───────────────────────────────────────────────────────────── */
@@ -224,8 +225,6 @@ const UNIT_LABEL: Record<Unit, string> = {
   CARTON: "كارتون",
 }
 
-const ALL_UNITS: Unit[] = ["CARTON", "BOX", "DOZEN", "PIECE"]
-
 function piecesPerUnit(product: AgentProduct, unit: Unit) {
   // Only these two fields matter to the conversion; passed explicitly so a
   // wider (or narrower) AgentProduct shape can never trip up the shared util.
@@ -242,9 +241,7 @@ function maxQty(product: AgentProduct, unit: Unit) {
 
 function availableUnits(product: AgentProduct, mode: AgentMode = "WHOLESALE"): Unit[] {
   if (mode === "CARTON") return cartonEligible(product) ? ["CARTON"] : []
-  const hidden = new Set(product.hiddenUnits ?? [])
-  const units = ALL_UNITS.filter((u) => !hidden.has(u))
-  return units.length > 0 ? units : ["PIECE"]
+  return agentWholesaleUnits
 }
 
 const money = (n: number) => Math.round(n).toLocaleString("en-US")
@@ -300,14 +297,22 @@ function useCustomerHeader(customerId: string | null) {
  * callback ref. Ids collect for a beat, then go out as one request, so a fast
  * scroll produces a handful of calls rather than one per card.
  */
-function useThumbnails(visibleIds: string[]) {
-  const batches = Array.from({ length: Math.ceil(visibleIds.length / 80) }, (_, index) => visibleIds.slice(index * 80, (index + 1) * 80))
-  const queries = useQueries({ queries: batches.map(ids => ({
-    queryKey: ["sales-agent", "thumbnails", ids],
-    queryFn: async () => (await api.post<{ data: Record<string, string | null> }>("/sales-agent/products/thumbnails", { ids })).data.data,
-    staleTime: 5 * 60 * 1000, retry: 2,
+function useThumbnails(allIds: string[], visibleIds: string[]) {
+  const qc = useQueryClient()
+  const userId = useAuthStore(s => s.user?.id)
+  const batches = stableThumbnailBatches(allIds, visibleIds)
+  const queries = useQueries({ queries: batches.map(({ ids, enabled }) => ({
+    queryKey: ["sales-agent", "thumbnails", userId, ids],
+    enabled,
+    queryFn: async () => {
+      const data = (await api.post<{ data: Record<string, string | null> }>("/sales-agent/products/thumbnails", { ids })).data.data
+      for (const [id, src] of Object.entries(data)) qc.setQueryData(["sales-agent", "thumbnail", userId, id], src)
+      return data
+    },
+    staleTime: 5 * 60 * 1000, retry: 2, refetchOnWindowFocus: false,
   })) })
-  return Object.assign({}, ...queries.map(query => query.data ?? {})) as Record<string, string | null>
+  const cached = Object.fromEntries(visibleIds.map(id => [id, qc.getQueryData<string | null>(["sales-agent", "thumbnail", userId, id]) ?? null]))
+  return Object.assign(cached, ...queries.map(query => query.data ?? {})) as Record<string, string | null>
 }
 
 /* ── page ────────────────────────────────────────────────────────────── */
@@ -730,6 +735,7 @@ function SalesAgentWorkspace() {
                 <Button className="h-11" variant={catalogFilter === "offer" ? "default" : "outline"} onClick={() => setCatalogFilter(catalogFilter === "offer" ? "" : "offer")}>العروض</Button>
               </div>
               <CatalogScreen
+                allProductIds={(products.data ?? []).map(p => p.id)}
                 mode={mode}
                 products={filtered}
                 loading={products.isPending}
@@ -1105,6 +1111,7 @@ function StatusPill({ tone, children }: { tone: "ok" | "wait" | "bad" | "muted";
 /* ── catalog ─────────────────────────────────────────────────────────── */
 
 function CatalogScreen({
+  allProductIds,
   mode,
   products,
   loading,
@@ -1116,6 +1123,7 @@ function CatalogScreen({
   onOpen,
   specialPrice,
 }: {
+  allProductIds: string[]
   mode: AgentMode
   products: AgentProduct[]
   loading: boolean
@@ -1128,7 +1136,7 @@ function CatalogScreen({
   specialPrice: (productId: string, unit: Unit) => number | null
 }) {
   const [visible, setVisible] = useState<string[]>([])
-  const thumbs = useThumbnails(visible)
+  const thumbs = useThumbnails(allProductIds, visible)
   const observer = useRef<IntersectionObserver | null>(null)
 
   /**
@@ -1275,23 +1283,21 @@ function ProductDialog({
   specialPrice: (unit: Unit) => number | null
 }) {
   const units = availableUnits(product, mode)
-  const [unit, setUnit] = useState<Unit>(units[0])
+  const [unit, setUnit] = useState<Unit>(() => agentDefaultUnit(mode, product.currentStock))
   const [qty, setQty] = useState(1)
-  const [image, setImage] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    if (!product.hasImage) return
-    api
-      .get<{ data: { imageUrl: string | null } }>(`/sales-agent/products/${product.id}/image`)
-      .then((res) => {
-        if (!cancelled) setImage(res.data.data?.imageUrl ?? null)
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [product.id, product.hasImage])
+  const qc = useQueryClient()
+  const userId = useAuthStore(s => s.user?.id)
+  const thumbnail = qc.getQueryData<string | null>(["sales-agent", "thumbnail", userId, product.id])
+  const fullImage = useQuery({
+    queryKey: ["sales-agent", "full-image", userId, product.id],
+    enabled: product.hasImage,
+    queryFn: async () => (await api.get<{ data: { imageUrl: string | null } }>(`/sales-agent/products/${product.id}/image`)).data.data.imageUrl,
+    placeholderData: thumbnail,
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+    refetchOnWindowFocus: false,
+  })
+  const image = fullImage.data ?? thumbnail
 
   const max = Math.max(0, maxQty(product, unit))
   const approved = specialPrice(unit)
@@ -1306,6 +1312,11 @@ function ProductDialog({
       onClose={onClose}
       footer={
         <div className="space-y-2">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="وحدة الطلب">
+            {units.map(u => <Button key={u} variant={unit === u ? "default" : "outline"}
+              aria-pressed={unit === u} className="h-11 min-w-[4rem] flex-1"
+              onClick={() => { setUnit(u); setQty(1) }}>{UNIT_LABEL[u]}</Button>)}
+          </div>
           <Button className="h-12 w-full" disabled={locked || !unit || qty > 100000} onClick={() => onAdd(unit, qty)}>
             <Plus className="h-4 w-4" /> أضف للطلب · {money(line)}
           </Button>
@@ -1357,25 +1368,6 @@ function ProductDialog({
           </p>
         </div>
       )}
-
-      <div className="mt-5">
-        <p className="mb-2 text-[13px] font-medium text-slate-600 dark:text-slate-300">الوحدة</p>
-        <div className="flex flex-wrap gap-2">
-          {units.map((u) => (
-            <Button
-              key={u}
-              variant={unit === u ? "default" : "outline"}
-              className="h-11 min-w-[4.5rem]"
-              onClick={() => {
-                setUnit(u)
-                setQty(1)
-              }}
-            >
-              {UNIT_LABEL[u]}
-            </Button>
-          ))}
-        </div>
-      </div>
 
       <div className="mt-5">
         <p className="mb-2 text-[13px] font-medium text-slate-600 dark:text-slate-300">
