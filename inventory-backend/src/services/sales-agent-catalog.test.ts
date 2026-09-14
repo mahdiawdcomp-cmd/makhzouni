@@ -13,6 +13,11 @@ mock.module("../config/database", { exports: { default: {
     count: async ({ where }: any) => { customerWhere = where; return 0; }, findMany: async () => [] },
   pendingApproval: { findFirst: async () => prior },
   salesAgentPriceRequest: { findMany: async () => [], updateMany: async () => { throw new Error("No price writes in preview"); } },
+  // Standing customer offers and the customer's last paid prices are read while
+  // pricing. Empty here: these cases are about the catalog/carton rules, and the
+  // offer and price-change rules have their own tests.
+  salesAgentCustomerOffer: { findMany: async () => [] },
+  $queryRawUnsafe: async () => [],
 } } });
 mock.module("./warehouse-stock.service", { exports: { resolveShopWarehouseId: async () => id } });
 mock.module("./settings.service", { exports: { getSettings: async () => ({ catalogFullCartonOnly: false }) } });

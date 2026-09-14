@@ -40,6 +40,7 @@ function useCurrentPageLabel(): string {
   if (pathname.startsWith("/audit-logs")) return "سجل التدقيق"
   if (pathname.startsWith("/branches")) return "الفروع"
   if (pathname.startsWith("/coupons")) return "الكوبونات"
+  if (pathname.startsWith("/customer-offers")) return "عروض الزبائن"
   return "مخزوني"
 }
 

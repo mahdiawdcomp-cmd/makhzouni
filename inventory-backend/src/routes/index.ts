@@ -4,6 +4,7 @@ import agentRoutes from "./agent.routes";
 // «المندوب» — the sales rep. Unrelated to agentRoutes above (the AI assistant).
 import salesAgentRoutes from "./sales-agent.routes";
 import salesAgentAdminRoutes from "./sales-agent-admin.routes";
+import customerOffersRoutes from "./customer-offers.routes";
 import auditLogsRoutes from "./audit-logs.routes";
 import branchesRoutes from "./branches.routes";
 import authRoutes from "./auth.routes";
@@ -60,6 +61,7 @@ router.use("/realtime", realtimeRoutes);
 router.use("/agent", agentRoutes);
 router.use("/sales-agent", salesAgentRoutes);
 router.use("/sales-agent-admin", salesAgentAdminRoutes);
+router.use("/customer-offers", customerOffersRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", usersRoutes);
 router.use("/approvals", approvalsRoutes);

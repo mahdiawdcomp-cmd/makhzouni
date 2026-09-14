@@ -49,7 +49,14 @@ import { cn } from "../utils/cn"
 import { useAuthStore } from "../store/authStore"
 import { piecesPerUnit as sharedPiecesPerUnit } from "../utils/units"
 import { agentDefaultUnit, agentWholesaleUnits, stableThumbnailBatches } from "../utils/salesAgentCatalog"
-import { cartonEligible, cleanAgentLines, draftKey, EMPTY_DRAFT, isDefinitiveOrderRejection, mergeAgentDrafts, readAgentWorkspace, workspaceKey, type AgentDraft, type AgentMode, type AgentWorkspace, type OrderPayload } from "../utils/salesAgentDrafts"
+import { cartonEligible, cleanAgentLines, draftKey, EMPTY_DRAFT, isDefinitiveOrderRejection, mergeAgentDrafts, pendingAttempts, readAgentWorkspace, workspaceKey, type AgentDraft, type AgentMode, type AgentWorkspace, type OrderPayload, type PendingMeta } from "../utils/salesAgentDrafts"
+import { AgentDialog, AgentEmptyState, AgentField, AgentLoading, AgentStatusPill } from "./sales-agent/shared"
+import { UNIT_LABEL, money, shortDate } from "./sales-agent/format"
+import { CustomerInsights } from "./sales-agent/CustomerInsights"
+import { OrderReviewDialog } from "./sales-agent/OrderReviewDialog"
+import { PendingOrdersScreen } from "./sales-agent/PendingOrdersScreen"
+import { VisitsScreen } from "./sales-agent/VisitsScreen"
+import type { FollowUpReason, OrderReview, SubmittedOrder } from "./sales-agent/types"
 
 /* ── types ───────────────────────────────────────────────────────────── */
 
@@ -84,6 +91,8 @@ type AgentCustomer = {
   lastSaleAt: string | null
   /** null = never bought anything, which reads differently from "quiet 40 days". */
   daysSinceLastSale: number | null
+  /** Present when the screen asked for reasons; server-worded. */
+  followUpReasons?: FollowUpReason[]
 }
 
 type CustomerPage = {
@@ -91,6 +100,8 @@ type CustomerPage = {
   page: number
   limit: number
   hasMore: boolean
+  /** The shop's own inactive-customer setting, so no screen invents a number. */
+  quietDays?: number
   customers: AgentCustomer[]
 }
 
@@ -218,13 +229,6 @@ type IssueReason = { code: string; label: string; aboutProduct: boolean }
  * page in the app already uses; this page just was not one of them.
  */
 
-const UNIT_LABEL: Record<Unit, string> = {
-  PIECE: "قطعة",
-  DOZEN: "دزينة",
-  BOX: "علبة",
-  CARTON: "كارتون",
-}
-
 function piecesPerUnit(product: AgentProduct, unit: Unit) {
   // Only these two fields matter to the conversion; passed explicitly so a
   // wider (or narrower) AgentProduct shape can never trip up the shared util.
@@ -244,8 +248,14 @@ function availableUnits(product: AgentProduct, mode: AgentMode = "WHOLESALE"): U
   return agentWholesaleUnits
 }
 
-const money = (n: number) => Math.round(n).toLocaleString("en-US")
-const shortDate = (d: string) => new Date(d).toLocaleDateString("en-GB")
+// One definition for the whole rep experience, including the new screens, in
+// `sales-agent/shared.tsx`. Aliased here so every existing call site is
+// untouched by the move.
+const Dialog = AgentDialog
+const Field = AgentField
+const EmptyState = AgentEmptyState
+const Loading = AgentLoading
+const StatusPill = AgentStatusPill
 
 /* ── data hooks ──────────────────────────────────────────────────────── */
 
@@ -262,12 +272,25 @@ function useAgentProducts() {
   })
 }
 
-function useMyCustomers(search: string, page: number, followUp = "") {
+function useMyCustomers(search: string, page: number, followUp = "", area = "", needsFollowUp = false) {
   return useQuery({
-    queryKey: ["sales-agent", "customers", search, page, followUp],
+    queryKey: ["sales-agent", "customers", search, page, followUp, area, needsFollowUp],
     queryFn: async () => {
       const res = await api.get<{ data: CustomerPage }>("/sales-agent/customers", {
-        params: { page, limit: 200, ...(search ? { search } : {}), ...(followUp ? { followUp } : {}) },
+        params: {
+          page,
+          limit: 200,
+          ...(search ? { search } : {}),
+          ...(followUp ? { followUp } : {}),
+          ...(area ? { area } : {}),
+          // Filtered in the database, not here: filtering a fetched page would
+          // hide customers who need following up on a later page and make
+          // `total` describe a list the screen does not show.
+          ...(needsFollowUp ? { needsFollowUp: true } : {}),
+          // The follow-up reasons for this page. A fixed number of extra reads
+          // regardless of page size, computed on the server.
+          withReasons: true,
+        },
       })
       return res.data.data
     },
@@ -317,13 +340,14 @@ function useThumbnails(allIds: string[], visibleIds: string[]) {
 
 /* ── page ────────────────────────────────────────────────────────────── */
 
-type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail" | "issues"
+type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail" | "issues" | "visits" | "pending"
 
 const CARTS_KEY = "sales_agent_carts"
 
 const TABS: Array<{ key: Screen; label: string }> = [
   { key: "catalog", label: "الكتلوك" },
   { key: "customers", label: "زبائني" },
+  { key: "visits", label: "زياراتي" },
   { key: "money", label: "فلوسي" },
   { key: "issues", label: "المشاكل" },
   { key: "orders", label: "طلباتي" },
@@ -334,7 +358,9 @@ export function SalesAgentPage() {
   return <SalesAgentWorkspace key={user?.id} />
 }
 
-type OrderReview = { reviewToken: string; customerName: string; subtotal: number; items: Array<CartLine & { productName: string; unitPrice: number; totalPrice: number; availableStock: number }>; shortages: Array<{ productName: string; short: number }> }
+// `OrderReview` now lives in `sales-agent/types.ts`: the review dialog and this
+// page must agree about it field for field, and the server sends more than the
+// old local shape described (offers, price-change notes, the customer balance).
 
 function SalesAgentWorkspace() {
   const user = useAuthStore((s) => s.user)
@@ -347,11 +373,23 @@ function SalesAgentWorkspace() {
   })
   const [storageFailed, setStorageFailed] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
+  /**
+   * Set when the connection returns. NOTHING is sent automatically: prices and
+   * stock may have moved during the outage, so the rep is told there is an
+   * attempt waiting and re-checks it themselves — with the same key.
+   */
+  const [reconnected, setReconnected] = useState(false)
   useEffect(() => {
     const update = () => setOnline(navigator.onLine)
+    const onBack = () => setReconnected(true)
+    window.addEventListener("online", onBack)
     window.addEventListener("online", update)
     window.addEventListener("offline", update)
-    return () => { window.removeEventListener("online", update); window.removeEventListener("offline", update) }
+    return () => {
+      window.removeEventListener("online", onBack)
+      window.removeEventListener("online", update)
+      window.removeEventListener("offline", update)
+    }
   }, [])
   // Commit synchronously before network writes so a lost response can be retried after reload.
   const persist = (next: AgentWorkspace) => {
@@ -402,6 +440,26 @@ function SalesAgentWorkspace() {
 
   const products = useAgentProducts()
   const header = useCustomerHeader(customerId)
+  // The per-tenant area list, shared with the visits screen and the new-customer
+  // form so both offer exactly the same neighbourhoods.
+  const areas = useQuery({
+    queryKey: ["sales-agent", "areas"],
+    queryFn: async () => (await api.get<{ data: string[] }>("/sales-agent/areas")).data.data ?? [],
+    staleTime: 10 * 60 * 1000,
+    retry: 3,
+  })
+
+  /**
+   * Every unconfirmed attempt on this device, for «الطلبات المعلّقة».
+   *
+   * Derived from the one workspace the carts already live in, so the queue and
+   * the carts can never disagree about what was sent.
+   */
+  const pendingRows = useMemo(
+    () => pendingAttempts(workspace).map((row) => ({ ...row, hasPayload: Boolean(row.payload) })),
+    [workspace],
+  )
+  const unresolvedCount = pendingRows.filter((row) => row.hasPayload && !row.meta?.settled).length
 
   const usablePrices = useQuery({
     queryKey: ["sales-agent", "usable-prices", customerId],
@@ -465,10 +523,19 @@ function SalesAgentWorkspace() {
     networkMode: "always",
     mutationFn: async (payload: OrderPayload) => {
       const res = await api.post("/sales-agent/orders", payload)
-      return res.data as { data?: { shortages?: Array<{ productName: string; short: number }> } }
+      return res.data as { data?: SubmittedOrder }
     },
     onSuccess: (res, payload) => {
       const short = res?.data?.shortages ?? []
+      // The server links a sent order to an OPEN visit for that same customer.
+      // Telling the rep here is what makes «أخذ طلب» a fact rather than a label
+      // they pick by hand.
+      if (res?.data?.linkedVisitId) {
+        void qc.invalidateQueries({ queryKey: ["sales-agent", "visit-plan"] })
+        void qc.invalidateQueries({ queryKey: ["sales-agent", "visits-today"] })
+        void qc.invalidateQueries({ queryKey: ["sales-agent", "visit-customers"] })
+        toast({ title: "انربط الطلب بالزيارة المفتوحة", description: "أنهِ الزيارة بنتيجة «أخذ طلب» من «زياراتي»" })
+      }
       toast({
         title: "انرسل الطلب ✓",
         // A shortage does not block the sale, but the rep should know the shop
@@ -478,7 +545,11 @@ function SalesAgentWorkspace() {
             ? `انتبه: ${short.map((x) => x.productName).join("، ")} — الكمية ناقصة بالمخزن`
             : "راح يوصلك إشعار بعد الموافقة",
       })
+      // Only the draft of THIS order is cleared, and only now that the server
+      // has confirmed it — including its pending marker and the reason text
+      // that went with it. Other customers' drafts are untouched.
       persist({ ...workspace, drafts: { ...workspace.drafts, [draftKey(payload.priceMode, payload.customerId)]: { items: [], notes: "" } } })
+      setReconnected(false)
       setReview(null)
       setCartOpen(false)
       void qc.invalidateQueries({ queryKey: ["sales-agent", "orders"] })
@@ -490,14 +561,22 @@ function SalesAgentWorkspace() {
     onError: (err) => {
       const status = (err as { response?: { status: number } }).response?.status
       const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code
+      const reason = apiErrorMessage(err, "ما وصل تأكيد من السيرفر — تحقق من الاتصال")
+      const meta = draft.pendingMeta
       if (isDefinitiveOrderRejection(code)) {
-        updateDraft({ ...draft, pending: undefined })
+        // A definitive answer ends the attempt: the payload goes, so nothing
+        // re-sends it, while the reason stays on screen until the rep acts.
+        updateDraft({ ...draft, pending: undefined, pendingMeta: meta ? { ...meta, reason, settled: true } : undefined })
         setReview(null)
         void products.refetch()
+      } else if (meta) {
+        // Network, gateway and auth failures prove nothing about whether the
+        // order landed, so the attempt and its key are kept for a safe re-check.
+        updateDraft({ ...draft, pendingMeta: { ...meta, reason, settled: false } })
       }
       toast({
         title: status && status < 500 ? "تعذر إرسال الطلب" : "لم يصل تأكيد — المسودة محفوظة",
-        description: apiErrorMessage(err, "تحقق من الاتصال وحاول مرة أخرى"),
+        description: reason,
         variant: "destructive",
       })
     },
@@ -508,7 +587,20 @@ function SalesAgentWorkspace() {
     if (submitLock.current || !online || !customerId || (!review && !draft.pending)) return
     submitLock.current = true
     const payload: OrderPayload = draft.pending ?? { customerId, priceMode: mode, notes: notes.trim() || undefined, clientRequestId: crypto.randomUUID(), items: cart, reviewToken: review!.reviewToken }
-    if (!updateDraft({ ...draft, pending: payload })) {
+    // A re-check keeps the ORIGINAL attempt's key and its creation time; only
+    // the counter and the timestamp move. That is what makes «إعادة المحاولة»
+    // a re-check of one order instead of a second order.
+    const at = Date.now()
+    const meta: PendingMeta = draft.pendingMeta
+      ? { ...draft.pendingMeta, lastAttemptAt: at, attempts: draft.pendingMeta.attempts + 1, reason: undefined, settled: false }
+      : {
+          createdAt: at,
+          lastAttemptAt: at,
+          attempts: 1,
+          subtotal: review?.subtotal ?? cartTotal,
+          customerName: review?.customerName ?? header.data?.name,
+        }
+    if (!updateDraft({ ...draft, pending: payload, pendingMeta: meta })) {
       submitLock.current = false
       toast({ title: "تعذر حفظ محاولة الإرسال؛ حرّر مساحة بالجهاز وأعد المحاولة", variant: "destructive" })
       return
@@ -539,6 +631,51 @@ function SalesAgentWorkspace() {
     if (!customerId) { setCartOpen(false); setScreen("customers"); toast({ title: "اختَر زبون الطلب أو أضف زبون جديد" }); return }
     if (!online) { toast({ title: "ماكو اتصال؛ الطلب مسودة وغير مُرسل" }); return }
     prepareReview()
+  }
+
+  /**
+   * Re-check ONE pending attempt with its original key.
+   *
+   * When the attempt belongs to another customer or price mode, the workspace
+   * is brought to it first and the rep taps again: the confirm path — and any
+   * error it writes back — must act on the draft currently in hand, not on a
+   * stale one from the previous render.
+   */
+  const recheckPending = async (key: string) => {
+    const row = pendingRows.find((r) => r.key === key)
+    if (!row?.payload) return
+    if (row.mode !== mode || row.customerId !== customerId) {
+      persist({ ...workspace, mode: row.mode, customerId: row.customerId })
+      toast({ title: "فتحنا هذا الطلب — اضغط «إعادة التحقق» مرة ثانية" })
+      return
+    }
+    await confirmOrder()
+  }
+
+  /** Open a settled attempt's items back in the cart for editing. */
+  const openPendingDraft = (key: string) => {
+    const row = pendingRows.find((r) => r.key === key)
+    if (!row) return
+    const target = workspace.drafts[key]
+    if (target?.pending) {
+      toast({ title: "تحقق من حالة الإرسال أولاً قبل التعديل" })
+      return
+    }
+    persist({
+      ...workspace,
+      mode: row.mode,
+      customerId: row.customerId,
+      // The reason has been read now that the rep is acting on it.
+      drafts: { ...workspace.drafts, [key]: { ...(target ?? EMPTY_DRAFT), pendingMeta: undefined } },
+    })
+    setScreen("catalog")
+    setCartOpen(true)
+  }
+
+  /** Local only — this cannot cancel an order that did reach the shop. */
+  const discardPending = (key: string) => {
+    persist({ ...workspace, drafts: { ...workspace.drafts, [key]: { items: [], notes: "" } } })
+    toast({ title: "انحذفت المسودة من هذا الجهاز" })
   }
 
   const filtered = useMemo(() => {
@@ -625,12 +762,14 @@ function SalesAgentWorkspace() {
         </div>
 
         {/* Tab strip, identical to the customers/suppliers switch elsewhere. */}
-        {/* On a phone the five tabs overflowed by ~40px, so «طلباتي» sat half
-            off the edge with nothing to say the strip scrolled. Five equal
-            columns below sm: everything reachable with one thumb, no scrolling.
-            Wider screens keep the natural strip. */}
+        {/* On a phone the tabs overflowed the edge with nothing to say the
+            strip scrolled. Equal columns below sm: everything reachable with one
+            thumb, no scrolling. THREE columns, not one per tab — with «زياراتي»
+            added, six columns on a 390px screen squeezed each label to ~60px
+            and the last one wrapped onto a line of its own. Two rows of three
+            stay legible at 44px tall. Wider screens keep the natural strip. */}
         <div
-          className="mt-3 -mb-3 grid grid-cols-5 border-b sm:flex sm:overflow-x-auto"
+          className="mt-3 -mb-3 grid grid-cols-3 border-b sm:flex sm:overflow-x-auto"
           style={{ borderColor: "var(--theme-cardBorder)" }}
         >
           {TABS.map((t) => (
@@ -660,13 +799,47 @@ function SalesAgentWorkspace() {
       <div className={cn("shrink-0 px-4 py-2 text-xs", !online || storageFailed || draft.pending ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800")} role="status">
         {storageFailed ? "تعذر الحفظ بالجهاز؛ لا تغلق الصفحة قبل تأكيد الطلب" : draft.pending ? "بانتظار تأكيد الطلب — لا تنشئ طلباً آخر؛ أعد التحقق بنفس المحاولة" : !online ? "بدون اتصال — السلة مسودة محفوظة، لم تُرسل" : "السلة والملاحظات محفوظة بهذا الجهاز — غير مُرسلة حتى التأكيد"}
         {draft.pending && <Button className="ms-3 h-11" disabled={!online || submit.isPending} onClick={() => void confirmOrder()}>تحقق من إرسال الطلب</Button>}
+        {/* Every unconfirmed attempt on this device, including other customers'
+            — the rep must be able to find them without guessing which customer
+            they were on when the connection dropped. */}
+        {pendingRows.length > 0 && (
+          <Button className="ms-3 h-11" variant="outline" onClick={() => setScreen("pending")}>
+            الطلبات المعلّقة
+            {unresolvedCount > 0 && (
+              <span className="ms-1.5 rounded-full bg-amber-200 px-1.5 py-0.5 text-[11px] font-bold text-amber-900">
+                {unresolvedCount}
+              </span>
+            )}
+          </Button>
+        )}
       </div>
+      {/* The connection came back and an attempt is still unconfirmed. The rep
+          decides when to re-check: an automatic send would use prices and stock
+          from before the outage. */}
+      {reconnected && online && unresolvedCount > 0 && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 bg-amber-50 p-3 text-sm text-amber-900">
+          <span>رجع الإنترنت، وعندك {unresolvedCount} طلب معلق يحتاج مراجعة قبل الإرسال.</span>
+          <Button
+            className="h-11"
+            onClick={() => {
+              setReconnected(false)
+              setScreen("pending")
+            }}
+          >
+            راجع الطلبات المعلّقة
+          </Button>
+          <Button className="h-11" variant="outline" onClick={() => setReconnected(false)}>
+            لاحقاً
+          </Button>
+        </div>
+      )}
       {(headerStatus === 404 || headerStatus === 403) && <div role="alert" className="bg-red-50 p-3 text-red-800">الزبون المختار لم يعد ضمن زبائنك. السلة محفوظة؛ اختَر زبوناً آخر قبل الإرسال.</div>}
       <div className="flex min-h-0 flex-1">
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
           {screen === "customers" && (
             <CustomersScreen
               currentId={customerId}
+              areas={areas.data ?? []}
               onPick={pickCustomer}
               canCreate={can("NEW_CUSTOMER")}
               onNew={() => setScreen("new-customer")}
@@ -689,6 +862,32 @@ function SalesAgentWorkspace() {
 
           {screen === "orders" && <OrdersScreen />}
           {screen === "issues" && <MyIssuesScreen />}
+
+          {screen === "visits" && (
+            <VisitsScreen
+              areas={areas.data ?? []}
+              onOpenCustomer={(id) => { setDetailCustomerId(id); setScreen("customer-detail") }}
+              onStartOrder={(id) => pickCustomer(id)}
+            />
+          )}
+
+          {screen === "pending" && (
+            <PendingOrdersScreen
+              rows={pendingRows}
+              online={online}
+              busyKey={submit.isPending ? activeKey : null}
+              customerName={(id) => {
+                if (!id) return "بدون زبون (سلة مؤقتة)"
+                if (id === customerId) return header.data?.name ?? "زبون"
+                return workspace.drafts[draftKey(mode, id)]?.pendingMeta?.customerName
+                  ?? pendingRows.find((row) => row.customerId === id)?.meta?.customerName
+                  ?? "زبون"
+              }}
+              onRecheck={(row) => { void recheckPending(row.key) }}
+              onEdit={(row) => { void openPendingDraft(row.key) }}
+              onDiscard={(row) => discardPending(row.key)}
+            />
+          )}
 
           {screen === "money" && (
             <MoneyScreen
@@ -734,6 +933,18 @@ function SalesAgentWorkspace() {
                 <Button className="h-11" variant={catalogFilter === "new" ? "default" : "outline"} onClick={() => setCatalogFilter(catalogFilter === "new" ? "" : "new")}>الجديد</Button>
                 <Button className="h-11" variant={catalogFilter === "offer" ? "default" : "outline"} onClick={() => setCatalogFilter(catalogFilter === "offer" ? "" : "offer")}>العروض</Button>
               </div>
+              {/* «يشتريها عادةً» + «عروضه»: the reason the rep picked this
+                  customer, above the grid rather than buried in a menu. */}
+              <CustomerInsights
+                customerId={customerId}
+                mode={mode}
+                disabled={Boolean(draft.pending)}
+                onAdd={(productId, unit, quantity) => {
+                  const product = productById.get(productId)
+                  if (!product) { toast({ title: "المادة ما عادت متاحة؛ حدّث الكتلوك" }); return }
+                  addToCart(product, unit, quantity)
+                }}
+              />
               <CatalogScreen
                 allProductIds={(products.data ?? []).map(p => p.id)}
                 mode={mode}
@@ -849,20 +1060,20 @@ function SalesAgentWorkspace() {
         </div>
       </Dialog>}
 
-      {review && <Dialog title="راجع الطلب قبل الإرسال" onClose={() => { if (!submit.isPending) setReview(null) }} footer={
-        <Button className="h-12 w-full" disabled={submit.isPending || !online} onClick={() => void confirmOrder()}>{submit.isPending ? "بانتظار تأكيد السيرفر…" : draft.pending ? "تحقق من الطلب بنفس المحاولة" : "تأكيد وإرسال الطلب"}</Button>
-      }>
-        <p className="text-lg font-bold">{review.customerName}</p>
-        <p className="mb-4 text-sm text-slate-500">{mode === "CARTON" ? "توزيع كراتين" : "جملة"} · الطلب يُرسل للموافقة، مو فاتورة نهائية</p>
-        {reviewChanged && <p role="alert" className="mb-3 rounded-xl bg-amber-50 p-3 text-amber-900">تغيّر السعر أو المتوفر عن العرض السابق؛ راجع القيم المحدّثة أدناه.</p>}
-        <ul className="space-y-3">{review.items.map((item, i) => <li key={i} className="rounded-xl border p-3">
-          <p className="font-semibold">{item.productName}</p>
-          <p className="mt-1 text-sm">{item.quantity} {UNIT_LABEL[item.unit]} × {money(item.unitPrice)} = {money(item.totalPrice)}</p>
-        </li>)}</ul>
-        {review.shortages.length > 0 && <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">نقص مخزون، سيظهر للمالك: {review.shortages.map(s => `${s.productName}: ${s.short} قطعة`).join("، ")}</div>}
-        {notes && <p className="mt-3 whitespace-pre-wrap text-sm">الملاحظة: {notes}</p>}
-        <p className="mt-5 text-xl font-bold">المجموع: {money(review.subtotal)}</p>
-      </Dialog>}
+      {review && (
+        <OrderReviewDialog
+          review={review}
+          mode={mode}
+          notes={notes}
+          online={online}
+          sending={submit.isPending}
+          isRetry={Boolean(draft.pending)}
+          reviewChanged={reviewChanged}
+          knownStock={(productId) => productById.get(productId)?.currentStock ?? null}
+          onClose={() => { if (!submit.isPending) setReview(null) }}
+          onConfirm={() => void confirmOrder()}
+        />
+      )}
 
       {issueFor && customerId && (
         <IssueDialog
@@ -896,146 +1107,6 @@ function SalesAgentWorkspace() {
 }
 
 /* ── shared shells ───────────────────────────────────────────────────── */
-
-const dialogStack: object[] = []
-
-/**
- * Centred dialog, matching the site's modal shape.
- *
- * Full-height on a phone so a long form is usable one-handed, centred and
- * bounded on a tablet. Backdrop click and Escape both close it.
- */
-function Dialog({
-  title,
-  onClose,
-  children,
-  footer,
-  padded = true,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-  footer?: React.ReactNode
-  padded?: boolean
-}) {
-  /**
-   * Escape closes the TOP dialog only.
-   *
-   * «أكو مشكلة» opens on top of the product dialog, and one Escape used to
-   * close both — the rep backing out of the note also lost the quantity they
-   * had set. Each dialog takes a place in this stack and only the last one
-   * listens.
-   */
-  useEffect(() => {
-    const token = {}
-    dialogStack.push(token)
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return
-      if (dialogStack[dialogStack.length - 1] !== token) return
-      onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => {
-      window.removeEventListener("keydown", onKey)
-      const i = dialogStack.indexOf(token)
-      if (i >= 0) dialogStack.splice(i, 1)
-    }
-  }, [onClose])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
-      <button
-        type="button"
-        aria-label="إغلاق"
-        onClick={onClose}
-        className="absolute inset-0 cursor-pointer bg-slate-900/40"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="relative flex max-h-[92dvh] w-full min-h-0 flex-col rounded-t-xl border sm:max-h-[85dvh] sm:max-w-lg sm:rounded-xl"
-        style={{
-          backgroundColor: "var(--theme-cardBg)",
-          borderColor: "var(--theme-cardBorder)",
-          boxShadow: "var(--z-shadow-lg)",
-        }}
-      >
-        <div
-          className="flex shrink-0 items-center justify-between border-b px-5 py-4"
-          style={{ borderColor: "var(--theme-cardBorder)" }}
-        >
-          <h3 className="truncate text-[15px] font-semibold tracking-tight">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="إغلاق"
-            className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto", padded && "p-5")}>
-          {children}
-        </div>
-
-        {footer && (
-          <div
-            className="shrink-0 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
-            style={{ borderColor: "var(--theme-cardBorder)" }}
-          >
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-[13px] font-medium text-slate-600 dark:text-slate-300">
-        {label}
-      </span>
-      {children}
-    </label>
-  )
-}
-
-function EmptyState({
-  title,
-  body,
-  actionLabel,
-  onAction,
-}: {
-  title: string
-  body: string
-  actionLabel: string
-  onAction: () => void
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-        <div className="grid h-12 w-12 place-items-center rounded-lg bg-[var(--theme-accentSoft)] text-[var(--theme-accent)]">
-          <Users className="h-6 w-6" />
-        </div>
-        <h3 className="text-[15px] font-semibold">{title}</h3>
-        <p className="max-w-sm text-sm text-slate-500">{body}</p>
-        <Button className="mt-1" onClick={onAction}>
-          {actionLabel}
-        </Button>
-      </CardContent>
-    </Card>
-  )
-}
 
 // TanStack pauses a retry when the browser reports itself offline or the tab
 // loses focus: the query stays `pending` with `fetchStatus: "paused"` and
@@ -1088,25 +1159,6 @@ function wholeUnits(value: string, max = 100_000) {
   return Math.min(n, max)
 }
 
-function Loading({ label = "جاري التحميل…" }: { label?: string }) {
-  return (
-    <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
-      <Loader2 className="h-4 w-4 animate-spin" />
-      {label}
-    </div>
-  )
-}
-
-/** Status pill, using the site's status colours. */
-function StatusPill({ tone, children }: { tone: "ok" | "wait" | "bad" | "muted"; children: React.ReactNode }) {
-  const cls = {
-    ok: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-    wait: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-    bad: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300",
-    muted: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-  }[tone]
-  return <span className={cn("rounded px-2 py-0.5 text-[12px] font-medium", cls)}>{children}</span>
-}
 
 /* ── catalog ─────────────────────────────────────────────────────────── */
 
@@ -1532,15 +1584,82 @@ function CartPanel({
 
 /* ── customers ───────────────────────────────────────────────────────── */
 
+/**
+ * The reasons this customer needs following up, as the server stated them.
+ *
+ * Wording comes from the server so «عليه رصيد» cannot quietly become «متأخر
+ * بالدفع» on one screen: no due date is recorded anywhere in this system, so
+ * nothing may claim a payment is late.
+ */
+function FollowUpReasons({ reasons }: { reasons?: FollowUpReason[] }) {
+  if (!reasons || reasons.length === 0) return null
+  const tone = (code: FollowUpReason["code"]) =>
+    code === "ORDER_REJECTED" ? "bad" : code === "OFFER_ENDING" ? "ok" : "wait"
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {reasons.map((reason) => (
+        <StatusPill key={reason.code} tone={tone(reason.code)}>
+          {reason.label}
+          {reason.detail ? ` · ${reason.detail}` : ""}
+        </StatusPill>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Call, WhatsApp and open-on-the-map.
+ *
+ * Links only: nothing here sends a message by itself. The rep taps, their phone
+ * opens, and they decide what to say.
+ */
+function CustomerQuickActions({
+  phone,
+  name,
+  address,
+  inline = false,
+}: {
+  phone: string
+  name: string
+  address?: string | null
+  inline?: boolean
+}) {
+  const digits = phone.replace(/\D/g, "")
+  const wa = digits.replace(/^0/, "964")
+  const mapQuery = encodeURIComponent([name, address].filter(Boolean).join(" "))
+  return (
+    <div className={cn("flex flex-wrap gap-1.5", !inline && "mt-2")}>
+      <a href={`tel:${phone}`} className="inline-flex">
+        <Button size="sm" variant="outline" className="h-11">اتصال</Button>
+      </a>
+      <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" className="inline-flex">
+        <Button size="sm" variant="outline" className="h-11">واتساب</Button>
+      </a>
+      {(address || name) && (
+        <a
+          href={`https://www.google.com/maps/search/?api=1&query=${mapQuery}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex"
+        >
+          <Button size="sm" variant="outline" className="h-11">موقعه</Button>
+        </a>
+      )}
+    </div>
+  )
+}
+
 function CustomersScreen({
   canCreate,
   currentId,
+  areas,
   onPick,
   onNew,
   onOpenStatement,
 }: {
   canCreate: boolean
   currentId: string | null
+  areas: string[]
   onPick: (id: string) => void
   onNew: () => void
   onOpenStatement: (id: string) => void
@@ -1548,8 +1667,16 @@ function CustomersScreen({
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
   const [followUp, setFollowUp] = useState("")
-  const customers = useMyCustomers(search, page, followUp)
+  const [area, setArea] = useState("")
+  // «يحتاجون متابعة فقط» is a SERVER filter (`needsFollowUp`) applied before
+  // pagination: never bought, quiet past the shop's setting, positive balance,
+  // one of this rep's own pending/refused orders, or an offer about to end.
+  // It used to narrow the already-fetched page, which hid customers on later
+  // pages and left `total` describing a list the screen did not show.
+  const [onlyNeedy, setOnlyNeedy] = useState(false)
+  const customers = useMyCustomers(search, page, followUp, area, onlyNeedy)
   const rows = customers.data?.customers ?? []
+  const quietDays = customers.data?.quietDays ?? 30
   const pages = Math.max(1, Math.ceil((customers.data?.total ?? 0) / (customers.data?.limit || 200)))
 
   if (customers.error) {
@@ -1566,9 +1693,21 @@ function CustomersScreen({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-2" aria-label="زبائن يحتاجون متابعة">
-          {[["", "كل زبائني"], ["quiet", "متابعة: 30 يوم بلا شراء"], ["balance", "عليهم مبالغ"], ["never", "ما اشتروا بعد"]].map(([value, label]) => <Button key={value} className="h-11" variant={followUp === value ? "default" : "outline"} onClick={() => { setFollowUp(value); setPage(1) }}>{label}</Button>)}
+          {([["", "كل زبائني"], ["quiet", `ما اشترى من ${quietDays} يوم`], ["balance", "عليهم رصيد"], ["never", "ما اشتروا بعد"]] as const).map(([value, label]) => <Button key={value} className="h-11" variant={followUp === value ? "default" : "outline"} onClick={() => { setFollowUp(value); setPage(1) }}>{label}</Button>)}
+          <Button className="h-11" variant={onlyNeedy ? "default" : "outline"} onClick={() => { setOnlyNeedy(v => !v); setPage(1) }}>يحتاجون متابعة فقط</Button>
         </div>
+        {areas.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label="فلترة حسب المنطقة">
+            {[["", "كل المناطق"], ...areas.map(a => [a, a] as const)].map(([value, label]) => (
+              <Button key={String(value)} className="h-11" variant={area === value ? "default" : "outline"} onClick={() => { setArea(String(value)); setPage(1) }}>{label}</Button>
+            ))}
+          </div>
+        )}
+        {/* «مدة عدم الشراء» is the shop's own `inactiveCustomerDays` setting, not
+            a number typed into this screen. */}
+        {followUp === "quiet" && <p className="text-xs text-slate-500">المدة من إعدادات المحل ({quietDays} يوم)، مو رقم ثابت بالشاشة.</p>}
         {followUp === "balance" && <p className="text-xs text-slate-500">أرصدة موجبة على الزبائن؛ ليست بالضرورة ديوناً متأخرة عن موعد استحقاق.</p>}
+        {onlyNeedy && <p className="text-xs text-slate-500">الفلترة من السيرفر قبل تقسيم الصفحات — العدد والترقيم يعكسان النتائج المفلترة، والأسباب معروضة بجانب كل زبون.</p>}
         <Input
           value={search}
           onChange={(e) => {
@@ -1595,7 +1734,7 @@ function CustomersScreen({
                 the table below it, just not forced into a horizontal scroll. */}
             <ul className="space-y-2 sm:hidden">
               {rows.map((c) => {
-                const quiet = c.daysSinceLastSale != null && c.daysSinceLastSale >= 30
+                const quiet = c.daysSinceLastSale != null && c.daysSinceLastSale >= quietDays
                 return (
                   <li
                     key={c.id}
@@ -1631,6 +1770,10 @@ function CustomersScreen({
                       ) : null}
                     </div>
 
+                    {/* WHY this customer needs a call, next to their name — a
+                        bare list of names tells the rep nothing. */}
+                    <FollowUpReasons reasons={c.followUpReasons} />
+
                     <div className="mt-3 flex gap-2">
                       <Button className="h-11 flex-1" onClick={() => onPick(c.id)}>
                         بيع
@@ -1643,6 +1786,7 @@ function CustomersScreen({
                         <Receipt className="h-4 w-4" /> كشف الحساب
                       </Button>
                     </div>
+                    <CustomerQuickActions phone={c.phone} name={c.name} address={c.address} />
                   </li>
                 )
               })}
@@ -1661,7 +1805,7 @@ function CustomersScreen({
             </THead>
             <TBody>
               {rows.map((c) => {
-                const quiet = c.daysSinceLastSale != null && c.daysSinceLastSale >= 30
+                const quiet = c.daysSinceLastSale != null && c.daysSinceLastSale >= quietDays
                 return (
                   <TR key={c.id} className={c.id === currentId ? "bg-[var(--theme-accentSoft)]" : ""}>
                     <TD>
@@ -1672,6 +1816,7 @@ function CustomersScreen({
                         )}
                       </div>
                       {c.area && <span className="text-[12px] text-slate-500">{c.area}</span>}
+                      <FollowUpReasons reasons={c.followUpReasons} />
                     </TD>
                     <TD>
                       <span className="tabular-nums" dir="ltr">{c.phone}</span>
@@ -1706,6 +1851,7 @@ function CustomersScreen({
                         >
                           <Receipt className="h-3.5 w-3.5" /> كشف
                         </Button>
+                        <CustomerQuickActions phone={c.phone} name={c.name} address={c.address} inline />
                       </div>
                     </TD>
                   </TR>

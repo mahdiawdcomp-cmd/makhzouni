@@ -70,6 +70,16 @@ export function isSalesAgent(user: Express.User | undefined) {
  * exactly as before. A default-off design would have silently disabled every
  * existing rep on deploy.
  */
+/**
+ * «عروض خاصة بالزبون» — setting a standing price for one customer.
+ *
+ * An ALLOW permission, NOT one of the `AGENT_DENY` markers below: those are
+ * default-on by absence, and the power to decide what a customer pays must not
+ * be default-on for a rep. An ADMIN passes by role as usual, so this is what an
+ * owner grants a trusted rep or an office user.
+ */
+export const MANAGE_CUSTOMER_OFFERS = "MANAGE_CUSTOMER_OFFERS";
+
 export const AGENT_DENY = {
   NEW_CUSTOMER: "AGENT_NO_NEW_CUSTOMER",
   RECEIPT: "AGENT_NO_RECEIPT",

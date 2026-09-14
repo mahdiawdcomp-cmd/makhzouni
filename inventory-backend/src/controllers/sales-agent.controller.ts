@@ -33,6 +33,24 @@ import {
   lookupPhone,
   submitAgentOrder,
 } from "../services/sales-agent.service";
+import {
+  followUpReasonsFor,
+  frequentProductsForCustomer,
+  priceNotesForCustomer,
+} from "../services/sales-agent-insights.service";
+import {
+  PLAN_STATUSES,
+  VISIT_OUTCOMES,
+  addToVisitPlan,
+  endVisit,
+  listTodayVisits,
+  listVisitCustomers,
+  listVisitPlan,
+  setCustomerLocation,
+  startVisit,
+  updateVisitPlanEntry,
+} from "../services/sales-agent-visits.service";
+import { listCustomerOffers } from "../services/sales-agent-offers.service";
 
 function requireAgent(reqUser: Express.User | undefined) {
   if (!reqUser) throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
@@ -50,13 +68,204 @@ export const getMyCustomers = asyncHandler(async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
   const page = Number(req.query.page);
   const limit = Number(req.query.limit);
+  const result = await listMyCustomers(agent.id, search, {
+    page: Number.isFinite(page) ? page : undefined,
+    limit: Number.isFinite(limit) ? limit : undefined,
+    followUp: ["quiet", "balance", "never"].includes(String(req.query.followUp))
+      ? req.query.followUp as "quiet" | "balance" | "never" : undefined,
+    // «يحتاجون متابعة» — applied in the database before pagination, so `total`
+    // and `hasMore` describe the filtered list and nothing is hidden on a page
+    // the screen never fetched.
+    needsFollowUp: String(req.query.needsFollowUp) === "true",
+    area: typeof req.query.area === "string" && req.query.area.trim() ? req.query.area.trim() : undefined,
+  });
+
+  // «يحتاجون متابعة» — WHY each customer needs a call, not just a list of
+  // names. Computed for this page only, with a fixed number of extra reads
+  // regardless of page size, and only when the screen asks for it.
+  if (String(req.query.withReasons) === "true") {
+    const reasons = await followUpReasonsFor({
+      agentId: agent.id,
+      customers: result.customers.map((c) => ({
+        id: c.id,
+        currentBalance: c.currentBalance,
+        lastSaleAt: c.lastSaleAt,
+        daysSinceLastSale: c.daysSinceLastSale,
+      })),
+      quietDays: result.quietDays,
+    });
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        customers: result.customers.map((c) => ({ ...c, followUpReasons: reasons.get(c.id) ?? [] })),
+      },
+    });
+    return;
+  }
+
+  res.json({ success: true, data: result });
+});
+
+/** «يشتريها عادةً» — read-only, from real invoices, priced by the server. */
+export const getFrequentProducts = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const limit = Number(req.query.limit);
   res.json({
     success: true,
-    data: await listMyCustomers(agent.id, search, {
+    data: await frequentProductsForCustomer(agent.id, String(req.params.id), {
+      priceMode: req.query.priceMode,
+      limit: Number.isFinite(limit) ? limit : undefined,
+    }),
+  });
+});
+
+/**
+ * Today's price and the change against what this customer last paid, for the
+ * lines already in the cart. Information only — it never blocks a sale.
+ */
+export const postPriceNotes = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as { priceMode?: unknown; lines?: unknown };
+  const lines = Array.isArray(body.lines)
+    ? body.lines.map((line) => {
+        const row = (line ?? {}) as { productId?: unknown; unit?: unknown };
+        return { productId: String(row.productId ?? ""), unit: row.unit as Unit };
+      })
+    : [];
+  res.json({
+    success: true,
+    data: await priceNotesForCustomer(agent.id, String(req.params.id), { priceMode: body.priceMode, lines }),
+  });
+});
+
+/* ── visits ──────────────────────────────────────────────────────────── */
+
+export const getVisitCustomers = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const page = Number(req.query.page);
+  const limit = Number(req.query.limit);
+  res.json({
+    success: true,
+    data: await listVisitCustomers(agent.id, {
+      area: typeof req.query.area === "string" && req.query.area.trim() ? req.query.area.trim() : undefined,
+      search: typeof req.query.search === "string" ? req.query.search : undefined,
+      // The rep's position, used to sort this one response and never stored.
+      fromLat: req.query.lat,
+      fromLng: req.query.lng,
+      withCoordinatesOnly: String(req.query.withCoordinatesOnly) === "true",
       page: Number.isFinite(page) ? page : undefined,
       limit: Number.isFinite(limit) ? limit : undefined,
-      followUp: ["quiet", "balance", "never"].includes(String(req.query.followUp))
-        ? req.query.followUp as "quiet" | "balance" | "never" : undefined,
+    }),
+  });
+});
+
+export const getTodayVisits = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const date = typeof req.query.date === "string" ? req.query.date : undefined;
+  res.json({ success: true, data: await listTodayVisits(agent.id, date) });
+});
+
+export const getVisitOutcomes = asyncHandler(async (_req, res) => {
+  res.json({
+    success: true,
+    data: Object.entries(VISIT_OUTCOMES).map(([code, label]) => ({ code, label })),
+  });
+});
+
+export const postStartVisit = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as { customerId?: unknown; clientRequestId?: unknown; planId?: unknown };
+  const customerId = String(body.customerId ?? "");
+  if (!customerId) throw new AppError("الزبون مطلوب", 400, "CUSTOMER_REQUIRED");
+  const visit = await startVisit(agent.id, {
+    customerId,
+    clientRequestId: body.clientRequestId == null ? undefined : String(body.clientRequestId),
+    // Optional: starting from today's plan links the visit to that entry.
+    planId: body.planId == null ? undefined : String(body.planId),
+  });
+  res.status(visit.duplicate ? 200 : 201).json({ success: true, data: visit });
+});
+
+export const postEndVisit = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as { outcome?: unknown; note?: unknown };
+  res.json({
+    success: true,
+    data: await endVisit(agent.id, String(req.params.id), {
+      outcome: body.outcome,
+      note: body.note == null ? undefined : String(body.note),
+    }),
+  });
+});
+
+/** Pin the CUSTOMER's shop. The only location this feature ever writes. */
+export const putCustomerLocation = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as { latitude?: unknown; longitude?: unknown };
+  res.json({
+    success: true,
+    // The rep is scoped to their own customers; the change is written to the
+    // audit log with the previous and the new point.
+    data: await setCustomerLocation(agent, agent.id, String(req.params.id), {
+      latitude: body.latitude ?? null,
+      longitude: body.longitude ?? null,
+    }),
+  });
+});
+
+/* ── «خطة زيارات اليوم» ──────────────────────────────────────────────── */
+
+export const getMyVisitPlan = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const date = typeof req.query.date === "string" ? req.query.date : undefined;
+  res.json({ success: true, data: await listVisitPlan(agent.id, date) });
+});
+
+export const getPlanStatuses = asyncHandler(async (_req, res) => {
+  res.json({
+    success: true,
+    data: Object.entries(PLAN_STATUSES).map(([code, label]) => ({ code, label })),
+  });
+});
+
+/** A rep adding one of THEIR OWN customers to their own plan. */
+export const postMyVisitPlanEntry = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const customerId = String(body.customerId ?? "");
+  if (!customerId) throw new AppError("الزبون مطلوب", 400, "CUSTOMER_REQUIRED");
+  const created = await addToVisitPlan({ id: agent.id }, agent.id, {
+    customerId,
+    planDate: body.planDate == null ? undefined : String(body.planDate),
+    note: body.note == null ? undefined : String(body.note),
+    sortOrder: body.sortOrder == null ? undefined : Number(body.sortOrder),
+  });
+  res.status(201).json({ success: true, message: "انضاف للخطة", data: created });
+});
+
+export const patchMyVisitPlanEntry = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  res.json({
+    success: true,
+    data: await updateVisitPlanEntry(agent.id, String(req.params.id), {
+      status: body.status,
+      note: body.note == null ? undefined : String(body.note),
+      sortOrder: body.sortOrder == null ? undefined : Number(body.sortOrder),
+    }),
+  });
+});
+
+/** The rep's read-only view of their own customer's standing offers. */
+export const getCustomerOffers = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({
+    success: true,
+    data: await listCustomerOffers({
+      agentScope: agent.id,
+      customerId: String(req.params.id),
+      liveOnly: String(req.query.liveOnly ?? "true") === "true",
     }),
   });
 });

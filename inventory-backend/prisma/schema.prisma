@@ -313,57 +313,62 @@ model StockLossItem {
 }
 
 model User {
-  id                        String                   @id @default(uuid()) @db.Uuid
+  id                        String                    @id @default(uuid()) @db.Uuid
   name                      String
-  username                  String                   @unique
-  passwordHash              String                   @map("password_hash")
+  username                  String                    @unique
+  passwordHash              String                    @map("password_hash")
   // Bumped on password change and on explicit logout. Every issued JWT carries
   // the value it was signed with; authMiddleware rejects a token whose version
   // is stale, so changing the password actually revokes existing sessions.
-  tokenVersion              Int                      @default(0) @map("token_version")
-  role                      UserRole                 @default(STAFF)
+  tokenVersion              Int                       @default(0) @map("token_version")
+  role                      UserRole                  @default(STAFF)
   // Free-form capability strings (see frontend UserPermission union). Also carries
   // DENY markers such as "HIDE_PROFIT_REPORTS" which revoke a capability even from an
   // ADMIN — see canViewProfitReports() in permission.middleware.ts. No migration is
   // needed to introduce new markers; this is intentionally an open String[].
-  permissions               String[]                 @default([])
+  permissions               String[]                  @default([])
   phone                     String?
-  isActive                  Boolean                  @default(true) @map("is_active")
-  createdAt                 DateTime                 @default(now()) @map("created_at")
-  updatedAt                 DateTime                 @updatedAt @map("updated_at")
-  products                  Product[]                @relation("ProductCreatedBy")
-  invoices                  Invoice[]                @relation("InvoiceCreatedBy")
-  paymentVouchers           PaymentVoucher[]         @relation("PaymentVoucherCreatedBy")
-  coupons                   Coupon[]                 @relation("CouponCreatedBy")
-  quotations                Quotation[]              @relation("QuotationCreatedBy")
-  requestedApprovals        PendingApproval[]        @relation("ApprovalRequestedBy")
-  reviewedApprovals         PendingApproval[]        @relation("ApprovalReviewedBy")
+  isActive                  Boolean                   @default(true) @map("is_active")
+  createdAt                 DateTime                  @default(now()) @map("created_at")
+  updatedAt                 DateTime                  @updatedAt @map("updated_at")
+  products                  Product[]                 @relation("ProductCreatedBy")
+  invoices                  Invoice[]                 @relation("InvoiceCreatedBy")
+  paymentVouchers           PaymentVoucher[]          @relation("PaymentVoucherCreatedBy")
+  coupons                   Coupon[]                  @relation("CouponCreatedBy")
+  quotations                Quotation[]               @relation("QuotationCreatedBy")
+  requestedApprovals        PendingApproval[]         @relation("ApprovalRequestedBy")
+  reviewedApprovals         PendingApproval[]         @relation("ApprovalReviewedBy")
   auditLogs                 AuditLog[]
   branches                  Branch[]
-  createdTransfers          InventoryTransfer[]      @relation("TransferCreatedBy")
-  preparedOrders            OrderPreparation[]       @relation("PreparedByUser")
+  createdTransfers          InventoryTransfer[]       @relation("TransferCreatedBy")
+  preparedOrders            OrderPreparation[]        @relation("PreparedByUser")
   stocktakeSessions         StocktakeSession[]
-  stockLosses               StockLoss[]              @relation("StockLossCreatedBy")
-  landedCostBatchesCreated  LandedCostImportBatch[]  @relation("LandedCostBatchCreatedBy")
-  landedCostBatchesApplied  LandedCostImportBatch[]  @relation("LandedCostBatchAppliedBy")
-  cycleCountSessionsCreated CycleCountSession[]      @relation("CycleCountSessionCreatedBy")
-  cycleCountItemsApproved   CycleCountItem[]         @relation("CycleCountItemApprovedBy")
+  stockLosses               StockLoss[]               @relation("StockLossCreatedBy")
+  landedCostBatchesCreated  LandedCostImportBatch[]   @relation("LandedCostBatchCreatedBy")
+  landedCostBatchesApplied  LandedCostImportBatch[]   @relation("LandedCostBatchAppliedBy")
+  cycleCountSessionsCreated CycleCountSession[]       @relation("CycleCountSessionCreatedBy")
+  cycleCountItemsApproved   CycleCountItem[]          @relation("CycleCountItemApprovedBy")
   personalDebtsCreated      PersonalDebt[]
-  countLinksCreated         InvoiceCountLink[]       @relation("InvoiceCountLinkCreatedBy")
-  countRefundsAcked         InvoiceCountLink[]       @relation("InvoiceCountLinkRefundAckBy")
-  invoiceEditLocks          InvoiceEditLock[]        @relation("InvoiceEditLockUser")
+  countLinksCreated         InvoiceCountLink[]        @relation("InvoiceCountLinkCreatedBy")
+  countRefundsAcked         InvoiceCountLink[]        @relation("InvoiceCountLinkRefundAckBy")
+  invoiceEditLocks          InvoiceEditLock[]         @relation("InvoiceEditLockUser")
   // «المندوب» — customers assigned to this rep, and the sales/receipts credited
   // to them. Stamped from day one even while a single rep exists: adding an
   // identity to historical rows later is painful, leaving it in costs nothing.
-  assignedCustomers         Customer[]               @relation("CustomerSalesAgent")
-  salesAgentInvoices        Invoice[]                @relation("InvoiceSalesAgent")
-  salesAgentVouchers        PaymentVoucher[]         @relation("PaymentVoucherSalesAgent")
-  salesAgentHandovers       SalesAgentHandover[]     @relation("HandoverAgent")
-  salesAgentIssues          SalesAgentIssue[]        @relation("IssueAgent")
-  salesAgentPriceRequests   SalesAgentPriceRequest[] @relation("PriceRequestAgent")
-  handoversReceived         SalesAgentHandover[]     @relation("HandoverReceivedBy")
-  salesAgentSettlements     SalesAgentSettlement[]   @relation("SettlementAgent")
-  settlementsRecorded       SalesAgentSettlement[]   @relation("SettlementSettledBy")
+  assignedCustomers         Customer[]                @relation("CustomerSalesAgent")
+  salesAgentInvoices        Invoice[]                 @relation("InvoiceSalesAgent")
+  salesAgentVouchers        PaymentVoucher[]          @relation("PaymentVoucherSalesAgent")
+  salesAgentHandovers       SalesAgentHandover[]      @relation("HandoverAgent")
+  salesAgentIssues          SalesAgentIssue[]         @relation("IssueAgent")
+  salesAgentPriceRequests   SalesAgentPriceRequest[]  @relation("PriceRequestAgent")
+  handoversReceived         SalesAgentHandover[]      @relation("HandoverReceivedBy")
+  salesAgentSettlements     SalesAgentSettlement[]    @relation("SettlementAgent")
+  settlementsRecorded       SalesAgentSettlement[]    @relation("SettlementSettledBy")
+  salesAgentVisits          SalesAgentVisit[]         @relation("VisitAgent")
+  salesAgentVisitPlans      SalesAgentVisitPlan[]     @relation("VisitPlanAgent")
+  visitPlansCreated         SalesAgentVisitPlan[]     @relation("VisitPlanCreatedBy")
+  offersCreated             SalesAgentCustomerOffer[] @relation("OfferCreatedBy")
+  offersUpdated             SalesAgentCustomerOffer[] @relation("OfferUpdatedBy")
 
   @@map("users")
 }
@@ -434,6 +439,7 @@ model Product {
   warehouseStocks         ProductWarehouseStock[]
   salesAgentIssues        SalesAgentIssue[]
   salesAgentPriceRequests SalesAgentPriceRequest[]
+  salesAgentOffers        SalesAgentCustomerOffer[]
   retailItems             RetailCatalogItem[]          @relation("RetailItemProduct")
   wholesaleInstagramPosts WholesaleInstagramPost[]
   stockLossItems          StockLossItem[]              @relation("StockLossItems")
@@ -634,6 +640,10 @@ model Customer {
   catalogReviews                  CatalogProductReview[]
   salesAgentIssues                SalesAgentIssue[]
   salesAgentPriceRequests         SalesAgentPriceRequest[]
+  salesAgentOffers                SalesAgentCustomerOffer[]
+  salesAgentVisits                SalesAgentVisit[]
+  salesAgentVisitPlans            SalesAgentVisitPlan[]
+  pendingApprovals                PendingApproval[]
   // ── «المندوب» ────────────────────────────────────────────────────────
   // The rep this customer belongs to. This column — NOT a tag — is what the
   // server filters on: tags are free text any user with customer-edit rights
@@ -647,6 +657,12 @@ model Customer {
   // and the area is what actually identifies where a shop sits. Picked from a
   // per-tenant list held in settings (salesAgentAreas), never free text.
   area                            String?
+  // Shop coordinates for the rep's visit map. Optional and entered by hand (or
+  // captured once while standing at the shop) — NOT derived from any tracking of
+  // where the rep goes. Most existing customers have none, and every map screen
+  // has to keep working when they are null.
+  latitude                        Decimal?                     @db.Decimal(10, 7)
+  longitude                       Decimal?                     @db.Decimal(10, 7)
   createdAt                       DateTime                     @default(now()) @map("created_at")
   updatedAt                       DateTime                     @updatedAt @map("updated_at")
   deletedAt                       DateTime?                    @map("deleted_at")
@@ -728,24 +744,24 @@ model WhatsappBotChat {
 /// handoff. Losing AI context is harmless; corrupting a half-finished
 /// registration is not.
 model WhatsappAiChat {
-  id        String   @id @default(uuid()) @db.Uuid
-  phone     String   @unique
+  id           String    @id @default(uuid()) @db.Uuid
+  phone        String    @unique
   /// [{ role, content }] — trimmed to the last few turns and ignored once stale.
-  messages  Json     @default("[]")
+  messages     Json      @default("[]")
   /// Paid replies sent to this number today, and the Baghdad day they count
   /// for. A daily ceiling is the only real protection against someone who
   /// just wants to chat quietly spending the shop's API balance.
-  repliesToday Int    @default(0) @map("replies_today")
-  todayKey     String? @map("today_key")
+  repliesToday Int       @default(0) @map("replies_today")
+  todayKey     String?   @map("today_key")
   /// Photos the agent looked at today. Vision costs several times a text turn,
   /// so it gets its own ceiling instead of sharing the reply one.
-  imagesToday  Int    @default(0) @map("images_today")
+  imagesToday  Int       @default(0) @map("images_today")
   /// Set when a human replies from the chat screen: until this moment passes
   /// the agent stays quiet on this number, so the customer never gets the
   /// shop's answer and the agent's answer to the same message.
   aiMutedUntil DateTime? @map("ai_muted_until")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@map("whatsapp_ai_chats")
 }
@@ -1604,28 +1620,45 @@ model QuotationItem {
 }
 
 model PendingApproval {
-  id              String         @id @default(uuid()) @db.Uuid
-  requestType     String         @map("request_type")
-  requestData     Json           @map("request_data")
-  requestedBy     String         @map("requested_by") @db.Uuid
-  requester       User           @relation("ApprovalRequestedBy", fields: [requestedBy], references: [id])
-  status          ApprovalStatus @default(PENDING)
-  reviewedBy      String?        @map("reviewed_by") @db.Uuid
-  reviewer        User?          @relation("ApprovalReviewedBy", fields: [reviewedBy], references: [id])
-  reviewedAt      DateTime?      @map("reviewed_at")
+  id               String            @id @default(uuid()) @db.Uuid
+  requestType      String            @map("request_type")
+  requestData      Json              @map("request_data")
+  /// The customer this request is about, when it is about one.
+  ///
+  /// The id has always been inside `requestData` for catalog and rep orders,
+  /// and reading it from JSON is fine for one row. It is NOT fine for "which of
+  /// my customers has a pending or rejected order?": a JSON path cannot be used
+  /// in a relation filter, so that question had to be answered in the browser
+  /// after paging — which silently hid customers who were on a later page.
+  ///
+  /// Nullable and additive: a guest catalog order has no customer at all, and
+  /// old rows were backfilled from `requestData` only where the id pointed at a
+  /// customer that really exists.
+  customerId       String?           @map("customer_id") @db.Uuid
+  customer         Customer?         @relation(fields: [customerId], references: [id])
+  requestedBy      String            @map("requested_by") @db.Uuid
+  requester        User              @relation("ApprovalRequestedBy", fields: [requestedBy], references: [id])
+  status           ApprovalStatus    @default(PENDING)
+  reviewedBy       String?           @map("reviewed_by") @db.Uuid
+  reviewer         User?             @relation("ApprovalReviewedBy", fields: [reviewedBy], references: [id])
+  reviewedAt       DateTime?         @map("reviewed_at")
   /// Why it was rejected. A rep whose order comes back as a bare «مرفوض» has to
   /// telephone to find out what to fix; this is that answer, written once.
-  reviewNote      String?        @map("review_note")
+  reviewNote       String?           @map("review_note")
   /// Client idempotency key. The old check read the table and then inserted, so
   /// three taps that arrived together all read "nothing yet" and all inserted —
   /// a rep who double-tapped «أرسل الطلب» created the same order three times.
   /// The database decides now.
-  clientRequestId String?        @unique @map("client_request_id")
-  createdAt       DateTime       @default(now()) @map("created_at")
+  clientRequestId  String?           @unique @map("client_request_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  /// Visits whose order is this approval — see `SalesAgentVisit.orderApprovalId`.
+  salesAgentVisits SalesAgentVisit[]
 
   @@index([requestedBy])
   @@index([reviewedBy])
   @@index([status])
+  // «يحتاجون متابعة» filters the rep's own open/refused orders by customer.
+  @@index([customerId, requestType, status])
   @@map("pending_approvals")
 }
 
@@ -1792,6 +1825,149 @@ model SalesAgentHandover {
   @@index([salesAgentId])
   @@index([date])
   @@map("sales_agent_handovers")
+}
+
+/// «عرض خاص للزبون» — a standing, time-boxed price for ONE customer and ONE
+/// product/unit, set by the owner.
+///
+/// Deliberately NOT the same thing as `SalesAgentPriceRequest`: that one is a
+/// single negotiated price the rep asks for and which is spent on one order.
+/// This is the owner deciding up front that a customer pays a different price
+/// for a while. Both can exist for the same line, so the pricing order is
+/// fixed and documented in `sales-agent-pricing.ts`: an approved price request
+/// wins, then this offer, then the carton/wholesale catalog price.
+///
+/// MANY rows are allowed per (customer, product, unit, price basis): a finished
+/// offer is history worth keeping, and a future offer can be scheduled while the
+/// current one runs. What is forbidden is two ACTIVE rows whose windows overlap,
+/// and that is enforced by a Postgres EXCLUDE constraint
+/// (`sales_agent_offers_no_overlap`, see the migration) rather than by a
+/// read-then-write check two concurrent requests would both pass. Prisma cannot
+/// express an exclusion constraint, so it lives in SQL; a violation arrives as
+/// SQLSTATE 23P01 and the service turns it into a plain Arabic message.
+///
+/// Windows are half-open `[startsAt, endsAt)`: an offer ending at the instant
+/// the next begins does not collide with it, and `endsAt` is exclusive
+/// everywhere in the code for the same reason.
+model SalesAgentCustomerOffer {
+  id              String       @id @default(uuid()) @db.Uuid
+  customerId      String       @map("customer_id") @db.Uuid
+  customer        Customer     @relation(fields: [customerId], references: [id])
+  productId       String       @map("product_id") @db.Uuid
+  product         Product      @relation(fields: [productId], references: [id])
+  /// A price for a carton means nothing applied to a piece, so an offer is
+  /// matched on product AND unit, exactly like the price-request path.
+  unit            Unit
+  /// WHOLESALE or CARTON — which pricing basis the offer belongs to. Without it
+  /// a fixed price on unit CARTON is ambiguous: wholesale-carton and
+  /// distribution-carton are two different base prices, and guessing would
+  /// silently sell at the wrong one.
+  priceMode       String       @default("WHOLESALE") @map("price_mode")
+  /// PERCENT uses `discountPercent`, AMOUNT uses `fixedPrice` as the final unit
+  /// price. Reuses the existing coupon discount enum rather than inventing a
+  /// second vocabulary for the same idea.
+  discountType    DiscountType @map("discount_type")
+  fixedPrice      Decimal?     @map("fixed_price") @db.Decimal(12, 2)
+  discountPercent Decimal?     @map("discount_percent") @db.Decimal(5, 2)
+  startsAt        DateTime     @map("starts_at")
+  endsAt          DateTime     @map("ends_at")
+  /// Paused by hand. An offer outside its date window is over regardless of
+  /// this flag — the price goes back to normal on its own, with no job to run.
+  isActive        Boolean      @default(true) @map("is_active")
+  note            String?
+  createdBy       String       @map("created_by") @db.Uuid
+  creator         User         @relation("OfferCreatedBy", fields: [createdBy], references: [id])
+  updatedBy       String?      @map("updated_by") @db.Uuid
+  updater         User?        @relation("OfferUpdatedBy", fields: [updatedBy], references: [id])
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  // NOT unique — see the model comment: overlap is prevented by the EXCLUDE
+  // constraint, so a customer keeps a timeline of offers per product/unit/basis.
+  @@index([customerId, productId, unit, priceMode, startsAt], map: "sales_agent_offers_customer_product_unit_mode_idx")
+  @@index([customerId, isActive, endsAt])
+  @@index([productId])
+  @@map("sales_agent_customer_offers")
+}
+
+/// «زيارة» — one rep visit to one customer, opened and closed by the rep.
+///
+/// This is a log of visits the rep chose to record, NOT location tracking: the
+/// rep's own position is never stored, and nothing is written unless they press
+/// «بدء زيارة». Coordinates on the map come from `Customer.latitude/longitude`.
+model SalesAgentVisit {
+  id              String               @id @default(uuid()) @db.Uuid
+  /// Idempotency key so a double tap on «بدء زيارة» over a weak connection
+  /// cannot open the same visit twice.
+  clientRequestId String?              @unique @map("client_request_id")
+  salesAgentId    String               @map("sales_agent_id") @db.Uuid
+  salesAgent      User                 @relation("VisitAgent", fields: [salesAgentId], references: [id])
+  customerId      String               @map("customer_id") @db.Uuid
+  customer        Customer             @relation(fields: [customerId], references: [id])
+  /// The day's plan entry this visit belongs to, when the rep started from the
+  /// plan. Null for an unplanned call — a visit is a fact, a plan is an
+  /// intention, and the two are kept apart deliberately.
+  planId          String?              @map("plan_id") @db.Uuid
+  plan            SalesAgentVisitPlan? @relation(fields: [planId], references: [id])
+  /// The order this visit actually produced, if any.
+  ///
+  /// «أخذ طلب» used to be a label the rep could pick with nothing behind it.
+  /// When an order is sent during an open visit for the same customer it is
+  /// linked here, so a report can tell a visit that produced a real order from
+  /// an outcome someone typed. Null with outcome ORDERED means exactly that:
+  /// a manual result with no order attached.
+  orderApprovalId String?              @map("order_approval_id") @db.Uuid
+  orderApproval   PendingApproval?     @relation(fields: [orderApprovalId], references: [id])
+  startedAt       DateTime             @default(now()) @map("started_at")
+  endedAt         DateTime?            @map("ended_at")
+  /// ORDERED | NO_ORDER | CLOSED | NEEDS_FOLLOW_UP | NOTE — a free string for
+  /// the same reason `SalesAgentIssue.reason` is: a new outcome must not need a
+  /// migration.
+  outcome         String?
+  note            String?
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  @@index([salesAgentId, startedAt])
+  @@index([customerId])
+  @@index([planId])
+  @@index([orderApprovalId])
+  @@map("sales_agent_visits")
+}
+
+/// «خطة زيارات اليوم» — who the rep is meant to call on, on which day.
+///
+/// Separate from `SalesAgentVisit` on purpose: this is the intention (assigned
+/// by the owner, or added by the rep from their own customers), while a visit is
+/// what actually happened. Mixing them would make an unvisited plan entry look
+/// like a visit with no result.
+///
+/// `planDate` is the SHOP's local day as `YYYY-MM-DD`, not an instant: "today's
+/// plan" must not shift because the server runs in UTC.
+model SalesAgentVisitPlan {
+  id           String            @id @default(uuid()) @db.Uuid
+  salesAgentId String            @map("sales_agent_id") @db.Uuid
+  salesAgent   User              @relation("VisitPlanAgent", fields: [salesAgentId], references: [id])
+  customerId   String            @map("customer_id") @db.Uuid
+  customer     Customer          @relation(fields: [customerId], references: [id])
+  /// Shop-local `YYYY-MM-DD`.
+  planDate     String            @map("plan_date")
+  /// Optional manual ordering inside the day; nulls sort last.
+  sortOrder    Int?              @map("sort_order")
+  note         String?
+  /// PLANNED | STARTED | DONE | CANCELLED. A free string for the same reason
+  /// the visit outcome is one: a new state must not need a migration.
+  status       String            @default("PLANNED")
+  createdBy    String            @map("created_by") @db.Uuid
+  creator      User              @relation("VisitPlanCreatedBy", fields: [createdBy], references: [id])
+  visits       SalesAgentVisit[]
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  /// One entry per rep, customer and day — the same shop cannot be planned twice.
+  @@unique([salesAgentId, customerId, planDate], map: "sales_agent_visit_plan_agent_customer_date_key")
+  @@index([salesAgentId, planDate, sortOrder])
+  @@index([customerId])
+  @@map("sales_agent_visit_plans")
 }
 
 model AppNotification {
@@ -2617,8 +2793,8 @@ model InstagramAccount {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  posts  InstagramPost[]
-  queues InstagramQueue[]
+  posts          InstagramPost[]
+  queues         InstagramQueue[]
   wholesalePosts WholesaleInstagramPost[]
 
   @@map("instagram_accounts")
@@ -2695,26 +2871,26 @@ model InstagramHashtagGroup {
 /// Independent of InstagramPost; reuses only InstagramAccount (the already-
 /// connected accounts) and MediaAsset (the same permanent public-file store).
 model WholesaleInstagramPost {
-  id           String                       @id @default(uuid()) @db.Uuid
-  productId    String?                      @map("product_id") @db.Uuid
-  product      Product?                     @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productTitle String                       @map("product_title") // snapshot, survives product deletion
-  accountId    String                       @map("account_id") @db.Uuid
-  account      InstagramAccount             @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  postType     WholesaleInstagramPostType   @map("post_type")
-  status       WholesaleInstagramPostStatus @default(DRAFT)
-  caption      String                       @default("") // never auto-filled — the admin always writes/reviews it
-  notes        String?                      // internal notes, never sent to Meta
+  id                  String                       @id @default(uuid()) @db.Uuid
+  productId           String?                      @map("product_id") @db.Uuid
+  product             Product?                     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productTitle        String                       @map("product_title") // snapshot, survives product deletion
+  accountId           String                       @map("account_id") @db.Uuid
+  account             InstagramAccount             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  postType            WholesaleInstagramPostType   @map("post_type")
+  status              WholesaleInstagramPostStatus @default(DRAFT)
+  caption             String                       @default("") // never auto-filled — the admin always writes/reviews it
+  notes               String? // internal notes, never sent to Meta
   // Exact instant the tick must fire this post — Baghdad time is a display/
   // input concern only (see utils in the service), this column is a plain UTC instant.
-  scheduledAt  DateTime?                    @map("scheduled_at")
-  igCreationId String?                      @map("ig_creation_id") // container id — stored ASAP, retry-safe
-  igMediaId    String?                      @map("ig_media_id") // published media id — stored ASAP, never double-posts
-  permalink    String?
-  errorMessage String?                      @map("error_message")
-  skipReason   String?                      @map("skip_reason")
-  attemptCount Int                          @default(0) @map("attempt_count")
-  publishedAt  DateTime?                    @map("published_at")
+  scheduledAt         DateTime?                    @map("scheduled_at")
+  igCreationId        String?                      @map("ig_creation_id") // container id — stored ASAP, retry-safe
+  igMediaId           String?                      @map("ig_media_id") // published media id — stored ASAP, never double-posts
+  permalink           String?
+  errorMessage        String?                      @map("error_message")
+  skipReason          String?                      @map("skip_reason")
+  attemptCount        Int                          @default(0) @map("attempt_count")
+  publishedAt         DateTime?                    @map("published_at")
   // Set ONCE, the first moment a PUBLISHED post's product is found out of
   // stock (checked on the same per-minute tick) — and never touched again.
   // Meta's API cannot delete a live post from this OAuth flow (Instagram
@@ -2723,13 +2899,13 @@ model WholesaleInstagramPost {
   // set, it doubles as a one-shot marker: a post is only ever a detection
   // candidate while this is still null, so dismissing the alert (below) can
   // never cause it to silently reappear on the next tick.
-  stockAlertAt         DateTime?             @map("stock_alert_at")
+  stockAlertAt        DateTime?                    @map("stock_alert_at")
   // The admin has opened the live post and handled it. Independent of
   // stockAlertAt above so dismissal never re-opens the detection window.
-  stockAlertDismissed  Boolean               @default(false) @map("stock_alert_dismissed")
-  createdById  String?                      @map("created_by_id") @db.Uuid
-  createdAt    DateTime                     @default(now()) @map("created_at")
-  updatedAt    DateTime                     @updatedAt @map("updated_at")
+  stockAlertDismissed Boolean                      @default(false) @map("stock_alert_dismissed")
+  createdById         String?                      @map("created_by_id") @db.Uuid
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
 
   media WholesaleInstagramPostMedia[]
 
@@ -2751,7 +2927,7 @@ model WholesaleInstagramPostMedia {
   mediaAssetId String                 @map("media_asset_id") @db.Uuid
   mediaAsset   MediaAsset             @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
   sortOrder    Int                    @default(0) @map("sort_order")
-  source       String                 // "product_image" | "uploaded" — informational only
+  source       String // "product_image" | "uploaded" — informational only
   createdAt    DateTime               @default(now()) @map("created_at")
 
   @@index([postId, sortOrder])

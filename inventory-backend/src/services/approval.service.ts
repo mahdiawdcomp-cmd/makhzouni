@@ -442,7 +442,16 @@ export async function createPendingApproval(
    * cannot both insert — the second one fails with P2002 and the caller hands
    * back the first request's approval instead of creating a twin.
    */
-  clientRequestId?: string
+  clientRequestId?: string,
+  /**
+   * The customer this request is about, when it is about one.
+   *
+   * Stored in a real column as well as inside `requestData`, so "which of my
+   * customers has a pending order?" can be answered inside a query instead of
+   * in the browser after paging. Optional: most approval types have no
+   * customer, and a guest catalog order has no customer yet either.
+   */
+  customerId?: string,
 ) {
   const approval = await prisma.pendingApproval.create({
     data: {
@@ -450,6 +459,7 @@ export async function createPendingApproval(
       requestData: requestData as Prisma.InputJsonValue,
       requestedBy,
       clientRequestId: clientRequestId ?? null,
+      customerId: customerId ?? null,
     },
   });
 

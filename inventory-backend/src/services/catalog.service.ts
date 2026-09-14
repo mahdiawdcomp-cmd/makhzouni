@@ -1582,7 +1582,13 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       },
       displayItems: normalizedItems,
     },
-    requester.id
+    requester.id,
+    undefined,
+    undefined,
+    // Same id that already sits in `requestData`, stored in the column too so
+    // the follow-up query does not have to read JSON. A guest order, which has
+    // no customer yet, still passes nothing.
+    access.customer.id,
   );
 
   // Fire-and-forget: WhatsApp + system notification (non-blocking)

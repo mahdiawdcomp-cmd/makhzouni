@@ -29,6 +29,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Store,
+  Tag,
   Users,
   Wallet,
   Zap,
@@ -70,6 +71,9 @@ function permissionForItem(item: Item): UserPermission | null {
   // the same capability as the settings page itself.
   if (path.startsWith("/invoice-designer")) return "MANAGE_SETTINGS"
   if (path.startsWith("/losses")) return "MANAGE_PRODUCTS"
+  // «عروض خاصة بالزبون» — its own ALLOW permission, so it is not implied by any
+  // other capability. The route enforces the same one.
+  if (path.startsWith("/customer-offers")) return "MANAGE_CUSTOMER_OFFERS"
   return null
 }
 
@@ -157,6 +161,7 @@ const navItems: Item[] = [
   { to: "/losses", label: "التلف والخسائر", icon: AlertTriangle },
   { to: "/customers", label: "الزبائن", icon: Users },
   { to: "/customers/broadcast", label: "إرسال - زبائن الجملة", icon: Megaphone },
+  { to: "/customer-offers", label: "عروض الزبائن", icon: Tag },
   { to: "/campaigns", label: "الزبائن الجدد", icon: Send },
   { to: "/account", label: "كشف الحساب", icon: Search },
   { to: "/account/statement-export", label: "حفظ الكشف العام", icon: Download },

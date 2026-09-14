@@ -18,7 +18,20 @@ import {
   getAgentProducts,
   getCashOnHand,
   getCustomerDetailCtrl,
+  getCustomerOffers,
+  getFrequentProducts,
   getIssueReasons,
+  getMyVisitPlan,
+  getPlanStatuses,
+  getTodayVisits,
+  getVisitCustomers,
+  getVisitOutcomes,
+  patchMyVisitPlanEntry,
+  postMyVisitPlanEntry,
+  postEndVisit,
+  postPriceNotes,
+  postStartVisit,
+  putCustomerLocation,
   getMyIssues,
   getMyPriceRequests,
   getUsablePrices,
@@ -73,5 +86,27 @@ router.get("/issues", getMyIssues);
 router.post("/price-requests", requireAgentCapability("PRICE_REQUEST"), postPriceRequest);
 router.get("/price-requests", getMyPriceRequests);
 router.get("/customers/:id/usable-prices", getUsablePrices);
+
+// «يشتريها عادةً» + «تغيّر السعر» + «عروضه» — all reads, all confined to the
+// rep's own customers by the service (`assertOwnCustomer`), never by the screen.
+router.get("/customers/:id/frequent-products", getFrequentProducts);
+router.post("/customers/:id/price-notes", postPriceNotes);
+router.get("/customers/:id/offers", getCustomerOffers);
+
+// «خريطة الزيارات». `PUT .../location` writes the CUSTOMER's coordinates; the
+// rep's own position is never persisted by any route here.
+// «خطة زيارات اليوم» — the intention. `listVisitPlan` is scoped to the caller,
+// so a rep can never read or start another rep's round.
+router.get("/visits/plan", getMyVisitPlan);
+router.get("/visits/plan-statuses", getPlanStatuses);
+router.post("/visits/plan", postMyVisitPlanEntry);
+router.patch("/visits/plan/:id", patchMyVisitPlanEntry);
+
+router.get("/visits/customers", getVisitCustomers);
+router.get("/visits/today", getTodayVisits);
+router.get("/visits/outcomes", getVisitOutcomes);
+router.post("/visits", postStartVisit);
+router.post("/visits/:id/end", postEndVisit);
+router.put("/customers/:id/location", putCustomerLocation);
 
 export default router;

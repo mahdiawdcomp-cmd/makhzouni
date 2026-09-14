@@ -18,6 +18,11 @@ import {
   getIssuesCtrl,
   getLiability,
   getSettlements,
+  getAgentCustomers,
+  getAgentVisitPlan,
+  patchAgentVisitPlanEntry,
+  postAgentVisitPlanEntry,
+  putAnyCustomerLocation,
   postHandover,
   postSettlement,
 } from "../controllers/sales-agent-admin.controller";
@@ -34,6 +39,16 @@ router.get("/commission", getCommissionCtrl);
 router.get("/issue-reports", getIssueReportsCtrl);
 router.get("/issues", getIssuesCtrl);
 router.get("/health", getHealth);
+
+// «خطة زيارات المندوب» — the owner assigns the round; the rep runs it from
+// their own scoped routes.
+router.get("/visit-plan", getAgentVisitPlan);
+// The chosen rep's customers, so the plan screen can only offer their own.
+router.get("/agent-customers", getAgentCustomers);
+router.post("/visit-plan", postAgentVisitPlanEntry);
+router.patch("/visit-plan/:id", patchAgentVisitPlanEntry);
+// Correcting a shop's pin for any customer, audited.
+router.put("/customers/:id/location", putAnyCustomerLocation);
 
 router.get("/settlements", getSettlements);
 router.post("/settlements", postSettlement);

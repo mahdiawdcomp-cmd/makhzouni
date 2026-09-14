@@ -25,6 +25,7 @@ const CustomerDetailPage = lazyPage(() => import("./pages/CustomerDetailPage"), 
 const ClientPortalPage = lazyPage(() => import("./pages/ClientPortalPage"), "ClientPortalPage")
 const PublicInvoicePage = lazyPage(() => import("./pages/PublicInvoicePage"), "PublicInvoicePage")
 const CouponsPage = lazyPage(() => import("./pages/CouponsPage"), "CouponsPage")
+const CustomerOffersPage = lazyPage(() => import("./pages/CustomerOffersPage"), "CustomerOffersPage")
 const CustomersPage = lazyPage(() => import("./pages/CustomersPage"), "CustomersPage")
 const CustomerBroadcastPage = lazyPage(() => import("./pages/CustomerBroadcastPage"), "CustomerBroadcastPage")
 const AccountLookupPage = lazyPage(() => import("./pages/AccountLookupPage"), "AccountLookupPage")
@@ -172,6 +173,14 @@ const router = createBrowserRouter([
               { path: "settings", element: s(<SettingsPage />) },
               { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
             ],
+          },
+          // «عروض خاصة بالزبون» — deciding what a customer pays. Behind an
+          // explicit permission (ADMIN passes by role) so it is never something
+          // a rep has by default, and the URL enforces the same rule the sidebar
+          // shows.
+          {
+            element: <PermissionRoute permission="MANAGE_CUSTOMER_OFFERS" />,
+            children: [{ path: "customer-offers", element: s(<CustomerOffersPage />) }],
           },
           {
             element: <AdminRoute />,

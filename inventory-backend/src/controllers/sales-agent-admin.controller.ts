@@ -6,6 +6,13 @@
  * reach at all rather than from a shared route that filters by role.
  */
 import { asyncHandler } from "../utils/async-handler";
+import {
+  addToVisitPlan,
+  listCustomersOfAgent,
+  listVisitPlan,
+  setCustomerLocation,
+  updateVisitPlanEntry,
+} from "../services/sales-agent-visits.service";
 import { AppError } from "../utils/app-error";
 import {
   getCommission,
@@ -124,4 +131,87 @@ export const getHealth = asyncHandler(async (_req, res) => {
 export const getIssuesCtrl = asyncHandler(async (req, res) => {
   const reason = typeof req.query.reason === "string" ? req.query.reason : undefined;
   res.json({ success: true, data: await listIssues({ ...dateWindow(req), reason }) });
+});
+
+/* ── «خطة زيارات المندوب» — the owner assigning the round ────────────── */
+
+/** One rep's plan for a day. The owner names the rep explicitly. */
+export const getAgentVisitPlan = asyncHandler(async (req, res) => {
+  const salesAgentId = String(req.query.salesAgentId ?? "");
+  if (!salesAgentId) throw new AppError("حدد المندوب", 400, "SALES_AGENT_REQUIRED");
+  const date = typeof req.query.date === "string" ? req.query.date : undefined;
+  res.json({ success: true, data: await listVisitPlan(salesAgentId, date) });
+});
+
+/**
+ * Assign a customer to a rep's plan.
+ *
+ * `agentScope` is null here — the owner is not a rep — but the service still
+ * refuses to plan a customer for a rep the customer does not belong to.
+ */
+export const postAgentVisitPlanEntry = asyncHandler(async (req, res) => {
+  if (!req.user) throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const customerId = String(body.customerId ?? "");
+  if (!customerId) throw new AppError("الزبون مطلوب", 400, "CUSTOMER_REQUIRED");
+  const created = await addToVisitPlan({ id: req.user.id }, null, {
+    salesAgentId: body.salesAgentId == null ? undefined : String(body.salesAgentId),
+    customerId,
+    planDate: body.planDate == null ? undefined : String(body.planDate),
+    note: body.note == null ? undefined : String(body.note),
+    sortOrder: body.sortOrder == null ? undefined : Number(body.sortOrder),
+  });
+  res.status(201).json({ success: true, message: "انضاف لخطة المندوب", data: created });
+});
+
+export const patchAgentVisitPlanEntry = asyncHandler(async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  res.json({
+    success: true,
+    data: await updateVisitPlanEntry(null, String(req.params.id), {
+      status: body.status,
+      note: body.note == null ? undefined : String(body.note),
+      sortOrder: body.sortOrder == null ? undefined : Number(body.sortOrder),
+    }),
+  });
+});
+
+/**
+ * Correct any customer's shop location.
+ *
+ * The rep can only pin their own customers, so a wrong pin on a customer who
+ * changed rep — or a rep who is gone — would otherwise be stuck. Written to the
+ * audit log with the previous and the new point, like the rep's own change.
+ */
+export const putAnyCustomerLocation = asyncHandler(async (req, res) => {
+  if (!req.user) throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
+  const body = (req.body ?? {}) as { latitude?: unknown; longitude?: unknown };
+  res.json({
+    success: true,
+    data: await setCustomerLocation({ id: req.user.id }, null, String(req.params.id), {
+      latitude: body.latitude ?? null,
+      longitude: body.longitude ?? null,
+    }),
+  });
+});
+
+/**
+ * The customers of ONE rep, for the owner's plan screen.
+ *
+ * The owner names the rep; the query is scoped to that rep's customers only, so
+ * the screen physically cannot offer someone else's customer to plan.
+ */
+export const getAgentCustomers = asyncHandler(async (req, res) => {
+  const salesAgentId = String(req.query.salesAgentId ?? "");
+  if (!salesAgentId) throw new AppError("حدد المندوب", 400, "SALES_AGENT_REQUIRED");
+  const limit = Number(req.query.limit);
+  res.json({
+    success: true,
+    data: await listCustomersOfAgent({
+      salesAgentId,
+      search: typeof req.query.search === "string" ? req.query.search : undefined,
+      area: typeof req.query.area === "string" && req.query.area.trim() ? req.query.area.trim() : undefined,
+      limit: Number.isFinite(limit) ? limit : undefined,
+    }),
+  });
 });

@@ -2,6 +2,7 @@ import { OrderPreparationStatus, Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
+import { externalSendsBlocked, isPermanentSendFailure } from "../utils/external-sends";
 import { generateInvoicePdf } from "./invoice-export.service";
 import { getSettings } from "./settings.service";
 import { commitAccessCode, prepareCustomerCode } from "./customer-login.service";
@@ -28,6 +29,28 @@ type PreparationItem = {
 };
 
 const retryDelays = [3000, 8000, 15000, 30000];
+
+/**
+ * Timers for sends waiting to be retried.
+ *
+ * Tracked so a teardown can stop them deliberately (`cancelPendingWhatsAppRetries`)
+ * instead of a process lingering until the last backoff expires. In production
+ * nothing calls that, and the timers run exactly as before.
+ */
+const pendingRetries = new Set<ReturnType<typeof setTimeout>>();
+
+/** Drop every queued retry. Returns how many were cancelled. */
+export function cancelPendingWhatsAppRetries(): number {
+  const count = pendingRetries.size;
+  for (const timer of pendingRetries) clearTimeout(timer);
+  pendingRetries.clear();
+  return count;
+}
+
+/** For tests: how many retries are queued right now. */
+export function pendingWhatsAppRetryCount(): number {
+  return pendingRetries.size;
+}
 
 function unitAr(unit: string) {
   if (unit === "CARTON") return "كارتون";
@@ -78,24 +101,35 @@ function itemLines(items: PreparationItem[]) {
 }
 
 function scheduleTextRetry(phone: string, message: string, attempt = 0) {
+  // Nothing leaves the process in a test run, and nothing schedules a timer
+  // that would outlive the suite.
+  if (externalSendsBlocked()) return;
   const delay = retryDelays[attempt];
   if (!delay) return;
-  setTimeout(async () => {
+  const timer = setTimeout(async () => {
+    pendingRetries.delete(timer);
     try {
       await sendWhatsAppText(phone, message);
       logger.info(`[WhatsApp] Retry sent to ${phone} (attempt ${attempt + 1})`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn(`[WhatsApp] Retry failed to ${phone} (attempt ${attempt + 1}): ${msg}`);
+      // A setting is not a hiccup: «WhatsApp is disabled» will be just as
+      // disabled in eight seconds. Retrying it only produces four warnings
+      // that read like an outage.
+      if (isPermanentSendFailure(err)) return;
       scheduleTextRetry(phone, message, attempt + 1);
     }
   }, delay);
+  pendingRetries.add(timer);
 }
 
 function scheduleInvoiceRetry(phone: string, message: string, invoiceId: string, invoiceNumber: string, attempt = 0) {
+  if (externalSendsBlocked()) return;
   const delay = retryDelays[attempt];
   if (!delay) return;
-  setTimeout(async () => {
+  const timer = setTimeout(async () => {
+    pendingRetries.delete(timer);
     try {
       const pdf = await generateInvoicePdf(invoiceId);
       await sendWhatsAppPdf(phone, message, pdf, `${invoiceNumber}.pdf`);
@@ -103,12 +137,21 @@ function scheduleInvoiceRetry(phone: string, message: string, invoiceId: string,
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn(`[WhatsApp] Invoice PDF retry failed to ${phone} (attempt ${attempt + 1}): ${msg}`);
+      // Re-rendering the PDF on every retry also re-reads the database, which
+      // is how a disabled provider turned into "database does not exist" noise
+      // long after a test had dropped its database.
+      if (isPermanentSendFailure(err)) return;
       scheduleInvoiceRetry(phone, message, invoiceId, invoiceNumber, attempt + 1);
     }
   }, delay);
+  pendingRetries.add(timer);
 }
 
 async function safeSendWA(phone: string, message: string) {
+  if (externalSendsBlocked()) {
+    logger.info(`[WhatsApp] skipped in test mode (${phone})`);
+    return;
+  }
   try {
     await sendWhatsAppText(phone, message);
     logger.info(`[WhatsApp] Sent to ${phone}`);
@@ -120,6 +163,12 @@ async function safeSendWA(phone: string, message: string) {
 }
 
 async function safeSendInvoicePdf(phone: string, message: string, invoiceId: string, invoiceNumber: string) {
+  // Skipped BEFORE the PDF is rendered: generating one reads the database, and
+  // a test run has no business doing either.
+  if (externalSendsBlocked()) {
+    logger.info(`[WhatsApp] invoice PDF skipped in test mode (${phone})`);
+    return;
+  }
   try {
     const pdf = await generateInvoicePdf(invoiceId);
     await sendWhatsAppPdf(phone, message, pdf, `${invoiceNumber}.pdf`);
@@ -139,6 +188,12 @@ async function safeSendInvoicePdf(phone: string, message: string, invoiceId: str
 // safeSendInvoicePdf above — they're internal, not gated by the 24h rule the
 // same way, and don't need to match the customer template's body shape.
 async function safeSendInvoicePdfTemplated(phone: string, message: string, invoiceId: string, invoiceNumber: string) {
+  // Same reason as the plain sibling: rendering the PDF reads the database, and
+  // a test run must not do that either.
+  if (externalSendsBlocked()) {
+    logger.info(`[WhatsApp] invoice PDF (template) skipped in test mode (${phone})`);
+    return;
+  }
   try {
     const [pdf, settings, invoice] = await Promise.all([
       generateInvoicePdf(invoiceId),
@@ -159,6 +214,10 @@ async function safeSendInvoicePdfTemplated(phone: string, message: string, invoi
 // Customer-facing sibling of safeSendWA — tries the matching Meta template
 // (from settings) first, falls back to the same free text + retry schedule.
 async function safeSendWATemplated(phone: string, message: string, templateName: string | undefined, bodyParams: string[] = []) {
+  if (externalSendsBlocked()) {
+    logger.info(`[WhatsApp] template message skipped in test mode (${phone})`);
+    return;
+  }
   try {
     await sendTextWithTemplateFallback(phone, templateName, CLOUD_TEMPLATE_LANG, message, bodyParams);
     logger.info(`[WhatsApp] Sent to ${phone}`);

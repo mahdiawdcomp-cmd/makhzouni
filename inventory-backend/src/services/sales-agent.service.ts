@@ -29,6 +29,14 @@ import { normalizePhone, phoneVariants } from "../utils/phone";
 import { getSettings } from "./settings.service";
 import { createCustomer } from "./customer.service";
 import { notifySalesAgentEvent } from "./sales-agent-notify.service";
+import {
+  AgentPriceMode,
+  priceKey,
+  resolveAgentUnitPrice,
+} from "../utils/sales-agent-pricing";
+import { OFFER_ENDING_SOON_DAYS, offerMapForCustomer } from "./sales-agent-offers.service";
+import { lastPaidPrices, priceChangeFor } from "./sales-agent-history.service";
+import { shopInclusiveEndKey } from "../utils/shop-day";
 
 /* ── unit maths ──────────────────────────────────────────────────────────
  * Deliberately identical to the catalog's own conversion. A rep's carton must
@@ -395,7 +403,10 @@ export async function createAgentCustomer(
  * No row for المحل means none of it is on the shop floor, which is zero — not
  * "unknown, use the old number".
  */
-function sellableStock(
+// Exported so «يشتريها عادةً» reads the SAME «المتوفر» the catalog grid and the
+// order path read. A second definition of "available" is how a screen ends up
+// offering goods the shop floor does not have.
+export function sellableStock(
   product: { warehouseStocks: Array<{ quantityPieces: number; warehouseId: string }> } & Parameters<typeof totalStock>[0],
   shopWarehouseId: string | null,
 ) {
@@ -708,38 +719,124 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     select: { id: true, productId: true, unit: true, requestedPrice: true },
   });
   const priceByKey = new Map(
-    approvedPrices.map((p) => [`${p.productId}:${p.unit}`, { id: p.id, price: toNumber(p.requestedPrice) }]),
+    approvedPrices.map((p) => [
+      priceKey(p.productId, p.unit),
+      { id: p.id, productId: p.productId, unit: p.unit, price: toNumber(p.requestedPrice) },
+    ]),
   );
   const spentPriceIds: string[] = [];
 
+  // «عرض خاص للزبون» and what this customer last actually paid.
+  //
+  // Both read here, at pricing time, for the same reason the approved prices
+  // are: the client shows them on the cart as a courtesy, but what gets billed
+  // — and what the price-change note compares against — is resolved from the
+  // database. Two queries for the whole order, not one per line.
+  // ONE instant for the whole order: an offer must not be live on line 1 and
+  // expired on line 9 of the same review. Fixed BEFORE the reads, so the rows
+  // that come back are the rows in force at that instant.
+  const pricedAt = new Date();
+  const mode: AgentPriceMode = input.priceMode === "CARTON" ? "CARTON" : "WHOLESALE";
+
+  const [offers, previousPrices] = await Promise.all([
+    offerMapForCustomer(customer.id, uniqueProductIds, pricedAt, mode),
+    lastPaidPrices({ customerId: customer.id, productIds: uniqueProductIds }),
+  ]);
+
   const normalizedItems = input.items.map((item) => {
     const product = productById.get(item.productId)!;
-    const catalogPrice = salePriceFor(item.unit, input.priceMode === "CARTON" ? product.cartonPiecePrice : product.salePrice, product.pcsPerCarton, product.boxPieces);
-    // Existing negotiated prices belong to wholesale; do not silently apply them to distribution.
-    const special = input.priceMode === "CARTON" ? undefined : priceByKey.get(`${product.id}:${item.unit}`);
-    if (special) spentPriceIds.push(special.id);
+    // Every pricing decision — approved price, then offer, then catalog — lives
+    // in `utils/sales-agent-pricing.ts`, so a preview and the submission that
+    // follows it cannot price differently.
+    const resolved = resolveAgentUnitPrice({
+      product: {
+        id: product.id,
+        salePrice: product.salePrice,
+        cartonPiecePrice: product.cartonPiecePrice,
+        pcsPerCarton: product.pcsPerCarton,
+        boxPieces: product.boxPieces,
+      },
+      unit: item.unit,
+      priceMode: mode,
+      now: pricedAt,
+      approvedPrices: priceByKey,
+      offers,
+    });
+    if (resolved.approvedPriceId) spentPriceIds.push(resolved.approvedPriceId);
+    const priceChange = priceChangeFor(
+      previousPrices.get(priceKey(product.id, item.unit)),
+      resolved.unitPrice,
+      mode,
+    );
     return {
       productId: product.id,
       productName: product.name,
       unit: item.unit,
       quantity: item.quantity,
-      unitPrice: special ? special.price : catalogPrice,
-      totalPrice: (special ? special.price : catalogPrice) * item.quantity,
+      unitPrice: resolved.unitPrice,
+      totalPrice: resolved.unitPrice * item.quantity,
       availableStock: sellableStock(product, shopWarehouseId),
+      priceSource: resolved.source,
       // Surfaced on the approval so the owner sees WHY a line is below the
-      // shelf price, instead of wondering whether something is broken.
-      specialPrice: special ? { catalogPrice } : undefined,
+      // shelf price, instead of wondering whether something is broken. Shape
+      // kept as it was so the existing approvals screen keeps reading it.
+      specialPrice: resolved.source === "APPROVED_REQUEST" ? { catalogPrice: resolved.catalogPrice } : undefined,
+      offer: resolved.offer
+        ? {
+            id: resolved.offer.id,
+            endsAt: resolved.offer.endsAt,
+            // The last day the offer actually covers, in the SHOP's timezone —
+            // `endsAt` is exclusive, so formatting it as a date in the browser
+            // would show the day after.
+            endsOnDate: shopInclusiveEndKey(resolved.offer.endsAt),
+            discountType: resolved.offer.discountType,
+            discountPercent: resolved.offer.discountPercent,
+            note: resolved.offer.note,
+            catalogPrice: resolved.catalogPrice,
+          }
+        : undefined,
+      // Information only. Nothing in this file refuses an order over it.
+      priceChange: priceChange ?? undefined,
     };
   });
 
   const subtotal = normalizedItems.reduce((sum, i) => sum + i.totalPrice, 0);
 
+  // What the review is a promise about: the customer, the price basis, and each
+  // line's price and available stock. Deliberately NOT the whole display row —
+  // the price-change note carries the date of an old invoice, and a new invoice
+  // for this customer landing between review and send would invalidate a review
+  // whose prices and stock had not moved at all.
   const reviewToken = createHash("sha256").update(JSON.stringify({
     agentId, customerId: customer.id, customerName: customer.name,
     priceMode: input.priceMode ?? "WHOLESALE", notes: input.notes ?? "",
-    items: normalizedItems, spentPriceIds,
+    items: normalizedItems.map((i) => ({
+      productId: i.productId,
+      unit: i.unit,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      availableStock: i.availableStock,
+      priceSource: i.priceSource,
+      offerId: i.offer?.id ?? null,
+    })),
+    spentPriceIds,
   })).digest("hex");
-  if (preview) return { reviewToken, customerName: customer.name, subtotal, items: normalizedItems, shortages };
+  if (preview) {
+    return {
+      reviewToken,
+      customerName: customer.name,
+      customerPhone: customer.phone,
+      // Shown for context only. No accounting rule reads this, and sending an
+      // order does not change it — the balance moves when the invoice is made.
+      customerBalance: toNumber(customer.currentBalance),
+      priceMode: mode,
+      notes: input.notes ?? "",
+      subtotal,
+      items: normalizedItems,
+      shortages,
+      pricedAt,
+    };
+  }
   if (input.priceMode && input.reviewToken !== reviewToken) {
     throw new AppError("تغيّرت الأسعار أو الكميات المتوفرة؛ راجع الطلب مرة ثانية قبل الإرسال", 409, "ORDER_REVIEW_CHANGED");
   }
@@ -789,6 +886,9 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
       agentId,
       agentName,
       key,
+      // Also stored as a column, so «يحتاجون متابعة» can filter on it inside
+      // the customers query instead of after pagination.
+      customer.id,
     );
   } catch (err) {
     // Two taps raced past the read above and the unique index caught the second
@@ -811,6 +911,19 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
       .catch((err) => logger.warn(`[SalesAgent] price consume failed: ${String(err)}`));
   }
 
+  // If the rep is standing in the shop with an open visit for this customer,
+  // the order belongs to that visit. Best effort on purpose: a stamped visit is
+  // never worth failing an order that already succeeded, and only an OPEN visit
+  // for the SAME rep and customer is touched.
+  // Imported at call time, not at module load: the visits service imports
+  // `assertOwnCustomer` from this file, and a static import here would make the
+  // two modules load each other.
+  const { linkOrderToOpenVisit } = await import("./sales-agent-visits.service");
+  const linkedVisit = await linkOrderToOpenVisit(agentId, customer.id, approval.id).catch((err) => {
+    logger.warn(`[SalesAgent] visit link failed: ${String(err)}`);
+    return null;
+  });
+
   notifySalesAgentEvent("newOrder", {
     agentName,
     customerName: customer.name,
@@ -825,7 +938,16 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     })),
   }).catch((err) => logger.warn(`[SalesAgent] order notify failed: ${String(err)}`));
 
-  return { approvalId: approval.id, subtotal, lineCount: normalizedItems.length, shortages, duplicate: false };
+  return {
+    approvalId: approval.id,
+    subtotal,
+    lineCount: normalizedItems.length,
+    shortages,
+    duplicate: false,
+    // Lets the screen offer «أنهِ الزيارة بنتيجة: أخذ طلب» instead of the rep
+    // typing an outcome with nothing behind it.
+    linkedVisitId: linkedVisit?.visitId ?? null,
+  };
 }
 
 /**
@@ -1467,24 +1589,99 @@ export async function getAgentToday(agentId: string) {
 export async function listMyCustomers(
   agentId: string,
   search?: string,
-  opts?: { page?: number; limit?: number; followUp?: "quiet" | "balance" | "never" },
+  opts?: {
+    page?: number;
+    limit?: number;
+    followUp?: "quiet" | "balance" | "never";
+    /**
+     * «يحتاجون متابعة» — ANY follow-up reason, decided in the database.
+     *
+     * This used to be a filter applied in the browser to the page that had
+     * already been fetched, which meant a customer who needed following up on
+     * page 2 simply did not appear, and `total` counted customers the screen
+     * then hid. It is a query condition now, so paging and totals are real.
+     */
+    needsFollowUp?: boolean;
+    /** Area/neighbourhood, from the per-tenant `salesAgentAreas` list. */
+    area?: string;
+  },
 ) {
   const term = search?.trim();
   const page = Math.max(1, opts?.page ?? 1);
   const limit = Math.min(Math.max(1, opts?.limit ?? 200), 500);
 
+  // «ما اشترى من مدة» is the merchant's own setting, not a number invented in
+  // this file or on the screen. `inactiveCustomerDays` already drives the
+  // shop's inactive-customer alerts, so the rep's quiet filter means exactly
+  // what the owner configured there.
+  const settings = await getSettings().catch(() => null);
+  const configuredQuietDays = Number(settings?.inactiveCustomerDays);
+  const quietDays = Number.isFinite(configuredQuietDays) && configuredQuietDays > 0
+    ? Math.min(Math.floor(configuredQuietDays), 3650)
+    : 30;
+
+  // ONE set of cutoffs for both the filter and the reasons shown on each row,
+  // so a customer can never be listed by the filter and then show no reason.
+  const filterNow = new Date();
+  const quietCutoff = new Date(filterNow.getTime() - quietDays * 86_400_000);
+  const offerSoonCutoff = new Date(filterNow.getTime() + OFFER_ENDING_SOON_DAYS * 86_400_000);
+
+  /** Never bought, or nothing bought since the cutoff. The first is a subset. */
+  const quietClause = {
+    invoices: { none: {
+      type: "SALE" as const, status: "ACTIVE" as const, archivedAt: null,
+      date: { gt: quietCutoff },
+    } },
+  };
+
   const where = {
     deletedAt: null,
     salesAgentId: agentId,
+    ...(opts?.area ? { area: opts.area } : {}),
     ...(opts?.followUp === "balance" ? { currentBalance: { gt: 0 } } : {}),
     ...(opts?.followUp === "quiet" || opts?.followUp === "never" ? {
       invoices: { none: {
         type: "SALE" as const, status: "ACTIVE" as const, archivedAt: null,
-        ...(opts.followUp === "quiet" ? { date: { gt: new Date(Date.now() - 30 * 86400000) } } : {}),
+        ...(opts.followUp === "quiet" ? { date: { gt: quietCutoff } } : {}),
       } },
     } : {}),
+    ...(opts?.needsFollowUp
+      ? {
+          OR: [
+            // Never bought, or quiet for longer than the shop's setting.
+            quietClause,
+            { currentBalance: { gt: 0 } },
+            // The rep's OWN open or refused order for this customer. Reads the
+            // real column, which is why it can live in this query at all.
+            {
+              pendingApprovals: {
+                some: {
+                  requestedBy: agentId,
+                  requestType: "CATALOG_ORDER",
+                  status: { in: ["PENDING" as const, "REJECTED" as const] },
+                },
+              },
+            },
+            // An offer that is live now and runs out within the warning window.
+            {
+              salesAgentOffers: {
+                some: {
+                  isActive: true,
+                  startsAt: { lte: filterNow },
+                  endsAt: { gt: filterNow, lte: offerSoonCutoff },
+                  product: { deletedAt: null },
+                },
+              },
+            },
+          ],
+        }
+      : {}),
     ...(term
-      ? { OR: [{ name: { contains: term, mode: "insensitive" as const } }, { phone: { contains: term } }] }
+      ? {
+          // Search must AND with the follow-up condition, not replace it: two
+          // `OR` keys in one object would overwrite each other.
+          AND: [{ OR: [{ name: { contains: term, mode: "insensitive" as const } }, { phone: { contains: term } }] }],
+        }
       : {}),
   };
 
@@ -1527,6 +1724,9 @@ export async function listMyCustomers(
     page,
     limit,
     hasMore: page * limit < total,
+    // Sent so the screen can say «ما اشترى من 45 يوم» without hardcoding a
+    // number that would then disagree with the shop's setting.
+    quietDays,
     customers: customers.map((c) => {
       const last = lastSaleBy.get(c.id) ?? null;
       return {

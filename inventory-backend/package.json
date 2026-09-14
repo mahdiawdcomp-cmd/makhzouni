@@ -14,7 +14,8 @@
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "create:first-admin": "tsx scripts/create-first-admin.ts",
-    "backup:restore": "tsx src/scripts/restore-from-backup.ts"
+    "backup:restore": "tsx src/scripts/restore-from-backup.ts",
+    "test:integration": "node --import tsx --test \"src/integration/*.integration.ts\""
   },
   "keywords": [
     "inventory",
