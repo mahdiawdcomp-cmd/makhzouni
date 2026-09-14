@@ -36,6 +36,10 @@ export type UserPermission =
   | "AGENT_NO_RECEIPT"
   | "AGENT_NO_PRICE_REQUEST"
   | "AGENT_NO_ISSUE"
+  // «عروض خاصة بالزبون» — an ALLOW permission, not a deny marker: deciding what
+  // a customer pays must never be something a rep has by default. ADMIN passes
+  // by role, as with every other permission.
+  | "MANAGE_CUSTOMER_OFFERS"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -1258,6 +1262,7 @@ export interface AppSettings {
   shopWarehouseId?: string
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
+  aiAgentName?: string
   aiAgentMuteMinutes?: number
   aiUpsetAlertPhone?: string
   catalogRequireOtp?: boolean

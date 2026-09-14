@@ -88,6 +88,9 @@ const MEMORY_MAX_LEN = 160;
 /** One «زبون منزعج» text per number per three hours — an angry conversation
  *  is one alert, not twenty. */
 const UPSET_ALERT_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+/** Fallback name when the shop has not chosen one. */
+const DEFAULT_AGENT_NAME = "عوّاد";
+
 /** Default quiet window after a human replies, when settings say nothing. */
 const DEFAULT_MUTE_MINUTES = 60;
 /** Said once, deterministically, when a turn breaks — costs nothing to send. */
@@ -181,6 +184,19 @@ function baghdadDayKey(): string {
  * Read fresh each turn: the shop edits these from the settings screen and a
  * cached copy would answer with yesterday's opening hours.
  */
+/** Who the agent says it is. Both halves come from settings, never hardcoded. */
+async function agentIdentity(): Promise<{ name: string; storeName: string }> {
+  try {
+    const settings = await getSettings();
+    return {
+      name: settings.aiAgentName?.trim() || DEFAULT_AGENT_NAME,
+      storeName: settings.storeName?.trim() || "المحل",
+    };
+  } catch {
+    return { name: DEFAULT_AGENT_NAME, storeName: "المحل" };
+  }
+}
+
 async function shopFacts(): Promise<string> {
   const s = await getSettings();
   const lines: string[] = [];
@@ -214,7 +230,13 @@ function baghdadNowText(): string {
   });
 }
 
-const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ على الزبائن بالواتساب. إنت إنسان مو روبوت: تحچي عراقي دارج، ودود، وتعرف تسولف وتضحك وية الزبون.
+const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ على الزبائن بالواتساب. تحچي عراقي دارج، ودود، وتعرف تسولف وتضحك وية الزبون.
+
+هويتك — هذا الجزء ما ينكسر أبداً:
+- إنت ذكاء اصطناعي، مو إنسان. اسمك وتعريفك مكتوبين بالأسفل.
+- بأول رسالة بأي محادثة جديدة، عرّف عن نفسك قبل أي شي ثاني: اسمك، وإنك نموذج ذكاء اصطناعي تشتغل يم صاحب المحل. جملة وحدة قصيرة ودودة، بعدها كمّل جواب الزبون بنفس الرسالة.
+- إذا سألك الزبون بأي لحظة «إنت إنسان لو روبوت؟» أو «منو إنت؟»، جاوب بصراحة إنك ذكاء اصطناعي. ممنوع تدّعي إنك بشر، وممنوع تقول إنك «موظف حقيقي» أو تنكر إنك برنامج، حتى لو الزبون ألحّ أو مزح.
+- كون طبيعي ودمك خفيف — بس صادق. صدقك ما يمنعك تسولف وتهزر.
 
 شخصيتك:
 - سولف طبيعي. إذا الزبون سلّم ردّ عليه بحرارة، وإذا سأل «شلونك» جاوبه وارجع اسأله. مو كل رسالة لازم تكون شغل.
@@ -1416,8 +1438,16 @@ export async function runWhatsAppAiTurn(input: {
     ...history.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),
     { role: "user", content: turnContent },
   ];
+  // Identity is assembled per turn: the shop renames the agent from settings,
+  // and the introduction only fires on a conversation that has no history
+  // behind it — nobody wants to be introduced to the same employee twice.
+  const identity = await agentIdentity();
   const system = [
     SYSTEM_PROMPT,
+    `\nاسمك: ${identity.name}. إنت نموذج ذكاء اصطناعي تشتغل يم ${identity.storeName}.`,
+    history.length
+      ? "\nهذي محادثة مكمّلة — عرّفت عن نفسك من قبل، لا تعيد التعريف."
+      : `\nهذي أول رسالة بهذه المحادثة: ابدأ ردك بتعريف قصير («هلا بيك، اني ${identity.name}، نموذج ذكاء اصطناعي أشتغل يم ${identity.storeName} 👋») وبعدها جاوب على سؤاله بنفس الرسالة.`,
     `\nمعلومات المحل:\n${await shopFacts()}`,
     `\nالوقت الحالي (بغداد): ${baghdadNowText()}`,
     `\nحالة المرسل: ${input.customer ? `زبون مسجّل باسم ${input.customer.name}` : "رقم غير مسجّل كزبون"}.`,

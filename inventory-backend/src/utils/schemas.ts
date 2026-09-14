@@ -56,6 +56,9 @@ const userPermissionSchema = z.enum([
   "AGENT_NO_RECEIPT",
   "AGENT_NO_PRICE_REQUEST",
   "AGENT_NO_ISSUE",
+  // «عروض خاصة بالزبون» — an ALLOW permission (ADMIN passes by role). Listed
+  // here because a permission missing from this enum cannot be granted at all.
+  "MANAGE_CUSTOMER_OFFERS",
 ]);
 
 const auditEntitySchema = z.enum([
@@ -1141,6 +1144,7 @@ export const updateSettingsSchema = z.object({
       catalogPublicUrl: z.string().trim().optional(),
       catalogAdminWhatsappNumber: z.string().trim().optional(),
       orderPreparationWhatsappNumbers: z.string().trim().optional(),
+      aiAgentName: z.string().trim().max(40).optional(),
       aiAgentMuteMinutes: z.coerce.number().int().min(0).max(1440).optional(),
       aiUpsetAlertPhone: z.string().trim().optional(),
       adminApprovalWhatsappNumber: z.string().trim().optional(),

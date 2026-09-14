@@ -772,6 +772,39 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.equal(result.sent, false);
   });
 
+  // ── Who it says it is ─────────────────────────────────────────────────────
+
+  it("introduces itself as an AI on the first message of a conversation", async () => {
+    scripted = [textReply("هلا بيك، اني عوّاد، نموذج ذكاء اصطناعي أشتغل يم مهدي عوض 👋 امرك؟")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام عليكم", customer: null });
+    const system = String(apiCalls[0].system);
+    assert.match(system, /اسمك: عوّاد/);
+    assert.match(system, /نموذج ذكاء اصطناعي تشتغل يم مهدي عوض/);
+    assert.match(system, /هذي أول رسالة بهذه المحادثة/);
+  });
+
+  it("does not re-introduce itself mid-conversation", async () => {
+    scripted = [textReply("هلا بيك، اني عوّاد 👋")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام عليكم", customer: null });
+    apiCalls = [];
+    scripted = [textReply("عدنا اوربيز ناشف")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null });
+    assert.match(String(apiCalls[0].system), /محادثة مكمّلة/);
+  });
+
+  it("the shop can rename it without a deploy", async () => {
+    settingsRow = { aiAgentName: "سنَد" };
+    scripted = [textReply("هلا، اني سنَد")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "هلا", customer: null });
+    assert.match(String(apiCalls[0].system), /اسمك: سنَد/);
+  });
+
+  it("never claims to be human — the rule is in every turn", async () => {
+    scripted = [textReply("اني ذكاء اصطناعي 🙂")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "انت انسان لو روبوت؟", customer: null });
+    assert.match(String(apiCalls[0].system), /ممنوع تدّعي إنك بشر/);
+  });
+
   // ── The agent stands down when a human steps in ───────────────────────────
 
   it("a human reply silences the agent on that number", async () => {

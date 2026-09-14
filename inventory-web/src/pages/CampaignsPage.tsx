@@ -388,6 +388,7 @@ function CustomerBotSettings() {
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const [enabled, setEnabled] = useState(false)
   const [aiEnabled, setAiEnabled] = useState(false)
+  const [aiName, setAiName] = useState("")
   const [aiMuteMinutes, setAiMuteMinutes] = useState(60)
   const [aiUpsetPhone, setAiUpsetPhone] = useState("")
   const [unknownMessage, setUnknownMessage] = useState("")
@@ -401,6 +402,7 @@ function CustomerBotSettings() {
     setSeeded(s)
     setEnabled(s.whatsappBotEnabled ?? false)
     setAiEnabled(s.whatsappAiAgentEnabled ?? false)
+    setAiName(s.aiAgentName ?? "")
     setAiMuteMinutes(s.aiAgentMuteMinutes ?? 60)
     setAiUpsetPhone(s.aiUpsetAlertPhone ?? "")
     setUnknownMessage(s.botUnknownMessage ?? "")
@@ -411,6 +413,7 @@ function CustomerBotSettings() {
     mutationFn: () => updateSettings({
       whatsappBotEnabled: enabled,
       whatsappAiAgentEnabled: aiEnabled,
+      aiAgentName: aiName.trim(),
       aiAgentMuteMinutes: aiMuteMinutes,
       aiUpsetAlertPhone: aiUpsetPhone.trim(),
       botUnknownMessage: unknownMessage.trim(),
@@ -505,6 +508,21 @@ function CustomerBotSettings() {
         </p>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-[11px] font-bold text-gray-600">اسمه</label>
+            <input
+              value={aiName}
+              onChange={(e) => setAiName(e.target.value)}
+              placeholder="عوّاد"
+              maxLength={40}
+              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400"
+              dir="rtl"
+            />
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
+              بأول رسالة بأي محادثة جديدة يعرّف عن نفسه بهذا الاسم ويوضّح إنه نموذج ذكاء اصطناعي يشتغل عندك،
+              وإذا سأله زبون «إنت إنسان لو روبوت؟» يجاوب بصراحة. اتركه فارغ لاستخدام «عوّاد».
+            </p>
+          </div>
           <div>
             <label className="mb-1 block text-[11px] font-bold text-gray-600">يسكت بعد ما ترد إنت (بالدقائق)</label>
             <input

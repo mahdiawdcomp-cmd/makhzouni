@@ -162,6 +162,9 @@ export interface AppSettings {
   orderPreparationWhatsappNumbers?: string;
   // «الموظف الذكي» — how long it stays quiet on a number after a human replies
   // from the chat screen, in minutes. 0 disables the mute entirely.
+  // The name «الموظف الذكي» introduces itself with. The shop can rename it
+  // without a deploy — it is the first word every new customer reads.
+  aiAgentName?: string;
   aiAgentMuteMinutes?: number;
   // Where the «زبون منزعج» alert is texted. Empty falls back to
   // catalogAdminWhatsappNumber, then backupWhatsappNumber.
@@ -547,6 +550,7 @@ export const defaultSettings: AppSettings = {
   // here leaks one shop's customers into another shop's catalog.
   catalogPublicUrl: "",
   catalogAdminWhatsappNumber: "",
+  aiAgentName: "عوّاد",
   aiAgentMuteMinutes: 60,
   aiUpsetAlertPhone: "",
   catalogRequireOtp: true,
