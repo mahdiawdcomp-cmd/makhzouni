@@ -342,6 +342,28 @@ test("the rep screens fit an iPad without a horizontal scroll", async (t) => {
   await t.diagnostic("iPad 1024x768: no sideways scroll, no small touch targets");
 });
 
+test("catalog filters and 2/3/4 picture layout work on phone and iPad", async (t) => {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 768 }]) {
+    const { page } = await harness(t, viewport);
+    const cards = page.locator(".sales-agent-product");
+    await page.waitForFunction(() => document.querySelectorAll(".sales-agent-product").length === 12);
+    for (const count of [3, 4, 2]) {
+      await page.getByRole("button", { name: `${count} صور في السطر` }).click();
+      assert.equal(await page.getByRole("button", { name: `${count} صور في السطر` }).getAttribute("aria-pressed"), "true");
+      assert.equal(await cards.first().evaluate(el => getComputedStyle(el.parentElement).gridTemplateColumns.split(" ").length), count);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    }
+    await page.getByRole("button", { name: "الفلاتر" }).click();
+    await page.getByRole("button", { name: "العروض" }).click();
+    assert.equal(await cards.count(), 1, "offer filter narrows the cards");
+    await page.getByRole("button", { name: "مسح الفلاتر" }).click();
+    assert.equal(await cards.count(), 12, "clear restores all cards");
+    await page.getByRole("button", { name: "4 صور في السطر" }).click();
+    await page.reload();
+    assert.equal(await page.getByRole("button", { name: "4 صور في السطر" }).getAttribute("aria-pressed"), "true", "layout persists on this device");
+  }
+});
+
 test("the owner's visit-plan screen works on a phone and an iPad", async (t) => {
   // The fixture rep has exactly these two customers.
   const CUSTOMERS = ["أسواق الربيع", "مكتبة النور"];

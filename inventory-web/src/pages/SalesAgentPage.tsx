@@ -26,11 +26,14 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  LayoutGrid,
   Loader2,
   Minus,
   Package,
   Plus,
   Receipt,
+  Search,
+  SlidersHorizontal,
   ShoppingCart,
   UserPlus,
   Users,
@@ -341,6 +344,15 @@ function useThumbnails(allIds: string[], visibleIds: string[]) {
 /* ── page ────────────────────────────────────────────────────────────── */
 
 type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail" | "issues" | "visits" | "pending"
+type CatalogColumns = 2 | 3 | 4
+type CatalogSort = "name" | "newest" | "stock" | "price-low" | "price-high"
+
+function savedCatalogColumns(): CatalogColumns {
+  try {
+    const value = Number(localStorage.getItem("sales-agent-catalog-columns"))
+    return value === 2 || value === 3 || value === 4 ? value : 2
+  } catch { return 2 }
+}
 
 const CARTS_KEY = "sales_agent_carts"
 
@@ -420,6 +432,13 @@ function SalesAgentWorkspace() {
   const [reviewChanged, setReviewChanged] = useState(false)
   const [category, setCategory] = useState("")
   const [catalogFilter, setCatalogFilter] = useState("")
+  const [catalogSort, setCatalogSort] = useState<CatalogSort>("name")
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [catalogColumns, setCatalogColumns] = useState<CatalogColumns>(savedCatalogColumns)
+  const changeCatalogColumns = (value: CatalogColumns) => {
+    setCatalogColumns(value)
+    try { localStorage.setItem("sales-agent-catalog-columns", String(value)) } catch { /* display preference still works this session */ }
+  }
   const can = (cap: "NEW_CUSTOMER" | "ISSUE" | "PRICE_REQUEST") => !user?.permissions.includes(`AGENT_NO_${cap}`)
   const existingDraft = (id: string): AgentDraft => {
     const saved = workspace.drafts[draftKey(mode, id)]
@@ -682,14 +701,22 @@ function SalesAgentWorkspace() {
     const list = (products.data ?? []).filter(p => p.currentStock > 0 && (mode !== "CARTON" || cartonEligible(p))
       && (!category || p.category === category) && (!catalogFilter || (catalogFilter === "new" ? p.isNewArrival : p.isOffer)))
     const term = search.trim().toLowerCase()
-    if (!term) return list
-    return list.filter(
+    const matching = !term ? list : list.filter(
       (p) =>
         p.name.toLowerCase().includes(term) ||
         p.itemNumber.toLowerCase().includes(term) ||
         (p.category ?? "").toLowerCase().includes(term),
     )
-  }, [products.data, search, mode, category, catalogFilter])
+    return [...matching].sort((a, b) => {
+      if (catalogSort === "stock") return b.currentStock - a.currentStock || a.name.localeCompare(b.name, "ar")
+      if (catalogSort === "price-low" || catalogSort === "price-high") {
+        const price = (p: AgentProduct) => mode === "CARTON" ? unitPrice(p, "CARTON", mode) : p.salePrice
+        return (catalogSort === "price-low" ? price(a) - price(b) : price(b) - price(a)) || a.name.localeCompare(b.name, "ar")
+      }
+      if (catalogSort === "newest") return Number(b.isNewArrival) - Number(a.isNewArrival) || a.name.localeCompare(b.name, "ar")
+      return a.name.localeCompare(b.name, "ar")
+    })
+  }, [products.data, search, mode, category, catalogFilter, catalogSort])
 
   const pickCustomer = (id: string) => {
     if (draft.pending || submit.isPending || preview.isPending) { toast({ title: "تحقق من الطلب الحالي قبل تبديل الزبون" }); return }
@@ -711,21 +738,24 @@ function SalesAgentWorkspace() {
   return (
     <div
       dir="rtl"
-      className="flex h-[100dvh] flex-col overflow-hidden"
+      className="sales-agent-shell flex h-[100dvh] flex-col overflow-hidden"
       style={{ backgroundColor: "var(--theme-pageBg)", color: "var(--theme-textPrimary)" }}
     >
       {/* Page header — the site's own pattern: title, one-line subtitle, actions
           on the far side. */}
       <div
-        className="shrink-0 border-b px-4 py-3 sm:px-6"
+        className="shrink-0 border-b px-3 py-3 sm:px-6"
         style={{ backgroundColor: "var(--theme-cardBg)", borderColor: "var(--theme-cardBorder)" }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-bold sm:text-xl">
-              {header.data ? header.data.name : user?.name ?? "المندوب"}
-            </h1>
-            <p className="truncate text-xs text-slate-500 sm:text-sm">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[var(--theme-accentSoft)] text-[var(--theme-accent)]" aria-hidden="true"><ShoppingCart className="size-5" /></div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-[var(--theme-accent)]">مساحة المندوب</p>
+              <h1 className="truncate text-lg font-extrabold sm:text-xl">
+                {header.data ? header.data.name : user?.name ?? "المندوب"}
+              </h1>
+              <p className="truncate text-xs text-slate-500 sm:text-sm">
               {header.data ? (
                 <>
                   الرصيد {money(header.data.currentBalance)}
@@ -736,12 +766,13 @@ function SalesAgentWorkspace() {
               ) : (
                 "تصفح بحرية · اختَر الزبون وقت الطلب"
               )}
-            </p>
+              </p>
+            </div>
           </div>
           {/* items-center, not the default stretch: without it these two
               buttons were squeezed to their content height (36px) and lost the
               44px touch target they ask for. */}
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             {customerId && (
               <Button
                 variant="outline"
@@ -769,7 +800,7 @@ function SalesAgentWorkspace() {
             and the last one wrapped onto a line of its own. Two rows of three
             stay legible at 44px tall. Wider screens keep the natural strip. */}
         <div
-          className="mt-3 -mb-3 grid grid-cols-3 border-b sm:flex sm:overflow-x-auto"
+          className="mt-3 -mb-3 grid grid-cols-3 gap-1 border-b sm:flex sm:overflow-x-auto"
           style={{ borderColor: "var(--theme-cardBorder)" }}
         >
           {TABS.map((t) => (
@@ -779,10 +810,10 @@ function SalesAgentWorkspace() {
               disabled={submit.isPending || preview.isPending}
               onClick={() => setScreen(t.key)}
               className={cn(
-                "min-h-11 shrink-0 px-1 py-2 text-sm font-medium sm:px-4",
+                "min-h-11 shrink-0 rounded-t-xl px-1 py-2 text-sm font-semibold transition-colors sm:px-4",
                 screen === t.key
-                  ? "border-b-2 border-indigo-500 text-indigo-600"
-                  : "text-slate-500 hover:text-slate-700",
+                  ? "border-b-2 border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-accent)]"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800",
               )}
             >
               {t.label}
@@ -914,7 +945,8 @@ function SalesAgentWorkspace() {
 
           {screen === "catalog" && (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
+              <section className="sales-agent-intro rounded-3xl border border-[var(--theme-cardBorder)] bg-[var(--theme-cardBg)] p-3 shadow-sm sm:p-4" aria-label="خيارات الكتلوك">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex rounded-2xl bg-slate-100 p-1 dark:bg-slate-800" aria-label="نوع التسعير">
                   {(["WHOLESALE", "CARTON"] as const).map(value => <Button key={value} className="h-11 rounded-xl" variant={mode === value ? "default" : "ghost"} aria-pressed={mode === value}
                     disabled={Boolean(draft.pending) || submit.isPending || preview.isPending}
@@ -924,15 +956,33 @@ function SalesAgentWorkspace() {
                   </Button>)}
                 </div>
                 <span className="text-xs text-slate-500">{mode === "CARTON" ? "كارتون كامل فقط · بسعر التوزيع" : "قطعة · درزن · علبة · كارتون بسعر الجملة"}</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <select aria-label="قسم المواد" className="h-11 max-w-full rounded-xl border bg-[var(--theme-cardBg)] px-3" value={category} onChange={e => setCategory(e.target.value)}>
-                  <option value="">كل الأقسام</option>
-                  {[...new Set((products.data ?? []).map(p => p.category).filter(Boolean))].map(c => <option key={c} value={c!}>{c}</option>)}
-                </select>
-                <Button className="h-11" variant={catalogFilter === "new" ? "default" : "outline"} onClick={() => setCatalogFilter(catalogFilter === "new" ? "" : "new")}>الجديد</Button>
-                <Button className="h-11" variant={catalogFilter === "offer" ? "default" : "outline"} onClick={() => setCatalogFilter(catalogFilter === "offer" ? "" : "offer")}>العروض</Button>
-              </div>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <label className="relative min-w-[12rem] flex-1">
+                    <Search className="pointer-events-none absolute inset-y-0 right-3 my-auto size-4 text-slate-400" aria-hidden="true" />
+                    <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="دور على مادة أو رقمها" aria-label="بحث عن مادة" className="h-11 pe-10" />
+                  </label>
+                  <Button className="h-11" variant={filtersOpen || category || catalogFilter ? "default" : "outline"} aria-expanded={filtersOpen} aria-controls="agent-catalog-filters" onClick={() => setFiltersOpen(value => !value)}>
+                    <SlidersHorizontal className="size-4" /> الفلاتر {(category || catalogFilter) && <span className="rounded-full bg-white/20 px-1.5 text-xs">{Number(Boolean(category)) + Number(Boolean(catalogFilter))}</span>}
+                  </Button>
+                  <div className="flex items-center gap-1 rounded-xl border border-[var(--theme-cardBorder)] p-1" role="group" aria-label="عدد الصور في السطر">
+                    <LayoutGrid className="mx-1 hidden size-4 text-slate-400 sm:block" aria-hidden="true" />
+                    {([2, 3, 4] as const).map(value => <button key={value} type="button" aria-label={`${value} صور في السطر`} aria-pressed={catalogColumns === value} title={`${value} صور في السطر`} onClick={() => changeCatalogColumns(value)} className={cn("min-h-11 min-w-11 rounded-lg px-2 text-sm font-bold transition-colors", catalogColumns === value ? "bg-[var(--theme-accent)] text-white shadow-sm" : "text-slate-500 hover:bg-[var(--theme-accentSoft)] hover:text-[var(--theme-accent)]")}>{value}</button>)}
+                  </div>
+                </div>
+                {filtersOpen && <div id="agent-catalog-filters" className="sales-agent-filter-panel mt-3 grid gap-2 border-t border-[var(--theme-cardBorder)] pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
+                  <select aria-label="قسم المواد" className="h-11 min-w-0 rounded-xl border border-[var(--theme-cardBorder)] bg-[var(--theme-cardBg)] px-3" value={category} onChange={e => setCategory(e.target.value)}>
+                    <option value="">كل الأقسام</option>
+                    {[...new Set((products.data ?? []).map(p => p.category).filter(Boolean))].map(c => <option key={c} value={c!}>{c}</option>)}
+                  </select>
+                  <select aria-label="ترتيب المواد" className="h-11 min-w-0 rounded-xl border border-[var(--theme-cardBorder)] bg-[var(--theme-cardBg)] px-3" value={catalogSort} onChange={e => setCatalogSort(e.target.value as CatalogSort)}>
+                    <option value="name">الاسم</option><option value="newest">الجديد أولاً</option><option value="stock">الأكثر توفراً</option><option value="price-low">السعر: الأقل</option><option value="price-high">السعر: الأعلى</option>
+                  </select>
+                  <Button className="h-11" variant={catalogFilter === "new" ? "default" : "outline"} aria-pressed={catalogFilter === "new"} onClick={() => setCatalogFilter(catalogFilter === "new" ? "" : "new")}>الجديد</Button>
+                  <Button className="h-11" variant={catalogFilter === "offer" ? "default" : "outline"} aria-pressed={catalogFilter === "offer"} onClick={() => setCatalogFilter(catalogFilter === "offer" ? "" : "offer")}>العروض</Button>
+                  {(category || catalogFilter || catalogSort !== "name") && <Button className="h-11 sm:col-span-4" variant="ghost" onClick={() => { setCategory(""); setCatalogFilter(""); setCatalogSort("name") }}>مسح الفلاتر</Button>}
+                </div>}
+              </section>
               {/* «يشتريها عادةً» + «عروضه»: the reason the rep picked this
                   customer, above the grid rather than buried in a menu. */}
               <CustomerInsights
@@ -954,7 +1004,7 @@ function SalesAgentWorkspace() {
                 error={products.isError}
                 onRetry={() => void products.refetch()}
                 search={search}
-                onSearch={setSearch}
+                columns={catalogColumns}
                 onOpen={p => { if (!submit.isPending && !preview.isPending) setOpenProduct(p) }}
                 specialPrice={specialPriceFor}
               />
@@ -1171,7 +1221,7 @@ function CatalogScreen({
   error,
   onRetry,
   search,
-  onSearch,
+  columns,
   onOpen,
   specialPrice,
 }: {
@@ -1183,7 +1233,7 @@ function CatalogScreen({
   error: boolean
   onRetry: () => void
   search: string
-  onSearch: (v: string) => void
+  columns: CatalogColumns
   onOpen: (p: AgentProduct) => void
   specialPrice: (productId: string, unit: Unit) => number | null
 }) {
@@ -1229,14 +1279,10 @@ function CatalogScreen({
   return (
     <section aria-label="كتلوك المندوب" className="space-y-3">
       <div className="space-y-3">
-        <Input
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="بحث بالاسم أو رقم المادة"
-          aria-label="بحث عن مادة"
-          className="h-11"
-        />
-        <p className="text-xs text-slate-500">{products.length} مادة متوفرة · اضغط الصورة للتفاصيل والإضافة</p>
+        <div className="flex items-center justify-between gap-2 px-1">
+          <p className="text-sm font-semibold">{products.length} مادة متوفرة</p>
+          <p className="text-xs text-slate-500">{search ? "نتائج البحث" : "اضغط الصورة للتفاصيل والإضافة"}</p>
+        </div>
 
         {loading ? (
           paused ? (
@@ -1247,7 +1293,7 @@ function CatalogScreen({
         ) : products.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">ما اكو نتائج</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className={cn("grid", columns === 4 ? "gap-1.5 sm:gap-3" : "gap-2.5 sm:gap-3")} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
             {products.map((product) => {
               const special = availableUnits(product).some((u) => specialPrice(product.id, u) !== null)
               return (
@@ -1257,7 +1303,7 @@ function CatalogScreen({
                   data-pid={product.id}
                   ref={observe}
                   onClick={() => onOpen(product)}
-                  className="group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-[var(--theme-cardBg)] text-start shadow-sm transition duration-150 active:scale-[0.98] hover:border-[var(--theme-accent)] hover:shadow-md"
+                  className="sales-agent-product group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-[var(--theme-cardBg)] text-start shadow-sm transition-[transform,box-shadow,border-color] duration-200 active:scale-[0.98] hover:-translate-y-0.5 hover:border-[var(--theme-accent)] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-accent)]"
                   style={{ borderColor: "var(--theme-cardBorder)" }}
                 >
                   <div className="relative aspect-square w-full bg-slate-100 dark:bg-slate-800">
@@ -1267,7 +1313,7 @@ function CatalogScreen({
                         alt={product.name}
                         loading="lazy"
                         decoding="async"
-                        className="h-full w-full object-contain bg-white p-1"
+                      className="h-full w-full bg-white object-contain p-1 transition-transform duration-300 group-hover:scale-[1.04]"
                       />
                     ) : (
                       <div className="grid h-full w-full place-items-center text-slate-400">
@@ -1283,16 +1329,16 @@ function CatalogScreen({
                     {(product.isNewArrival || product.isOffer) && <span className="absolute start-2 bottom-2 rounded-full bg-indigo-600 px-2 py-1 text-[11px] font-bold text-white">{product.isNewArrival ? "جديد" : "عرض"}</span>}
                   </div>
 
-                  <div className="flex flex-1 flex-col gap-1 p-3">
-                    <p className="line-clamp-2 min-h-10 text-sm font-semibold leading-snug">{product.name}</p>
-                    <p className="text-[11px] text-slate-500">{product.itemNumber}</p>
-                    <p className="mt-auto text-base font-bold tabular-nums">
-                      {money(mode === "CARTON" ? unitPrice(product, "CARTON", mode) : product.salePrice)} <span className="text-xs font-normal">/ {mode === "CARTON" ? "كارتون" : "قطعة"}</span>
+                  <div className={cn("flex min-w-0 flex-1 flex-col gap-1", columns === 4 ? "p-1.5 sm:p-3" : "p-2.5 sm:p-3")}>
+                    <p className={cn("line-clamp-2 font-semibold leading-snug", columns === 4 ? "min-h-8 text-[11px] sm:min-h-10 sm:text-sm" : "min-h-10 text-sm")}>{product.name}</p>
+                    <p className="truncate text-[10px] text-slate-500 sm:text-[11px]">{product.itemNumber}</p>
+                    <p className={cn("mt-auto break-words font-bold tabular-nums", columns === 4 ? "text-xs sm:text-base" : "text-sm sm:text-base")}>
+                      {money(mode === "CARTON" ? unitPrice(product, "CARTON", mode) : product.salePrice)} <span className="text-[10px] font-normal sm:text-xs">/ {mode === "CARTON" ? "كارتون" : "قطعة"}</span>
                     </p>
-                    <span className="text-[12px] text-slate-500 tabular-nums">
+                    <span className={cn("text-slate-500 tabular-nums", columns === 4 ? "text-[10px]" : "text-[12px]")}>
                       {mode === "CARTON" ? `${product.pcsPerCarton} قطعة · القطعة ${money(Number(product.cartonPiecePrice))}` : `المتوفر ${product.currentStock} قطعة`}
                     </span>
-                    <span className="mt-2 flex min-h-11 items-center justify-center gap-1 rounded-xl bg-[var(--theme-accentSoft)] text-sm font-semibold text-[var(--theme-accent)]"><Plus className="h-4 w-4" /> عرض وإضافة</span>
+                    <span className={cn("mt-2 flex min-h-10 items-center justify-center gap-1 rounded-xl bg-[var(--theme-accentSoft)] font-semibold text-[var(--theme-accent)] sm:min-h-11", columns === 4 ? "text-[10px] sm:text-sm" : "text-xs sm:text-sm")}><Plus className="size-3 shrink-0 sm:size-4" /> {columns === 4 ? "عرض" : "عرض وإضافة"}</span>
                   </div>
                 </button>
               )

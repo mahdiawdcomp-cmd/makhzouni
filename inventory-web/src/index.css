@@ -158,6 +158,20 @@ button, input, select, textarea { font: inherit; }
   animation: pageIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Sales-agent catalog: short, useful motion that never animates every product
+   on a long inventory list. Respect the device's reduced-motion preference. */
+.sales-agent-intro {
+  animation: pageIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.sales-agent-filter-panel {
+  animation: pageIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sales-agent-intro, .sales-agent-filter-panel { animation: none; }
+  .sales-agent-product, .sales-agent-product img { transition: none; }
+  .sales-agent-product:hover { transform: none; }
+}
+
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    STOREFRONT MOTION
 
