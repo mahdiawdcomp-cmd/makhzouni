@@ -42,12 +42,11 @@ export function nextBidAmount(state: PriceState): number {
           PERCENT_STEP_ROUNDING,
           Math.ceil((base * state.incrementValue) / 100 / PERCENT_STEP_ROUNDING) * PERCENT_STEP_ROUNDING,
         );
-  if (state.bidCount === 0 || state.currentPrice == null) {
-    // The first bid IS the starting price — unless it starts at zero, where a
-    // zero bid would mean nothing.
-    return state.startPrice > 0 ? state.startPrice : step(0);
-  }
-  return state.currentPrice + step(state.currentPrice);
+  // The starting price is the opening price, not a bid: every press raises
+  // the price, the first one included. (It used to BE the first bid, so a
+  // bidder pressed and the price did not move — 100 stayed 100.)
+  const base = state.bidCount === 0 || state.currentPrice == null ? state.startPrice : state.currentPrice;
+  return base + step(base);
 }
 
 /** A bid this close to the end buys everyone else another hour. */

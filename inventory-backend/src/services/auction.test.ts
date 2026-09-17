@@ -10,8 +10,19 @@ import { EXTENSION_MS, extendedEnd, maskPhone, nextBidAmount, toNationalPhone } 
 const base = { startPrice: 5000, incrementType: "AMOUNT" as const, incrementValue: 1000, currentPrice: null, bidCount: 0 };
 
 describe("سعر المزايدة التالية", () => {
-  it("أول مزايدة هي سعر البداية", () => {
-    assert.equal(nextBidAmount(base), 5000);
+  it("أول مزايدة ترفع سعر البداية بمقدار الزيادة", () => {
+    // Start 5,000 + 1,000 — pressing «زايد» must move the price.
+    assert.equal(nextBidAmount(base), 6000);
+  });
+
+  it("مثال صاحب المحل: يبدي 100 والزيادة 25 → أول مزايدة 125", () => {
+    assert.equal(nextBidAmount({ ...base, startPrice: 100, incrementValue: 25 }), 125);
+    assert.equal(nextBidAmount({ ...base, startPrice: 100, incrementValue: 25, currentPrice: 125, bidCount: 1 }), 150);
+  });
+
+  it("أول مزايدة بالنسبة تنحسب من سعر البداية", () => {
+    // 5% of 10,000 = 500
+    assert.equal(nextBidAmount({ ...base, startPrice: 10000, incrementType: "PERCENT", incrementValue: 5 }), 10500);
   });
 
   it("مبلغ ثابت يضاف على أعلى سعر", () => {

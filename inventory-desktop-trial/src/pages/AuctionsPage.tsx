@@ -189,7 +189,7 @@ function CreateAuctionForm({ onCreated }: { onCreated: (lot: AuctionLot) => void
       <p className="text-xs text-slate-500">
         السعر لل{unitLabel(unit)} الواحد، والفايز يدفع السعر × الكمية.
         {incrementType === "PERCENT" ? " الزيادة بالنسبة تتقرّب لفوق لأقرب ٢٥٠ دينار." : ""}
-        {Number(startPrice) === 0 ? " المزاد يبدي من صفر: أول مزايدة تساوي مقدار الزيادة." : ""}
+        {" "}أول مزايدة = سعر البداية + الزيادة، يعني أول ما يضغط الزبون يرتفع السعر.
         {" "}أي مزايدة بآخر ٥ دقايق تمدد المزاد ساعة كاملة.
       </p>
 
