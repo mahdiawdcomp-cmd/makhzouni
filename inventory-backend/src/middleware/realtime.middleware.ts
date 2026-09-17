@@ -23,6 +23,23 @@ function resourceForPath(path: string): RealtimeResource | null {
     return null;
   }
 
+  // Read-only POSTs (a body carries the id list / the draft). Publishing them
+  // is not just noise: /api/sales-agent/products/thumbnails fell through to
+  // "all", every tab refetched everything, the rep's page refetched its
+  // products and asked for thumbnails again — a self-sustaining loop several
+  // times a second that burned the per-IP rate limit and locked the whole
+  // shop out with 429s (2026-09-15 → 09-17).
+  if (/\/(thumbnails|lookup|preview)$/.test(clean)) return null;
+
+  if (clean.startsWith("/api/sales-agent/")) {
+    const sub = clean.slice("/api/sales-agent".length);
+    if (sub.startsWith("/customers")) return "customers";
+    if (sub.startsWith("/receipts")) return "vouchers";
+    if (sub.startsWith("/visits")) return null;
+    // orders, issues, price requests all land as approvals.
+    return "approvals";
+  }
+
   if (clean.startsWith("/api/products")) return "products";
   if (clean.startsWith("/api/customers")) return "customers";
   if (clean.startsWith("/api/invoices")) return "invoices";

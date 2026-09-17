@@ -69,6 +69,11 @@ function realtimeUrl(token: string): string | null {
   return `${base}/realtime/events?token=${encodeURIComponent(token)}`
 }
 
+const FULL_REFRESH_MIN_GAP_MS = 10_000
+// Boot-time config no staff mutation changes; refetching it on every broadcast
+// only adds requests.
+const STATIC_QUERY_ROOTS = new Set(["tenant-config", "license-status"])
+
 const MIN_RECONNECT_MS = 3_000
 const MAX_RECONNECT_MS = 30_000
 
@@ -81,7 +86,34 @@ export function RealtimeSyncBridge() {
   const reconnectBackoff = useRef<number>(MIN_RECONNECT_MS)
   const nextRetryAt = useRef<number>(0)
 
+  const lastFullRefreshAt = useRef<number>(0)
+  const deferredFullRefresh = useRef<number | null>(null)
+
   useEffect(() => {
+    // An unfiltered refresh refetches every active query. If whatever triggers
+    // it is itself a side effect of refetching (a page that re-requests data on
+    // refetch and a server that broadcasts that request), the two feed each
+    // other several times a second — that loop locked every shop device out
+    // with 429s. Coalesce to at most one per window, never drop the last one,
+    // and leave the heavy products query / static boot config out of it.
+    function invalidateEverything() {
+      const wait = lastFullRefreshAt.current + FULL_REFRESH_MIN_GAP_MS - Date.now()
+      if (wait > 0) {
+        if (deferredFullRefresh.current == null) {
+          deferredFullRefresh.current = window.setTimeout(() => {
+            deferredFullRefresh.current = null
+            invalidateEverything()
+          }, wait)
+        }
+        return
+      }
+      lastFullRefreshAt.current = Date.now()
+      void queryClient.invalidateQueries({
+        predicate: (query) => !STATIC_QUERY_ROOTS.has(String(query.queryKey[0])) && query.queryKey[0] !== "products",
+      })
+      void queryClient.invalidateQueries({ queryKey: ["products"], refetchType: "none" })
+    }
+
     function invalidate(resource: RealtimeResource) {
       pendingResources.current.add(resource)
       if (invalidationTimer.current != null) return
@@ -92,13 +124,13 @@ export function RealtimeSyncBridge() {
         invalidationTimer.current = null
 
         if (resources.includes("all")) {
-          void queryClient.invalidateQueries()
+          invalidateEverything()
           return
         }
 
         const keys = new Set(resources.flatMap((item) => queryKeysByResource[item] ?? []))
         if (keys.size === 0) {
-          void queryClient.invalidateQueries()
+          invalidateEverything()
           return
         }
 
@@ -197,6 +229,7 @@ export function RealtimeSyncBridge() {
       document.removeEventListener("visibilitychange", refreshMoneyDataOnReturn)
       window.removeEventListener("focus", refreshMoneyDataOnReturn)
       if (invalidationTimer.current != null) window.clearTimeout(invalidationTimer.current)
+      if (deferredFullRefresh.current != null) window.clearTimeout(deferredFullRefresh.current)
       closeCurrent()
     }
   }, [queryClient])

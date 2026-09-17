@@ -22,6 +22,24 @@ function isChunkLoadError(error: unknown): boolean {
   )
 }
 
+const CHUNK_RELOAD_KEY = "chunk-reload-at"
+const CHUNK_RELOAD_GAP_MS = 30_000
+
+// A stale chunk is fixed by ONE reload. When the network itself is down the
+// reload fails the same way, and an unguarded reload turned that into an
+// endless reload loop instead of an error the user can see.
+function tryChunkReload(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0)
+    if (Date.now() - last < CHUNK_RELOAD_GAP_MS) return false
+    sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
+  } catch {
+    return false
+  }
+  window.location.reload()
+  return true
+}
+
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props)
@@ -30,8 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: unknown): State {
     // Chunk load errors (stale JS after SW update) → auto reload immediately
-    if (isChunkLoadError(error)) {
-      window.location.reload()
+    if (isChunkLoadError(error) && tryChunkReload()) {
       return { hasError: false, message: "" }
     }
     const message =
@@ -42,7 +59,6 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: unknown, info: { componentStack?: string }) {
-    if (isChunkLoadError(error)) return
     console.error("[ErrorBoundary]", error, info.componentStack)
   }
 

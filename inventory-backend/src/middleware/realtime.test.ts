@@ -34,4 +34,14 @@ describe("resourceForPath", () => {
     assert.equal(resourceForPath("/api/public/catalog/thumbnails?access=abc"), null);
     assert.equal(resourceForPath("/api/products?limit=50"), "products");
   });
+
+  test("sales-agent reads never broadcast; its writes stay scoped (never «all»)", () => {
+    assert.equal(resourceForPath("/api/sales-agent/products/thumbnails"), null);
+    assert.equal(resourceForPath("/api/sales-agent/customers/lookup"), null);
+    assert.equal(resourceForPath("/api/sales-agent/orders/preview"), null);
+    assert.equal(resourceForPath("/api/sales-agent/visits/plan"), null);
+    assert.equal(resourceForPath("/api/sales-agent/orders"), "approvals");
+    assert.equal(resourceForPath("/api/sales-agent/receipts"), "vouchers");
+    assert.equal(resourceForPath("/api/sales-agent/customers"), "customers");
+  });
 });

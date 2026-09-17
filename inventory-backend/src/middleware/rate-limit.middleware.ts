@@ -1,8 +1,11 @@
 import rateLimit from "express-rate-limit";
 
+// Keyed per IP, and a whole shop (every PC, the rep's phone on the shop Wi-Fi)
+// shares one public IP. One dashboard open is ~20 requests, so 100/min locked
+// every device out as soon as two screens were busy.
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: Number(process.env.API_RATE_LIMIT_PER_MINUTE ?? 100),
+  limit: Number(process.env.API_RATE_LIMIT_PER_MINUTE ?? 600),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
