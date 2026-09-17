@@ -18,6 +18,7 @@ import {
   productMovementReport,
   profitReport,
   marginReport,
+  purchasePerformanceReport,
   customerProfitAudit,
   costFixScopePreview,
   loyaltyPointsReport,
@@ -44,6 +45,7 @@ import {
   productMovementReportSchema,
   profitReportSchema,
   marginReportSchema,
+  purchasePerformanceSchema,
   customerProfitAuditSchema,
   costFixScopePreviewSchema,
   loyaltyExclusionSchema,
@@ -103,6 +105,8 @@ router.get("/profit", requireProfitReports(), validate(profitReportSchema), prof
 // Per-product and per-customer margins — the same cost data as /profit, cut two
 // other ways, so it sits behind the identical gate.
 router.get("/margins", requireProfitReports(), validate(marginReportSchema), marginReport);
+// What each purchase earned and how fast it sells — profit data, same gate.
+router.get("/purchase-performance", requireProfitReports(), validate(purchasePerformanceSchema), purchasePerformanceReport);
 // Exposes per-line cost and margin, so it sits behind the same profit gate.
 // The fix WRITES a recorded cost onto historical invoice lines, which is a
 // product-data change on top of a profit read — hence both guards.

@@ -44,6 +44,7 @@ const SalesAgentPage = lazyPage(() => import("./pages/SalesAgentPage"), "SalesAg
 const SalesAgentAdminPage = lazyPage(() => import("./pages/SalesAgentAdminPage"), "SalesAgentAdminPage")
 const ProductsPage = lazyPage(() => import("./pages/ProductsPage"), "ProductsPage")
 const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage")
+const PurchasePerformancePage = lazyPage(() => import("./pages/PurchasePerformancePage"), "PurchasePerformancePage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage")
 const InvoiceDesignerPage = lazyPage(() => import("./pages/InvoiceDesignerPage"), "InvoiceDesignerPage")
@@ -164,6 +165,7 @@ const router = createBrowserRouter([
           { path: "wholesale-instagram", element: s(<WholesaleInstagramPage />) },
           { path: "requested-products", element: s(<RequestedProductsPage />) },
           { path: "reports", element: s(<ReportsPage />) },
+          { path: "reports/purchase-performance", element: s(<PurchasePerformancePage />) },
           // Settings holds the WhatsApp/Telegram/Meta credentials — the sidebar
           // already hides it behind MANAGE_SETTINGS, so the route must enforce
           // the same thing or the URL is an open door.

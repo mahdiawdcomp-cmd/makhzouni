@@ -1037,6 +1037,14 @@ export const profitReportSchema = z.object({
   }),
 });
 
+export const purchasePerformanceSchema = z.object({
+  query: z.object({
+    invoiceId: z.string().uuid().optional(),
+    source: z.enum(["CHINA", "REGULAR"]).optional(),
+    category: z.enum(["BEST", "HIGH_PROFIT_MEDIUM", "HIGH_PROFIT_SLOW", "FAST_LOW_PROFIT", "BALANCED", "STAGNANT", "NEW", "OTHER"]).optional(),
+  }),
+});
+
 export const marginReportSchema = z.object({
   query: z.object({
     from: dateString.optional(),

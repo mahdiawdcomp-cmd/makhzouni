@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   BarChart3,
+  TrendingUp,
   Boxes,
   ChevronDown,
   ClipboardCheck,
@@ -171,6 +172,7 @@ const navItems: Item[] = [
   { to: "/wholesale-instagram", label: "إنستغرام الجملة", icon: Megaphone },
   { to: "/requested-products", label: "تنبيهات الموظف الذكي", icon: Zap },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
+  { to: "/reports/purchase-performance", label: "أداء المشتريات", icon: TrendingUp },
   { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },
 ]

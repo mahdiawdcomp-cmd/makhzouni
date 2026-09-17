@@ -44,6 +44,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 import { cartonBreakdown, unitToPieces } from "../utils/units"
 import { InvoiceLabelsDialog } from "../components/InvoiceLabelsDialog"
+import { PurchasePerformancePanel } from "../components/PurchasePerformancePanel"
 
 function money(v: number | undefined) { return fmt(v) }
 
@@ -751,6 +752,9 @@ export function InvoiceDetailPage() {
         </div>
       </div>
       {/* End printable section */}
+
+      {/* «أداء هذا الأوردر» — how every line of this purchase is selling. */}
+      {isPurchase && <PurchasePerformancePanel invoiceId={invoice.id} />}
 
       <div className="print:hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">

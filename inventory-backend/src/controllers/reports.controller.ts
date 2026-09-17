@@ -1,4 +1,5 @@
 import { asyncHandler } from "../utils/async-handler";
+import { getPurchasePerformance } from "../services/purchase-performance.service";
 import {
   getAtRiskCustomers,
   getCustomerDebtsReport,
@@ -119,6 +120,11 @@ export const profitReport = asyncHandler(async (req, res) => {
   const data = await getProfitReport(
     req.validatedQuery as Parameters<typeof getProfitReport>[0]
   );
+  res.json({ success: true, data });
+});
+
+export const purchasePerformanceReport = asyncHandler(async (req, res) => {
+  const data = await getPurchasePerformance(req.validatedQuery as Parameters<typeof getPurchasePerformance>[0]);
   res.json({ success: true, data });
 });
 

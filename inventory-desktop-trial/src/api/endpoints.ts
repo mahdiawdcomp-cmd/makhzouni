@@ -419,6 +419,72 @@ export async function getProductsWithNegativeStock() {
   return { count: data.count ?? 0, unfixableCount: data.unfixableCount ?? 0, data: data.data ?? [] }
 }
 
+export type PurchaseSource = "CHINA" | "REGULAR"
+export type PerformanceLevel = "HIGH" | "MEDIUM" | "LOW"
+export type PerformanceCategory =
+  | "BEST" | "HIGH_PROFIT_MEDIUM" | "HIGH_PROFIT_SLOW" | "FAST_LOW_PROFIT"
+  | "BALANCED" | "STAGNANT" | "NEW" | "OTHER"
+
+export interface PurchaseLotPerformance {
+  lotId: string
+  invoiceId: string
+  invoiceNumber: string
+  supplierName: string
+  date: string
+  source: PurchaseSource
+  productId: string
+  productName: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  pcsPerCarton: number
+  orderedPieces: number
+  soldPieces: number
+  remainingPieces: number
+  soldPercent: number
+  daysActive: number
+  soldOut: boolean
+  piecesPerDay: number
+  daysToSellOut: number | null
+  costPerPiece: number
+  revenue: number
+  cost: number
+  profit: number
+  margin: number
+  marginIsExpected: boolean
+  speedLevel: PerformanceLevel
+  profitLevel: PerformanceLevel
+  category: PerformanceCategory
+  score: number
+}
+
+export interface PurchaseOrderPerformance {
+  invoiceId: string
+  invoiceNumber: string
+  supplierName: string
+  date: string
+  source: PurchaseSource
+  lines: number
+  orderedPieces: number
+  soldPieces: number
+  soldPercent: number
+  revenue: number
+  profit: number
+  margin: number
+  best: number
+  stagnant: number
+}
+
+export interface PurchasePerformanceReport {
+  rows: PurchaseLotPerformance[]
+  orders: PurchaseOrderPerformance[]
+  categoryCounts: Partial<Record<PerformanceCategory, number>>
+}
+
+export async function getPurchasePerformance(params: { invoiceId?: string; source?: PurchaseSource; category?: PerformanceCategory }) {
+  const { data } = await api.get<ApiEnvelope<PurchasePerformanceReport>>("/reports/purchase-performance", { params })
+  return data.data!
+}
+
 export async function bulkDeleteProducts(ids: string[]) {
   const { data } = await api.post<{ success: boolean; deleted: number; message?: string }>("/products/bulk-delete", { ids })
   return data
