@@ -6,6 +6,7 @@ import { cancelAuction, createAuction, getAuctions, getProducts } from "../api/e
 import type { AuctionIncrementType, AuctionLot, AuctionStatus } from "../api/endpoints"
 import { Button } from "../components/ui/button"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
+import { HoverZoomImage } from "../components/HoverZoomImage"
 import { QueryErrorBox } from "../components/ui/query-error"
 import { toast } from "../components/ui/use-toast"
 import { usePageTitle } from "../hooks/usePageTitle"
@@ -34,7 +35,7 @@ function defaultEnd() {
 function CreateAuctionForm({ onCreated }: { onCreated: (lot: AuctionLot) => void }) {
   const qc = useQueryClient()
   const [search, setSearch] = useState("")
-  const [product, setProduct] = useState<{ id: string; name: string; itemNumber: string; currentStock?: number; pcsPerCarton: number } | null>(null)
+  const [product, setProduct] = useState<{ id: string; name: string; itemNumber: string; currentStock?: number; pcsPerCarton: number; thumbnailUrl?: string | null; mediumUrl?: string | null } | null>(null)
   const [unit, setUnit] = useState<"PIECE" | "CARTON">("CARTON")
   const [quantity, setQuantity] = useState("")
   const [startPrice, setStartPrice] = useState("0")
@@ -89,12 +90,15 @@ function CreateAuctionForm({ onCreated }: { onCreated: (lot: AuctionLot) => void
       {/* Product */}
       {product ? (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900">
-          <div>
+          <div className="flex min-w-0 items-center gap-3">
+          <HoverZoomImage src={product.thumbnailUrl} largeSrc={product.mediumUrl} alt={product.name} fallback={product.itemNumber} className="h-14 w-14" />
+          <div className="min-w-0">
             <p className="font-semibold">{product.name}</p>
             <p className="text-xs text-slate-500">
               {product.itemNumber} · الموجود {fmt(product.currentStock ?? 0)} قطعة
               {product.pcsPerCarton > 1 ? ` (${fmt(Math.floor((product.currentStock ?? 0) / product.pcsPerCarton))} كارتون)` : ""}
             </p>
+          </div>
           </div>
           <Button variant="ghost" size="sm" onClick={() => setProduct(null)}><X className="h-4 w-4" /> تغيير</Button>
         </div>
@@ -112,11 +116,12 @@ function CreateAuctionForm({ onCreated }: { onCreated: (lot: AuctionLot) => void
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => setProduct({ id: p.id, name: p.name, itemNumber: p.itemNumber, currentStock: p.currentStock, pcsPerCarton: p.pcsPerCarton })}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-right text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                  onClick={() => setProduct({ id: p.id, name: p.name, itemNumber: p.itemNumber, currentStock: p.currentStock, pcsPerCarton: p.pcsPerCarton, thumbnailUrl: p.thumbnailUrl, mediumUrl: p.mediumUrl })}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-right text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-xs text-slate-500">{p.itemNumber} · {fmt(p.currentStock ?? 0)} قطعة</span>
+                  <HoverZoomImage src={p.thumbnailUrl} largeSrc={p.mediumUrl} alt={p.name} fallback={p.itemNumber} className="h-12 w-12" />
+                  <span className="min-w-0 flex-1 font-medium">{p.name}</span>
+                  <span className="shrink-0 text-xs text-slate-500">{p.itemNumber} · {fmt(p.currentStock ?? 0)} قطعة</span>
                 </button>
               ))}
             </div>
@@ -227,9 +232,7 @@ function AuctionCard({ lot, publicUrlBase, highlight }: { lot: AuctionLot; publi
   return (
     <div className={`rounded-xl border bg-white p-4 dark:bg-slate-950 ${highlight ? "ring-2 ring-amber-400" : ""}`}>
       <div className="flex flex-wrap items-start gap-3">
-        {lot.product.thumbnailUrl
-          ? <img src={lot.product.thumbnailUrl} alt="" className="h-16 w-16 rounded-lg object-cover ring-1 ring-slate-200" />
-          : <span className="grid h-16 w-16 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-400">{lot.product.itemNumber.slice(0, 4)}</span>}
+        <HoverZoomImage src={lot.product.thumbnailUrl} alt={lot.product.name} fallback={lot.product.itemNumber} className="h-16 w-16" />
         <div className="min-w-0 flex-1">
           <p className="font-bold">{lot.product.name}</p>
           <p className="text-xs text-slate-500">

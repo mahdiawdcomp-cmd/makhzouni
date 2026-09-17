@@ -136,6 +136,7 @@ export interface Product {
   cartonQrCode?: string | null
   imageUrl?: string | null
   thumbnailUrl?: string | null
+  mediumUrl?: string | null
   category?: string | null
   categoryTags?: string[]
   typeTags?: string[]
