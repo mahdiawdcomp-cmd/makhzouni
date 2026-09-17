@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "react-router-dom"
 import { Gavel, Trophy } from "lucide-react"
 import { getPublicAuction, placeAuctionBid } from "../api/endpoints"
+import { publicApi } from "../api/client"
 import type { PublicAuction } from "../api/endpoints"
 import { apiErrorMessage } from "../utils/apiError"
 import { fmt } from "../utils/fmt"
@@ -19,6 +20,34 @@ function store(key: string, value: string) {
 }
 
 const phoneOk = (value: string) => /^(?:\+?964|0)?7\d{9}$/.test(value.replace(/[\s-]/g, ""))
+
+/**
+ * The lot's photo at full resolution. The small thumbnail shows at once; the
+ * full image replaces it when it has loaded, and a tap opens it on its own.
+ * The full image comes from its own URL so the page's polling stays light.
+ */
+function AuctionPhoto({ fullSrc, previewSrc, alt }: { fullSrc: string; previewSrc: string | null; alt: string }) {
+  const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
+  if (failed && !previewSrc) return null
+  return (
+    <a href={failed ? undefined : fullSrc} target="_blank" rel="noreferrer" className="relative block bg-white">
+      {!loaded && previewSrc && (
+        <img src={previewSrc} alt={alt} className="w-full object-contain blur-[1px]" style={{ maxHeight: "80vh" }} />
+      )}
+      {!failed && (
+        <img
+          src={fullSrc}
+          alt={alt}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          className={loaded ? "w-full object-contain" : "absolute inset-0 h-full w-full object-contain opacity-0"}
+          style={loaded ? { maxHeight: "80vh" } : undefined}
+        />
+      )}
+    </a>
+  )
+}
 
 /**
  * «مزاد» — the page a customer opens from the shared link. No login: a name and
@@ -98,16 +127,18 @@ export function PublicAuctionPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-10 dark:bg-slate-950" dir="rtl">
-      <div className="mx-auto max-w-lg space-y-4 p-4">
+      <div className="mx-auto max-w-lg space-y-4 p-4 lg:max-w-2xl">
         <div className="flex items-center gap-2 pt-2 text-lg font-extrabold">
           <Gavel className="h-6 w-6 text-amber-500" /> مزاد
         </div>
 
         {/* The lot */}
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-slate-900">
-          {data.product.thumbnailUrl && (
-            <img src={data.product.thumbnailUrl} alt={data.product.name} className="aspect-square w-full object-contain bg-white" />
-          )}
+          <AuctionPhoto
+            fullSrc={`${publicApi.defaults.baseURL ?? "/api"}/public/auctions/${token}/image`}
+            previewSrc={data.product.thumbnailUrl}
+            alt={data.product.name}
+          />
           <div className="space-y-1 p-4">
             <h1 className="text-xl font-bold">{data.product.name}</h1>
             <p className="text-sm text-slate-500">

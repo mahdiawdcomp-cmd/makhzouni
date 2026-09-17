@@ -4,6 +4,7 @@ import {
   acknowledgeAuction,
   cancelAuction,
   createAuction,
+  getAuctionImage,
   getPublicAuction,
   listAuctions,
   listUnacknowledgedResults,
@@ -44,4 +45,22 @@ export const publicAuctionHandler = asyncHandler(async (req, res) => {
 export const publicBidHandler = asyncHandler(async (req, res) => {
   const data = await placeBid(String(req.params.token), req.body as PlaceBidInput);
   res.json({ success: true, data });
+});
+
+export const publicAuctionImageHandler = asyncHandler(async (req, res) => {
+  const image = await getAuctionImage(String(req.params.token));
+  if (!image) throw new AppError("لا توجد صورة", 404, "AUCTION_IMAGE_NOT_FOUND");
+  if (image.kind === "redirect") {
+    res.redirect(302, image.url);
+    return;
+  }
+  // The product photo can be replaced, so cache for a while, not forever.
+  res.setHeader("Cache-Control", "public, max-age=600");
+  res.setHeader("Content-Type", image.contentType);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  // helmet defaults to same-origin, which blocks this <img> outright: the shop
+  // page (mahdi.mazbwoni.com) and the API (api.mazbwoni.com) are different
+  // origins. The photo is public by design, so allow it here only.
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.send(image.body);
 });

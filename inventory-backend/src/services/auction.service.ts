@@ -328,6 +328,28 @@ export async function getPublicAuction(token: string, viewerPhone?: string) {
   };
 }
 
+/**
+ * The lot's photo at FULL resolution, for the public page. Served on its own URL
+ * so the page's 2-second polling never carries megabytes of base64 — the browser
+ * fetches it once and caches it.
+ */
+export async function getAuctionImage(token: string): Promise<
+  { kind: "bytes"; contentType: string; body: Buffer } | { kind: "redirect"; url: string } | null
+> {
+  const lot = await prisma.auctionLot.findUnique({
+    where: { token },
+    select: { product: { select: { imageUrl: true, mediumUrl: true, thumbnailUrl: true } } },
+  });
+  if (!lot) return null;
+  const raw = lot.product.imageUrl || lot.product.mediumUrl || lot.product.thumbnailUrl || "";
+  // Uploaded raster data only — never SVG (scripts) or anything else.
+  const match = /^data:(image\/(?:png|jpe?g|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i.exec(raw);
+  if (match) return { kind: "bytes", contentType: match[1].toLowerCase(), body: Buffer.from(match[2], "base64") };
+  // A hosted image is fetched by the visitor's browser, not by this server.
+  if (/^https:\/\//i.test(raw)) return { kind: "redirect", url: raw };
+  return null;
+}
+
 export interface PlaceBidInput {
   name: string;
   phone: string;
