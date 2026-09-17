@@ -1037,6 +1037,39 @@ export const profitReportSchema = z.object({
   }),
 });
 
+export const listAuctionsSchema = z.object({
+  query: z.object({
+    status: z.enum(["ACTIVE", "ENDED", "CANCELLED"]).optional(),
+  }),
+});
+
+export const createAuctionSchema = z.object({
+  body: z.object({
+    productId: z.string().uuid(),
+    unit: z.enum(["PIECE", "CARTON"]),
+    quantity: z.coerce.number().int().min(1).max(100000),
+    startPrice: z.coerce.number().min(0).max(1_000_000_000),
+    incrementType: z.enum(["PERCENT", "AMOUNT"]),
+    incrementValue: z.coerce.number().positive().max(1_000_000_000),
+    endsAt: z.string().datetime({ offset: true }),
+    notes: z.string().trim().max(500).optional(),
+  }),
+});
+
+export const auctionTokenSchema = z.object({
+  params: z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/) }),
+  query: z.object({ phone: z.string().trim().max(20).optional() }),
+});
+
+export const placeAuctionBidSchema = z.object({
+  params: z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/) }),
+  body: z.object({
+    name: z.string().trim().min(2).max(60),
+    phone: z.string().trim().min(7).max(20),
+    expectedAmount: z.coerce.number().min(0),
+  }),
+});
+
 export const purchasePerformanceSchema = z.object({
   query: z.object({
     invoiceId: z.string().uuid().optional(),

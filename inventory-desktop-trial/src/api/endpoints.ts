@@ -419,6 +419,99 @@ export async function getProductsWithNegativeStock() {
   return { count: data.count ?? 0, unfixableCount: data.unfixableCount ?? 0, data: data.data ?? [] }
 }
 
+// ── «مزاد تصفية الراكد» ────────────────────────────────────────────────────
+export type AuctionStatus = "ACTIVE" | "ENDED" | "CANCELLED"
+export type AuctionIncrementType = "PERCENT" | "AMOUNT"
+
+export interface AuctionLot {
+  id: string
+  token: string
+  product: { id: string; name: string; itemNumber: string; thumbnailUrl: string | null; pcsPerCarton: number }
+  unit: "PIECE" | "CARTON"
+  quantity: number
+  startPrice: number
+  incrementType: AuctionIncrementType
+  incrementValue: number
+  currentPrice: number | null
+  nextBid: number
+  bidCount: number
+  endsAt: string
+  status: AuctionStatus
+  notes: string | null
+  endedAt: string | null
+  cancelledAt: string | null
+  acknowledgedAt: string | null
+  createdAt: string
+  winner: { name: string; phone: string; amount: number; total: number } | null
+  bids: Array<{ id: string; name: string; phone: string; amount: number; extendedEnd: boolean; createdAt: string }>
+}
+
+export interface CreateAuctionPayload {
+  productId: string
+  unit: "PIECE" | "CARTON"
+  quantity: number
+  startPrice: number
+  incrementType: AuctionIncrementType
+  incrementValue: number
+  endsAt: string
+  notes?: string
+}
+
+export async function getAuctions(status?: AuctionStatus) {
+  const { data } = await api.get<ApiEnvelope<AuctionLot[]>>("/auctions", { params: status ? { status } : undefined })
+  return data.data ?? []
+}
+
+export async function getAuctionResults() {
+  const { data } = await api.get<ApiEnvelope<AuctionLot[]>>("/auctions/results")
+  return data.data ?? []
+}
+
+export async function createAuction(payload: CreateAuctionPayload) {
+  const { data } = await api.post<ApiEnvelope<AuctionLot>>("/auctions", payload)
+  return data.data!
+}
+
+export async function cancelAuction(id: string) {
+  const { data } = await api.post<ApiEnvelope<AuctionLot>>(`/auctions/${id}/cancel`, {})
+  return data.data!
+}
+
+export async function acknowledgeAuction(id: string) {
+  const { data } = await api.post<ApiEnvelope<AuctionLot>>(`/auctions/${id}/acknowledge`, {})
+  return data.data!
+}
+
+export interface PublicAuction {
+  token: string
+  product: { name: string; itemNumber: string; thumbnailUrl: string | null; pcsPerCarton: number }
+  unit: "PIECE" | "CARTON"
+  quantity: number
+  startPrice: number
+  incrementType: AuctionIncrementType
+  incrementValue: number
+  currentPrice: number | null
+  nextBid: number
+  bidCount: number
+  endsAt: string
+  serverNow: string
+  status: AuctionStatus
+  notes: string | null
+  bids: Array<{ name: string; phone: string; amount: number; createdAt: string; mine: boolean }>
+  leading: boolean
+  won: boolean
+}
+
+export async function getPublicAuction(token: string, phone?: string) {
+  const { data } = await publicApi.get<ApiEnvelope<PublicAuction>>(`/public/auctions/${token}`, { params: phone ? { phone } : undefined })
+  return data.data!
+}
+
+export async function placeAuctionBid(token: string, body: { name: string; phone: string; expectedAmount: number }) {
+  const { data } = await publicApi.post<ApiEnvelope<PublicAuction>>(`/public/auctions/${token}/bid`, body)
+  return data.data!
+}
+
 export type PurchaseSource = "CHINA" | "REGULAR"
 export type PerformanceLevel = "HIGH" | "MEDIUM" | "LOW"
 export type PerformanceCategory =

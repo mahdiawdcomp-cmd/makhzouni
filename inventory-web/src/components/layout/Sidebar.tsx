@@ -6,6 +6,7 @@ import {
   ArrowRightLeft,
   BarChart3,
   TrendingUp,
+  Gavel,
   Boxes,
   ChevronDown,
   ClipboardCheck,
@@ -67,6 +68,7 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/requested-products")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/instagram")) return "MANAGE_INSTAGRAM"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
+  if (path.startsWith("/auctions")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
   // Saves through PUT /settings (admin-only on the server), so it belongs to
   // the same capability as the settings page itself.
@@ -173,6 +175,7 @@ const navItems: Item[] = [
   { to: "/requested-products", label: "تنبيهات الموظف الذكي", icon: Zap },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/reports/purchase-performance", label: "أداء المشتريات", icon: TrendingUp },
+  { to: "/auctions", label: "المزادات", icon: Gavel },
   { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },
 ]

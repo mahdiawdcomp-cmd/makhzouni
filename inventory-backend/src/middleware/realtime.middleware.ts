@@ -40,6 +40,9 @@ function resourceForPath(path: string): RealtimeResource | null {
     return "approvals";
   }
 
+  // Auction pages poll on their own; a bid or a new auction must never fan out
+  // to every open tab (the /public branch above already covers bids).
+  if (clean.startsWith("/api/auctions")) return null;
   if (clean.startsWith("/api/products")) return "products";
   if (clean.startsWith("/api/customers")) return "customers";
   if (clean.startsWith("/api/invoices")) return "invoices";

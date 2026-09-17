@@ -52,7 +52,9 @@ import {
   previewPublicCoupon,
 } from "../controllers/retail-public.controller";
 import { validate } from "../middleware/validate";
-import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
+import { otpLimiter, catalogLimiter, auctionReadLimiter, auctionBidLimiter } from "../middleware/rate-limit.middleware";
+import { publicAuctionHandler, publicBidHandler } from "../controllers/auctions.controller";
+import { auctionTokenSchema, placeAuctionBidSchema } from "../utils/schemas";
 import {
   getPublicCountLink,
   getPublicCountLinkStatus,
@@ -117,6 +119,10 @@ import {
 } from "../controllers/catalog-product-page.controller";
 
 const router = Router();
+// «مزاد تصفية الراكد» — link-only, no login. The page polls every few seconds,
+// so reads get their own roomier limiter; bids a tighter one.
+router.get("/auctions/:token", auctionReadLimiter, validate(auctionTokenSchema), publicAuctionHandler);
+router.post("/auctions/:token/bid", auctionBidLimiter, validate(placeAuctionBidSchema), publicBidHandler);
 router.post("/catalog/funnel", catalogLimiter, postCatalogFunnel);
 router.get("/catalog/purchase-history", catalogLimiter, getCatalogPurchaseHistory);
 router.get("/catalog/seo-index", catalogLimiter, getCatalogSeoIndex);

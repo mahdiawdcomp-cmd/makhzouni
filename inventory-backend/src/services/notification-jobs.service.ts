@@ -22,6 +22,7 @@ import { runNoReplyFollowUpJob, runRegisteredNoOrderFollowUpJob, runInactiveFoll
 import { runAbandonedCartCheckJob } from "./catalog-tracking.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
 import { runWholesaleInstagramQueueTick } from "./wholesale-instagram-queue.service";
+import { closeExpiredAuctions } from "./auction.service";
 import {
   runTelegramChannelSyncTick,
   runDailyChannelRotationJob,
@@ -492,6 +493,13 @@ export function startNotificationJobs() {
   cron.schedule("* * * * *", () => {
     runInstagramQueueTick().catch((error) => {
       reportCronFailure("INSTAGRAM_QUEUE_TICK", error);
+    });
+  }, CRON_OPTIONS);
+
+  // «مزاد تصفية الراكد» — close auctions whose time is up and tell the owner.
+  cron.schedule("* * * * *", () => {
+    closeExpiredAuctions().catch((error) => {
+      reportCronFailure("AUCTION_CLOSE_TICK", error);
     });
   }, CRON_OPTIONS);
 

@@ -45,6 +45,8 @@ const SalesAgentAdminPage = lazyPage(() => import("./pages/SalesAgentAdminPage")
 const ProductsPage = lazyPage(() => import("./pages/ProductsPage"), "ProductsPage")
 const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage")
 const PurchasePerformancePage = lazyPage(() => import("./pages/PurchasePerformancePage"), "PurchasePerformancePage")
+const AuctionsPage = lazyPage(() => import("./pages/AuctionsPage"), "AuctionsPage")
+const PublicAuctionPage = lazyPage(() => import("./pages/PublicAuctionPage"), "PublicAuctionPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage")
 const InvoiceDesignerPage = lazyPage(() => import("./pages/InvoiceDesignerPage"), "InvoiceDesignerPage")
@@ -120,6 +122,7 @@ const router = createBrowserRouter([
   { path: "/cycle-count/:token", element: s(<PublicCycleCountPage />) },
   // «جرد الفاتورة» — worker/customer counting link (no login; the token is the credential)
   { path: "/invoice-count/:token", element: s(<PublicInvoiceCountPage />) },
+  { path: "/auction/:token", element: s(<PublicAuctionPage />) },
 
   // ── Protected routes ──
   {
@@ -166,6 +169,7 @@ const router = createBrowserRouter([
           { path: "requested-products", element: s(<RequestedProductsPage />) },
           { path: "reports", element: s(<ReportsPage />) },
           { path: "reports/purchase-performance", element: s(<PurchasePerformancePage />) },
+          { path: "auctions", element: s(<AuctionsPage />) },
           // Settings holds the WhatsApp/Telegram/Meta credentials — the sidebar
           // already hides it behind MANAGE_SETTINGS, so the route must enforce
           // the same thing or the URL is an open door.

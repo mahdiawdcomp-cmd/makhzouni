@@ -1,4 +1,5 @@
 import { QueryErrorBox } from "../components/ui/query-error"
+import { AuctionResultsBanner } from "../components/AuctionResultsBanner"
 import { useState, type ComponentType } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { Link } from "react-router-dom"
@@ -253,6 +254,8 @@ export function DashboardPage() {
       {dashboard.isError ? (
         <QueryErrorBox title="تعذّر تحميل مؤشرات اليوم" onRetry={() => void dashboard.refetch()} />
       ) : null}
+      {/* «انتهى المزاد» — stays until the owner presses «تم». */}
+      <AuctionResultsBanner />
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--theme-textPrimary)" }}>

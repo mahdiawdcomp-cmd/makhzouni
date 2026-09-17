@@ -65,3 +65,22 @@ export const catalogLimiter = rateLimit({
     code: "CATALOG_RATE_LIMITED",
   },
 });
+
+// «مزاد» page polling — every 2 s in the last ten minutes, so two open tabs on
+// one shop Wi-Fi already reach the catalog limit exactly when it matters most.
+export const auctionReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 240,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "طلبات كثيرة — انتظر شوي", code: "AUCTION_RATE_LIMITED" },
+});
+
+// A person presses «زايد» a few times a minute at most; this only stops scripts.
+export const auctionBidLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "مزايدات كثيرة بوقت قصير — انتظر دقيقة", code: "AUCTION_BID_RATE_LIMITED" },
+});
