@@ -214,7 +214,7 @@ private fun CreateCycleCountDialog(
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                         modifier = Modifier.fillMaxWidth().menuAnchor(),
                     )
-                    androidx.compose.material3.ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         STRATEGY_LABELS.forEach { (key, label) ->
                             DropdownMenuItem(text = { Text(label) }, onClick = { strategy = key; expanded = false })
                         }
