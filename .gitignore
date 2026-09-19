@@ -51,3 +51,4 @@ inventory-android/gradle_out.txt
 inventory-android/.gradle/
 inventory-android/.idea/caches/
 __pycache__/
+inventory-android/local.properties
