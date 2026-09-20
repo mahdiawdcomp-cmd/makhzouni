@@ -58,6 +58,24 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   "whatsapp-chat": ["whatsapp-status"],
 }
 
+// The rep's screens live under ["sales-agent", <name>], so none of the generic
+// keys above ever reached them: a sale, a stock change or a voucher left the
+// rep's catalogue, cash and receipts stale for the whole 5-minute staleTime.
+// Only the queries a resource can actually change are listed. Thumbnails and
+// full images are deliberately absent: they are static per product and heavy.
+const salesAgentKeysByResource: Partial<Record<RealtimeResource, string[]>> = {
+  products: ["products", "usable-prices"],
+  invoices: ["products", "customers", "customer-header", "customer-detail", "today", "usual-products"],
+  "stock-losses": ["products"],
+  stocktake: ["products"],
+  transfers: ["products"],
+  customers: ["customers", "customer-header", "customer-detail", "visit-customers"],
+  vouchers: ["cash", "today", "receipts", "handovers", "customers", "customer-header", "customer-detail"],
+  approvals: ["orders", "today", "price-requests", "issues"],
+  "order-preparations": ["orders", "today"],
+  catalog: ["products", "customer-offers"],
+}
+
 function realtimeUrl(token: string) {
   const configuredBase = String(import.meta.env.VITE_REALTIME_API_URL ?? "").trim()
   const base = (
@@ -117,6 +135,13 @@ export function RealtimeSyncBridge() {
         if (resources.includes("all")) {
           invalidateEverything()
           return
+        }
+
+        const salesAgentKeys = new Set(resources.flatMap((item) => salesAgentKeysByResource[item] ?? []))
+        if (salesAgentKeys.size > 0) {
+          void queryClient.invalidateQueries({
+            predicate: (query) => query.queryKey[0] === "sales-agent" && salesAgentKeys.has(String(query.queryKey[1])),
+          })
         }
 
         const keys = new Set(resources.flatMap((item) => queryKeysByResource[item] ?? []))

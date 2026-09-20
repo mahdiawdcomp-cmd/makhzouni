@@ -36,7 +36,7 @@ import {
 } from "../utils/sales-agent-pricing";
 import { OFFER_ENDING_SOON_DAYS, offerMapForCustomer } from "./sales-agent-offers.service";
 import { lastPaidPrices, priceChangeFor } from "./sales-agent-history.service";
-import { shopInclusiveEndKey } from "../utils/shop-day";
+import { shopDateKey, shopDayStart, shopInclusiveEndKey } from "../utils/shop-day";
 
 /* ── unit maths ──────────────────────────────────────────────────────────
  * Deliberately identical to the catalog's own conversion. A rep's carton must
@@ -422,15 +422,29 @@ export async function listAgentCatalogProducts() {
   // grid ignored it, so leftovers of less than a carton — hidden from every
   // customer — kept showing up on the rep's phone as if they were for sale.
   // Reading the same switch is what keeps the two catalogs the same catalog.
-  const settings = await getSettings().catch(() => null);
-  const fullCartonOnly = Boolean(settings?.catalogFullCartonOnly);
-
   // The rep sells out of المحل, and «الرصيد» on the merchant's own products page
   // is the المحل figure for exactly that reason. The catalog helper sums EVERY
   // warehouse instead, so goods that had run out on the shop floor but still sat
   // in the depot read as available — the merchant saw «صفر» on his screen while
   // the same item was still being offered on the rep's phone.
-  const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
+  //
+  // The three reads are independent, so they run together rather than one after
+  // another. `withImage` fetches ids only: thumbnails are base64 data URIs in a
+  // Text column, and selecting them just to compute `hasImage` pulled megabytes
+  // out of the database on every catalog open.
+  const [settings, shopWarehouseId, withImageRows] = await Promise.all([
+    getSettings().catch(() => null),
+    // No `.catch` here: it only throws on a real database failure (it creates a
+    // warehouse when the shop has none), and swallowing that made the grid sum
+    // EVERY warehouse — showing depot stock as if it were on the shop floor.
+    resolveShopWarehouseId(prisma),
+    prisma.product.findMany({
+      where: { deletedAt: null, AND: [{ thumbnailUrl: { not: null } }, { thumbnailUrl: { not: "" } }] },
+      select: { id: true },
+    }),
+  ]);
+  const fullCartonOnly = Boolean(settings?.catalogFullCartonOnly);
+  const withImage = new Set(withImageRows.map((row) => row.id));
 
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
@@ -449,10 +463,8 @@ export async function listAgentCatalogProducts() {
       pcsPerCarton: true,
       boxPieces: true,
       hiddenUnits: true,
-      thumbnailUrl: true,
-      // totalStock() falls back to these two when a product has no per-warehouse
-      // rows, so leaving them out of the select would read every such product as
-      // zero stock and hide it from the rep entirely.
+      // totalStock() sums warehouse rows only, but its StockSource type still
+      // asks for the legacy fields, so they stay in the select.
       openingBalancePcs: true,
       cartonsAvailable: true,
       warehouseStocks: { select: { quantityPieces: true, warehouseId: true } },
@@ -479,7 +491,7 @@ export async function listAgentCatalogProducts() {
       // Thumbnails are fetched separately, a screenful at a time. Inlining a few
       // hundred base64 images would be megabytes on the first open — on mobile
       // data, in the street, that is the whole experience.
-      hasImage: Boolean(product.thumbnailUrl),
+      hasImage: withImage.has(product.id),
       currentStock: sellableStock(product, shopWarehouseId),
     }))
     // Exactly the filter the public catalog uses, and for the same reason: the
@@ -1104,11 +1116,14 @@ export async function getAgentCustomerDetail(agentId: string, customerId: string
 }
 
 /** The rep's own receipts, newest first — what they collected and when. */
-export async function listMyReceipts(agentId: string, limit = 40) {
+export async function listMyReceipts(agentId: string, limit = 40, offset = 0) {
   const rows = await prisma.paymentVoucher.findMany({
     where: { salesAgentId: agentId, type: "RECEIPT", archivedAt: null },
-    orderBy: { date: "desc" },
-    take: Math.min(limit, 100),
+    // `id` breaks ties between receipts on the same instant, so paging with an
+    // offset can neither repeat a row nor skip one.
+    orderBy: [{ date: "desc" }, { id: "desc" }],
+    skip: Math.max(0, Math.floor(offset) || 0),
+    take: Math.min(Math.max(1, Math.floor(limit) || 40), 100),
     select: {
       id: true,
       voucherNumber: true,
@@ -1476,8 +1491,10 @@ export async function listUsablePrices(agentId: string, customerId: string) {
  * rather than UTC.
  */
 export async function getAgentToday(agentId: string) {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  // Midnight in the SHOP's timezone. The server clock is UTC in production, so
+  // a local-time midnight started the rep's day at 03:00 Baghdad and pushed the
+  // early-morning sales and receipts into yesterday.
+  const start = shopDayStart(shopDateKey(new Date()));
 
   const [orders, receipts, collected, issues, newCustomers] = await Promise.all([
     prisma.pendingApproval.findMany({
@@ -1539,7 +1556,9 @@ export async function getAgentToday(agentId: string) {
   // count as a visit, because all three mean the rep stood in that shop.
   const [receiptCustomers, issueCustomers] = await Promise.all([
     prisma.paymentVoucher.findMany({
-      where: { salesAgentId: agentId, type: "RECEIPT", date: { gte: start } },
+      // A cancelled receipt is not a visit: the count and the sum above already
+      // exclude it, and the visited-customers figure must agree with them.
+      where: { salesAgentId: agentId, type: "RECEIPT", cancelledAt: null, date: { gte: start } },
       select: { customerId: true },
       distinct: ["customerId"],
     }),

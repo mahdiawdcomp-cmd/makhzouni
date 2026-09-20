@@ -406,7 +406,12 @@ export const postAgentReceipt = asyncHandler(async (req, res) => {
 
 export const getMyReceipts = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
-  res.json({ success: true, data: await listMyReceipts(agent.id) });
+  const limit = Number(req.query.limit);
+  const offset = Number(req.query.offset);
+  res.json({
+    success: true,
+    data: await listMyReceipts(agent.id, Number.isFinite(limit) ? limit : undefined, Number.isFinite(offset) ? offset : undefined),
+  });
 });
 
 export const getMyHandovers = asyncHandler(async (req, res) => {

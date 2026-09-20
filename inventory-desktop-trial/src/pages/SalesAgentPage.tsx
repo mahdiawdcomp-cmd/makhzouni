@@ -19,7 +19,7 @@
  *    beside the catalog on a tablet.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
   BadgePercent,
@@ -334,7 +334,7 @@ function useThumbnails(visibleIds: string[]) {
 
 /* ── page ────────────────────────────────────────────────────────────── */
 
-type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail" | "issues"
+type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "receipts" | "customer-detail" | "issues"
 
 type CartsByCustomer = Record<string, CartLine[]>
 
@@ -344,6 +344,7 @@ const TABS: Array<{ key: Screen; label: string }> = [
   { key: "catalog", label: "المواد" },
   { key: "customers", label: "زبائني" },
   { key: "money", label: "فلوسي" },
+  { key: "receipts", label: "سنداتي" },
   { key: "issues", label: "المشاكل" },
   { key: "orders", label: "طلباتي" },
 ]
@@ -646,8 +647,9 @@ export function SalesAgentPage() {
           {screen === "orders" && <OrdersScreen />}
           {screen === "issues" && <MyIssuesScreen />}
 
-          {screen === "money" && (
+          {(screen === "money" || screen === "receipts") && (
             <MoneyScreen
+              section={screen}
               customerId={customerId}
               customerName={header.data?.name ?? null}
               onNeedCustomer={() => setScreen("customers")}
@@ -1906,10 +1908,14 @@ function OrdersScreen() {
  * those.
  */
 function MoneyScreen({
+  section,
   customerId,
   customerName,
   onNeedCustomer,
 }: {
+  // «فلوسي» = the rep's cash figures and handovers; «سنداتي» = recording and
+  // listing receipts. Each section only runs the queries it shows.
+  section: "money" | "receipts"
   customerId: string | null
   customerName: string | null
   onNeedCustomer: () => void
@@ -1922,6 +1928,7 @@ function MoneyScreen({
 
   const cash = useQuery({
     queryKey: ["sales-agent", "cash"],
+    enabled: section === "money",
     queryFn: async () => {
       const res = await api.get<{ data: CashOnHand }>("/sales-agent/cash-on-hand")
       return res.data.data
@@ -1931,6 +1938,7 @@ function MoneyScreen({
 
   const today = useQuery({
     queryKey: ["sales-agent", "today"],
+    enabled: section === "money",
     queryFn: async () => {
       const res = await api.get<{ data: AgentToday }>("/sales-agent/today")
       return res.data.data
@@ -1938,17 +1946,28 @@ function MoneyScreen({
     retry: 3,
   })
 
-  const receipts = useQuery({
+  // Paged by offset: the list used to stop at the newest 40, so a rep could
+  // never see an older receipt. The server orders by (date, id), which keeps
+  // the pages from overlapping.
+  const RECEIPTS_PAGE = 40
+  const receipts = useInfiniteQuery({
     queryKey: ["sales-agent", "receipts"],
-    queryFn: async () => {
-      const res = await api.get<{ data: AgentReceipt[] }>("/sales-agent/receipts")
+    enabled: section === "receipts",
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const res = await api.get<{ data: AgentReceipt[] }>("/sales-agent/receipts", {
+        params: { limit: RECEIPTS_PAGE, offset: pageParam },
+      })
       return res.data.data ?? []
     },
+    getNextPageParam: (last, all) => (last.length === RECEIPTS_PAGE ? all.length * RECEIPTS_PAGE : undefined),
     retry: 3,
   })
+  const receiptRows = receipts.data?.pages.flat() ?? []
 
   const handovers = useQuery({
     queryKey: ["sales-agent", "handovers"],
+    enabled: section === "money",
     queryFn: async () => {
       const res = await api.get<{ data: AgentHandoverRow[] }>("/sales-agent/handovers")
       return res.data.data ?? []
@@ -1998,6 +2017,8 @@ function MoneyScreen({
 
   return (
     <div className="space-y-4">
+      {section === "money" && (
+      <>
       {/* Three figures, and deliberately not a fourth: nothing here is a number
           the owner keeps private, so the rep reads their own day without the
           commission ever appearing on their phone. */}
@@ -2051,7 +2072,11 @@ function MoneyScreen({
           الرصيد سالب — انلغى سند بعد ما سلّمته. راجع صاحب المحل.
         </div>
       )}
+      </>
+      )}
 
+      {section === "receipts" && (
+      <>
       <Card>
         <CardHeader>
           <CardTitle>سجّل سند قبض</CardTitle>
@@ -2092,7 +2117,7 @@ function MoneyScreen({
         <CardHeader>
           <CardTitle>سنداتي</CardTitle>
           <span className="text-[12px] text-slate-500 tabular-nums">
-            {(receipts.data ?? []).length} سند
+            {receiptRows.length} سند
           </span>
         </CardHeader>
         <CardContent>
@@ -2100,7 +2125,7 @@ function MoneyScreen({
             <Waiting q={receipts} />
           ) : receipts.error ? (
             <QueryErrorBox title="ما وصلت السندات" onRetry={() => void receipts.refetch()} />
-          ) : (receipts.data ?? []).length === 0 ? (
+          ) : receiptRows.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">ما اكو سندات</p>
           ) : (
             <Table>
@@ -2113,7 +2138,7 @@ function MoneyScreen({
                 </TR>
               </THead>
               <TBody>
-                {(receipts.data ?? []).map((r) => (
+                {receiptRows.map((r) => (
                   <TR key={r.id} className={r.cancelled ? "opacity-60" : ""}>
                     <TD className="tabular-nums">{r.voucherNumber}</TD>
                     <TD>{r.customerName}</TD>
@@ -2127,9 +2152,23 @@ function MoneyScreen({
               </TBody>
             </Table>
           )}
+          {receipts.hasNextPage && (
+            <Button
+              variant="outline"
+              className="mt-3 h-11 w-full"
+              disabled={receipts.isFetchingNextPage}
+              onClick={() => void receipts.fetchNextPage()}
+            >
+              {receipts.isFetchingNextPage ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              عرض المزيد
+            </Button>
+          )}
         </CardContent>
       </Card>
+      </>
+      )}
 
+      {section === "money" && (
       <Card>
         <CardHeader>
           <CardTitle>تسليماتي</CardTitle>
@@ -2163,6 +2202,7 @@ function MoneyScreen({
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }
