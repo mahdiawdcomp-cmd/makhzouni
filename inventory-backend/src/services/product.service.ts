@@ -192,8 +192,13 @@ export async function listProducts(query: {
   limit?: number;
   hidePurchasePrice?: boolean;
   hideAllPrices?: boolean;
+  withMedium?: boolean;
 }) {
   const page = query.page ?? 1;
+  // mediumUrl is a ~30 KB data URL per product; across the whole catalogue it
+  // turned this list into a 28 MB response that stalled on shop connections.
+  // Only the auctions picker (a 12-row search with hover zoom) asks for it.
+  const omit = query.withMedium ? { imageUrl: true as const } : { imageUrl: true as const, mediumUrl: true as const };
   const limit = query.limit ?? 20;
   const hasSearch = (query.search ?? "").trim().length > 0;
   // Search/lowStock filters are evaluated in memory (Arabic normalization +
@@ -213,7 +218,7 @@ export async function listProducts(query: {
     const rows = await prisma.product.findMany({
       where,
       include: productWarehouseInclude,
-      omit: { imageUrl: true }, // list never needs the full image — thumbnailUrl is enough
+      omit, // list never needs the full image — thumbnailUrl is enough
       orderBy: { name: "asc" },
     });
     let list = rows.map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice, query.hideAllPrices));
@@ -257,7 +262,7 @@ export async function listProducts(query: {
     prisma.product.findMany({
       where,
       include: productWarehouseInclude,
-      omit: { imageUrl: true }, // list never needs the full image — thumbnailUrl is enough
+      omit, // list never needs the full image — thumbnailUrl is enough
       orderBy: { name: "asc" },
       skip: (page - 1) * limit,
       take: limit,

@@ -47,7 +47,7 @@ function CreateAuctionForm({ onCreated }: { onCreated: (lot: AuctionLot) => void
 
   const results = useQuery({
     queryKey: ["auction-product-search", search],
-    queryFn: () => getProducts({ search, limit: 12 }),
+    queryFn: () => getProducts({ search, limit: 12, withMedium: true }),
     enabled: search.trim().length >= 2 && !product,
     staleTime: 30_000,
   })

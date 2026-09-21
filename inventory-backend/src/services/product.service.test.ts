@@ -618,3 +618,38 @@ describe("product.service", () => {
     });
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+//  listProducts — the list must not carry mediumUrl unless asked
+// ──────────────────────────────────────────────────────────────────────────
+describe("listProducts — mediumUrl", () => {
+  let listProducts: Function;
+  let omits: any[];
+
+  before(async () => {
+    ({ listProducts } = await import("./product.service"));
+  });
+
+  beforeEach(() => {
+    branches = makeActiveBranches();
+    productStore = makeFakeProduct();
+    omits = [];
+    tx = makeTx();
+    tx.product.findMany = async (args: any) => {
+      omits.push(args.omit);
+      return [];
+    };
+    tx.product.count = async () => 0;
+  });
+
+  it("يحذف mediumUrl و imageUrl من القائمة الافتراضية", async () => {
+    await listProducts({ limit: 5000 });
+    await listProducts({ search: "كوب", limit: 12 });
+    for (const omit of omits) assert.deepEqual(omit, { imageUrl: true, mediumUrl: true });
+  });
+
+  it("يرجّع mediumUrl فقط عند withMedium", async () => {
+    await listProducts({ search: "كوب", limit: 12, withMedium: true });
+    assert.deepEqual(omits[0], { imageUrl: true });
+  });
+});

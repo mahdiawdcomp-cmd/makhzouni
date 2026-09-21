@@ -302,7 +302,7 @@ export async function bulkReviewApprovals(ids: string[], status: "APPROVED" | "R
   return data
 }
 
-export async function getProducts(params?: { search?: string; category?: string; limit?: number }) {
+export async function getProducts(params?: { search?: string; category?: string; limit?: number; withMedium?: boolean }) {
   const { data } = await api.get<PagedResponse<Product>>("/products", { params })
   return data.data ?? []
 }
