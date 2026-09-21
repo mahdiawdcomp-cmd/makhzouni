@@ -1,0 +1,373 @@
+[
+  {
+    "name": "صحن العقيلة",
+    "city": "كربلاء",
+    "centerLat": 32.6155815,
+    "centerLng": 44.030902,
+    "kind": "suburb"
+  },
+  {
+    "name": "الجمعية",
+    "city": "كربلاء",
+    "centerLat": 32.6137311,
+    "centerLng": 44.0167451,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "العباسية الغربية",
+    "city": "كربلاء",
+    "centerLat": 32.6107598,
+    "centerLng": 44.0327198,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "البوبيات",
+    "city": "كربلاء",
+    "centerLat": 32.6254178,
+    "centerLng": 44.027604,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي رمضان",
+    "city": "كربلاء",
+    "centerLat": 32.6085979,
+    "centerLng": 44.0148568,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي النقيب",
+    "city": "كربلاء",
+    "centerLat": 32.6051026,
+    "centerLng": 44.0205867,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "العباسية الشرقية",
+    "city": "كربلاء",
+    "centerLat": 32.6092951,
+    "centerLng": 44.0365501,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي البلدية",
+    "city": "كربلاء",
+    "centerLat": 32.6007714,
+    "centerLng": 44.0309934,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "الصحة",
+    "city": "كربلاء",
+    "centerLat": 32.5997948,
+    "centerLng": 44.0217018,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "المعملجي",
+    "city": "كربلاء",
+    "centerLat": 32.6214124,
+    "centerLng": 44.0067243,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي امرلي التركمانية",
+    "city": "كربلاء",
+    "centerLat": 32.6161479,
+    "centerLng": 44.0449713,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "قرية الكركشية",
+    "city": "كربلاء",
+    "centerLat": 32.6217427,
+    "centerLng": 44.0452286,
+    "kind": "village"
+  },
+  {
+    "name": "حي المعلمين",
+    "city": "كربلاء",
+    "centerLat": 32.6177248,
+    "centerLng": 44.0038601,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي الموظفين",
+    "city": "كربلاء",
+    "centerLat": 32.6056967,
+    "centerLng": 44.0079367,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي الاسكان",
+    "city": "كربلاء",
+    "centerLat": 32.591723,
+    "centerLng": 44.025135,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "شهداء الموظفين",
+    "city": "كربلاء",
+    "centerLat": 32.6030576,
+    "centerLng": 44.0003943,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي الأساتذة",
+    "city": "كربلاء",
+    "centerLat": 32.5991575,
+    "centerLng": 44.0033609,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي الزيتون",
+    "city": "كربلاء",
+    "centerLat": 32.6345339,
+    "centerLng": 44.0000169,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "البناء الجاهز",
+    "city": "كربلاء",
+    "centerLat": 32.5863625,
+    "centerLng": 44.0122175,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "البهادلية",
+    "city": "كربلاء",
+    "centerLat": 32.5877908,
+    "centerLng": 44.0438247,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "قرية الغلطاوية",
+    "city": "كربلاء",
+    "centerLat": 32.635843,
+    "centerLng": 44.058292,
+    "kind": "village"
+  },
+  {
+    "name": "حي الامام علي",
+    "city": "كربلاء",
+    "centerLat": 32.5772136,
+    "centerLng": 44.0265941,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي النصر",
+    "city": "كربلاء",
+    "centerLat": 32.5774125,
+    "centerLng": 44.0064239,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي الاطباء",
+    "city": "كربلاء",
+    "centerLat": 32.5816099,
+    "centerLng": 43.9956671,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي الامل",
+    "city": "كربلاء",
+    "centerLat": 32.6094136,
+    "centerLng": 44.0759103,
+    "kind": "quarter"
+  },
+  {
+    "name": "حي العابد",
+    "city": "كربلاء",
+    "centerLat": 32.6201326,
+    "centerLng": 43.9731934,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي القادسية",
+    "city": "كربلاء",
+    "centerLat": 32.6417961,
+    "centerLng": 43.9826703,
+    "kind": "suburb"
+  },
+  {
+    "name": "مجمع الديار الطيبة السكني",
+    "city": "كربلاء",
+    "centerLat": 32.6060842,
+    "centerLng": 43.9701658,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "شهداء الامام علي",
+    "city": "كربلاء",
+    "centerLat": 32.5692537,
+    "centerLng": 44.0184722,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "قطاع 17",
+    "city": "كربلاء",
+    "centerLat": 32.6371072,
+    "centerLng": 43.9741194,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي المهندسين",
+    "city": "كربلاء",
+    "centerLat": 32.5900576,
+    "centerLng": 43.9771386,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "قرية الشبانات",
+    "city": "كربلاء",
+    "centerLat": 32.5907363,
+    "centerLng": 44.0737993,
+    "kind": "village"
+  },
+  {
+    "name": "حي النضال",
+    "city": "كربلاء",
+    "centerLat": 32.5971916,
+    "centerLng": 43.9695811,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "الوفاء",
+    "city": "كربلاء",
+    "centerLat": 32.5636242,
+    "centerLng": 44.0290189,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "الحافظ",
+    "city": "كربلاء",
+    "centerLat": 32.633231,
+    "centerLng": 44.086247,
+    "kind": "village"
+  },
+  {
+    "name": "الرسالة",
+    "city": "كربلاء",
+    "centerLat": 32.5612642,
+    "centerLng": 44.0145564,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "قرية ١ حزيران",
+    "city": "كربلاء",
+    "centerLat": 32.589357,
+    "centerLng": 44.084958,
+    "kind": "village"
+  },
+  {
+    "name": "الميلاد",
+    "city": "كربلاء",
+    "centerLat": 32.5581716,
+    "centerLng": 44.0367651,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "الاطارات",
+    "city": "كربلاء",
+    "centerLat": 32.5578311,
+    "centerLng": 44.0217676,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "مجمع الدره السكني",
+    "city": "كربلاء",
+    "centerLat": 32.5562025,
+    "centerLng": 44.0438421,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "قرية المعامل",
+    "city": "كربلاء",
+    "centerLat": 32.601547,
+    "centerLng": 44.097818,
+    "kind": "village"
+  },
+  {
+    "name": "مجمع الفردوس السكني",
+    "city": "كربلاء",
+    "centerLat": 32.5557583,
+    "centerLng": 44.0024925,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "الاسكان العسكري",
+    "city": "كربلاء",
+    "centerLat": 32.5530628,
+    "centerLng": 44.0302157,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "حي العتبات في كربلاء",
+    "city": "كربلاء",
+    "centerLat": 32.5469699,
+    "centerLng": 44.0239287,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "مجمع الالف دار",
+    "city": "كربلاء",
+    "centerLat": 32.5448597,
+    "centerLng": 44.0055656,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "الكمالية",
+    "city": "كربلاء",
+    "centerLat": 32.6897788,
+    "centerLng": 44.007879,
+    "kind": "village"
+  },
+  {
+    "name": "قرية بدعة اسود",
+    "city": "كربلاء",
+    "centerLat": 32.684679,
+    "centerLng": 44.064634,
+    "kind": "village"
+  },
+  {
+    "name": "محمع المروج السكني",
+    "city": "كربلاء",
+    "centerLat": 32.5336082,
+    "centerLng": 44.0218734,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "مجمع المروج كاردنيز السكني",
+    "city": "كربلاء",
+    "centerLat": 32.5277738,
+    "centerLng": 44.0166592,
+    "kind": "neighbourhood"
+  },
+  {
+    "name": "اشان الصقر",
+    "city": "كربلاء",
+    "centerLat": 32.6854017,
+    "centerLng": 43.9577412,
+    "kind": "village"
+  },
+  {
+    "name": "قرية الصخر الغربي",
+    "city": "كربلاء",
+    "centerLat": 32.559417,
+    "centerLng": 44.117822,
+    "kind": "village"
+  },
+  {
+    "name": "ناحية عون",
+    "city": "كربلاء",
+    "centerLat": 32.686669,
+    "centerLng": 44.111185,
+    "kind": "town"
+  },
+  {
+    "name": "عرب عليوي ثويني",
+    "city": "كربلاء",
+    "centerLat": 32.536373,
+    "centerLng": 44.110402,
+    "kind": "village"
+  }
+]

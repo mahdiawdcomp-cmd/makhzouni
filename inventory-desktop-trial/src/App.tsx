@@ -46,6 +46,7 @@ const AuctionsPage = lazyPage(() => import("./pages/AuctionsPage"), "AuctionsPag
 const PublicAuctionPage = lazyPage(() => import("./pages/PublicAuctionPage"), "PublicAuctionPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage")
+const AreasPage = lazyPage(() => import("./pages/AreasPage"), "AreasPage")
 const InvoiceDesignerPage = lazyPage(() => import("./pages/InvoiceDesignerPage"), "InvoiceDesignerPage")
 const UsersPage = lazyPage(() => import("./pages/UsersPage"), "UsersPage")
 const VoucherDetailPage = lazyPage(() => import("./pages/VoucherDetailPage"), "VoucherDetailPage")
@@ -156,6 +157,9 @@ const router = createBrowserRouter([
             element: <PermissionRoute permission="MANAGE_SETTINGS" />,
             children: [
               { path: "settings", element: s(<SettingsPage />) },
+              // Same place as the web: behind MANAGE_SETTINGS, because one
+              // curated area list is the whole point of the table.
+              { path: "areas", element: s(<AreasPage />) },
               { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
             ],
           },

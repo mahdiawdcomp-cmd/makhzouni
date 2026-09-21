@@ -10,6 +10,7 @@
  *   - work out what to pay them at the end of a month
  */
 import { useMemo, useRef, useState } from "react"
+import { AgentControlPanel } from "./sales-agent/AgentControlPanel"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../api/client"
 import { toast } from "../components/ui/use-toast"
@@ -140,6 +141,9 @@ export function SalesAgentAdminPage() {
               void qc.invalidateQueries({ queryKey: ["sales-agent-admin", "handovers"] })
             }}
           />
+          {/* «متابعة المندوب» — the owner reads a rep's day here too. Reports
+              only; it writes nothing. */}
+          <AgentControlPanel agents={agents.map((a) => ({ id: a.agentId, name: a.name }))} />
           <CommissionPanel agents={agents} />
           <LiabilityHealthPanel />
           <IssueReportsPanel />

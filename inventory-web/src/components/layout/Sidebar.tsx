@@ -17,6 +17,7 @@ import {
   Globe,
   HandCoins,
   Bike,
+  MapPinned,
   Home,
   KeyRound,
   Megaphone,
@@ -187,6 +188,9 @@ const adminItems = [
   { to: "/error-logs", label: "صحة النظام والأخطاء", Icon: AlertTriangle },
   { to: "/personal-debts", label: "الديون الشخصية", Icon: HandCoins },
   { to: "/sales-agents", label: "المندوبون", Icon: Bike },
+  // Next to the reps because it is the reps' list: the neighbourhoods they
+  // file customers under. Admin-only, like every write on it.
+  { to: "/areas", label: "المناطق", Icon: MapPinned },
   // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
   // Sidebar link removed so the tool can't be reached from the menu.
   ...(isSaasOwner ? [{ to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound }] : []),
