@@ -26,7 +26,11 @@ export function AgentSettingsPanel() {
   const qc = useQueryClient()
   const modes = useQuery({
     queryKey: ["sales-agent-admin", "edit-modes"],
-    queryFn: async () => (await api.get<{ data: RepModes[] }>("/sales-agent-admin/edit-modes")).data.data ?? [],
+    queryFn: async () => {
+      const rows = (await api.get<{ data: RepModes[] | null }>("/sales-agent-admin/edit-modes")).data?.data
+      // An unexpected shape empties this panel instead of throwing in `.map`.
+      return Array.isArray(rows) ? rows : []
+    },
     retry: 3,
   })
 

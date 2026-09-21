@@ -86,7 +86,7 @@ const products = Array.from({ length: 12 }, (_, i) => ({
   pcsPerCarton: 48,
   boxPieces: 24,
   hiddenUnits: [],
-  hasImage: true,
+  hasImage: i !== 11,
   currentStock: 100,
 }));
 
@@ -373,6 +373,49 @@ const server = http.createServer(async (req, res) => {
         { agentId: USER.id, name: "مندوب الاختبار", username: "fixture", phone: null, isActive: true, collected: 25000, handedOver: 15000, onHand: 10000, overHanded: false },
       ]);
     if (p === "/api/sales-agent-admin/handovers") return send(res, []);
+    // «إشعارات المندوبين», «صلاحيات تعديل المندوب», «يومه» — the real shapes, so
+    // the admin-screen test renders these panels instead of skipping past them.
+    if (p === "/api/sales-agent-admin/activity/counts") return send(res, { unread: 1, importantUnread: 1 });
+    if (p === "/api/sales-agent-admin/activity")
+      return send(res, {
+        items: [
+          {
+            id: "a1111111-1111-4111-8111-111111111111",
+            salesAgentId: USER.id,
+            agentName: "مندوب الاختبار",
+            kind: "EDIT_REQUEST",
+            customerId: null,
+            referenceId: null,
+            approvalId: "b1111111-1111-4111-8111-111111111111",
+            title: "طلب تعديل سند قبض",
+            message: "طلب تعديل سند قبض — ينتظر موافقتك",
+            important: true,
+            amount: 15000,
+            read: false,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        nextBefore: null,
+        unread: 1,
+        importantUnread: 1,
+      });
+    if (p === "/api/sales-agent-admin/edit-modes")
+      return send(res, [{ agentId: USER.id, name: "مندوب الاختبار", isActive: true, INVOICE_EDIT: "DIRECT", INVOICE_CANCEL: "APPROVAL" }]);
+    if (p === "/api/sales-agent-admin/agent-day")
+      return send(res, {
+        date: new Date().toISOString().slice(0, 10),
+        agentName: "مندوب الاختبار",
+        events: [],
+        startedAt: null,
+        endedAt: null,
+        spanMin: 0,
+        gaps: [],
+        idleMin: 0,
+        counts: { orders: 0, rejectedOrders: 0, receipts: 0, visits: 0, issues: 0, newCustomers: 0, customersVisited: 0 },
+        money: { sold: 0, collected: 0, rejectedValue: 0 },
+        location: { withFix: 0, denied: 0, unavailable: 0, far: 0, vague: 0 },
+        areas: [],
+      });
     // The shapes these panels actually read — an array of commission rows, and
     // five/five arrays for the health and issue reports. A wrong shape here
     // crashes the page, which is its own kind of useful test.

@@ -182,11 +182,14 @@ export function AgentControlPanel({ agents }: { agents: Array<{ id: string; name
   const day = useQuery({
     queryKey: ["sales-agent-admin", "agent-day", picked, date],
     enabled: tab === "day" && Boolean(picked),
-    queryFn: async () => {
-      const res = await api.get<{ data: AgentDay }>("/sales-agent-admin/agent-day", {
+    queryFn: async (): Promise<AgentDay | null> => {
+      const res = await api.get<{ data: AgentDay | null }>("/sales-agent-admin/agent-day", {
         params: { salesAgentId: picked, date },
       })
-      return res.data.data
+      // A day without an events array is not a day: render "nothing filed"
+      // rather than throw inside the tiles below and blank the whole page.
+      const d = res.data?.data
+      return d && Array.isArray(d.events) ? d : null
     },
     retry: 3,
   })
@@ -199,7 +202,8 @@ export function AgentControlPanel({ agents }: { agents: Array<{ id: string; name
         "/sales-agent-admin/agents-overview",
         { params: { from, to } },
       )
-      return res.data.data.agents ?? []
+      const agents = res.data?.data?.agents
+      return Array.isArray(agents) ? agents : []
     },
     retry: 3,
   })
@@ -212,7 +216,8 @@ export function AgentControlPanel({ agents }: { agents: Array<{ id: string; name
         "/sales-agent-admin/area-performance",
         { params: { from, to } },
       )
-      return res.data.data.areas ?? []
+      const rows = res.data?.data?.areas
+      return Array.isArray(rows) ? rows : []
     },
     retry: 3,
   })
@@ -292,7 +297,7 @@ export function AgentControlPanel({ agents }: { agents: Array<{ id: string; name
               <QueryErrorBox title="ما وصل تقرير اليوم" onRetry={() => void day.refetch()} />
             ) : day.isPending ? (
               <p className="py-8 text-center text-sm text-slate-500">جاري التحميل…</p>
-            ) : (day.data?.events.length ?? 0) === 0 ? (
+            ) : (day.data?.events?.length ?? 0) === 0 ? (
               <p className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
                 ما سجّل ولا حركة بهذا اليوم.
               </p>

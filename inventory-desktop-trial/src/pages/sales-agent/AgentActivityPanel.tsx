@@ -93,11 +93,20 @@ export function AgentActivityPanel({ agents }: { agents: Array<{ id: string; nam
   const feed = useInfiniteQuery({
     queryKey: ["sales-agent-admin", "activity", params],
     initialPageParam: "" as string,
-    queryFn: async ({ pageParam }) => {
-      const res = await api.get<{ data: ActivityPage }>("/sales-agent-admin/activity", {
+    queryFn: async ({ pageParam }): Promise<ActivityPage> => {
+      const res = await api.get<{ data: Partial<ActivityPage> | null }>("/sales-agent-admin/activity", {
         params: { ...params, limit: 40, ...(pageParam ? { before: pageParam } : {}) },
       })
-      return res.data.data
+      // Normalized, never trusted: an unexpected shape (an older backend, a
+      // proxy error page) must empty THIS panel, not throw inside render and
+      // take the owner's whole rep page down with it.
+      const d = res.data?.data
+      return {
+        items: Array.isArray(d?.items) ? d!.items : [],
+        nextBefore: typeof d?.nextBefore === "string" ? d.nextBefore : null,
+        unread: Number(d?.unread) || 0,
+        importantUnread: Number(d?.importantUnread) || 0,
+      }
     },
     getNextPageParam: (last) => last.nextBefore ?? undefined,
     // Realtime covers most writes; this catches the few that publish nothing

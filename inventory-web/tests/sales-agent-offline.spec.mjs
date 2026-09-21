@@ -16,6 +16,12 @@
  *   npx playwright install chromium  # once per machine
  *   npm run test:browser
  *
+ * Or, with no download at all, drive the Edge every Windows machine already
+ * has (same Chromium engine):
+ *
+ *   PW_CHANNEL=msedge npm run test:browser          # bash
+ *   $env:PW_CHANNEL="msedge"; npm run test:browser  # PowerShell
+ *
  * Chromium is NOT installed by `npm install` on purpose — it is hundreds of
  * megabytes that most people working on this repo never need. When it is
  * missing these tests fail with a one-line instruction instead of a stack
@@ -160,9 +166,14 @@ async function harness(t, viewport, opts = {}) {
 
   let browser;
   try {
-    browser = await chromium.launch();
+    // PW_CHANNEL=msedge (or chrome) drives a browser already on the machine
+    // instead of Playwright's own download — every Windows machine has Edge,
+    // which is the same Chromium engine. Unset, the bundled one is used as before.
+    browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
   } catch (err) {
-    throw new Error(`could not launch chromium (${err.message}). Run: npx playwright install chromium`);
+    throw new Error(
+      `could not launch chromium (${err.message}). Run: npx playwright install chromium — or set PW_CHANNEL=msedge to use Edge`,
+    );
   }
   t.after(() => browser.close().catch(() => {}));
 
@@ -346,18 +357,37 @@ test("catalog filters and 2/3/4 picture layout work on phone and iPad", async (t
   for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 768 }]) {
     const { page } = await harness(t, viewport);
     const cards = page.locator(".sales-agent-product");
+    // Every product in stock is shown, picture or not. Hiding the ones without
+    // a thumbnail made the count on screen disagree with the shop's own — the
+    // rep's first reported bug — so the fixture keeps one picture-less product
+    // to prove it stays.
     await page.waitForFunction(() => document.querySelectorAll(".sales-agent-product").length === 12);
+    assert.equal(await cards.filter({ hasText: "مادة فحص 12" }).count(), 1, "a product without a thumbnail still shows");
     for (const count of [3, 4, 2]) {
       await page.getByRole("button", { name: `${count} صور في السطر` }).click();
       assert.equal(await page.getByRole("button", { name: `${count} صور في السطر` }).getAttribute("aria-pressed"), "true");
-      assert.equal(await cards.first().evaluate(el => getComputedStyle(el.parentElement).gridTemplateColumns.split(" ").length), count);
+      // The card sits in a wrapper (it shares it with the «+» button), so the
+      // grid is found by its own style rather than as the card's parent.
+      assert.equal(
+        await cards.first().evaluate(el => getComputedStyle(el.closest("[style*='grid-template-columns']")).gridTemplateColumns.split(" ").length),
+        count,
+      );
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
     }
-    await page.getByRole("button", { name: "الفلاتر" }).click();
-    await page.getByRole("button", { name: "العروض" }).click();
+    // The category strip is always on screen — no «الفلاتر» tap first.
+    await page.getByRole("button", { name: "العروض", exact: true }).click();
     assert.equal(await cards.count(), 1, "offer filter narrows the cards");
-    await page.getByRole("button", { name: "مسح الفلاتر" }).click();
-    assert.equal(await cards.count(), 12, "clear restores all cards");
+    await page.getByRole("button", { name: "الكل", exact: true }).click();
+    assert.equal(await cards.count(), 12, "«الكل» restores every card");
+
+    // «+» adds one piece straight from the card, and «تراجع» takes it back.
+    const quick = page.getByRole("button", { name: "أضف قطعة: مادة فحص 1", exact: true });
+    await quick.click();
+    await quick.click();
+    const held = page.locator(".sales-agent-product", { hasText: "مادة فحص 1" }).first();
+    await held.getByText("بالسلة: 2 قطعة").waitFor();
+    await page.getByRole("button", { name: "تراجع" }).first().click();
+    await held.getByText("بالسلة: 1 قطعة").waitFor();
     await page.getByRole("button", { name: "4 صور في السطر" }).click();
     await page.reload();
     assert.equal(await page.getByRole("button", { name: "4 صور في السطر" }).getAttribute("aria-pressed"), "true", "layout persists on this device");
@@ -384,6 +414,17 @@ test("the owner's visit-plan screen works on a phone and an iPad", async (t) => 
     // with the same words, and a test that clicks those is testing nothing.
     const panel = page.locator('div[dir="rtl"]', { hasText: "خطة زيارات المندوب" }).last();
     const sheet = page.locator('[role="dialog"][aria-label="أضف زبائن لخطة اليوم"]');
+
+    // The panels above the plan render too — a crash in any one of them used
+    // to blank this whole page, the plan with it.
+    await page.getByText("إشعارات المندوبين").first().waitFor();
+    await page.getByText("طلب تعديل سند قبض").first().waitFor();
+    await page.getByText("صلاحيات تعديل المندوب").first().waitFor();
+    assert.equal(
+      await page.getByRole("combobox", { name: "إلغاء الفاتورة — مندوب الاختبار" }).inputValue(),
+      "APPROVAL",
+      "each rep's switch shows what is stored",
+    );
 
     // Choosing the rep loads their (empty) plan for that day.
     await panel.locator("button", { hasText: "مندوب الاختبار" }).first().click();
