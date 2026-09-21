@@ -13,6 +13,7 @@ import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../api/client"
 import { AdminVisitPlanPanel } from "./sales-agent/AdminVisitPlanPanel"
+import { AgentControlPanel } from "./sales-agent/AgentControlPanel"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import { Card, CardContent } from "../components/ui/card"
@@ -143,6 +144,10 @@ export function SalesAgentAdminPage() {
           />
           {/* «خطة زيارات المندوب» — the owner assigning the round. Lives in its
               own file so this page does not keep growing. */}
+          {/* «متابعة المندوب» — the day, the comparison, the areas. Reports
+              only; it writes nothing. First, because it is what the owner
+              opens this page to look at. */}
+          <AgentControlPanel agents={agents.map((a) => ({ id: a.agentId, name: a.name }))} />
           <AdminVisitPlanPanel agents={agents} />
           <CommissionPanel agents={agents} />
           <LiabilityHealthPanel />

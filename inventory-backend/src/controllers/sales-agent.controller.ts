@@ -32,6 +32,7 @@ import {
   listMyOrders,
   listSalesAgentAreas,
   lookupPhone,
+  proposeArea,
   submitAgentOrder,
 } from "../services/sales-agent.service";
 import {
@@ -562,4 +563,15 @@ export const getMyPriceRequests = asyncHandler(async (req, res) => {
 export const getUsablePrices = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
   res.json({ success: true, data: await listUsablePrices(agent.id, String(req.params.id)) });
+});
+
+/** «هذا الحي مو بالقائمة» — proposed by the rep, created by the owner. */
+export const postAreaProposal = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as { name?: unknown; centerLat?: unknown; centerLng?: unknown; city?: unknown };
+  res.status(201).json({
+    success: true,
+    message: "انرسل الاقتراح لصاحب المحل",
+    data: await proposeArea(agent.id, agent.name, body),
+  });
 });

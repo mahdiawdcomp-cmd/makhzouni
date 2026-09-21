@@ -14,6 +14,7 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { requireAgentCapability, requireSalesAgent } from "../middleware/permission.middleware";
 import {
   getAgentAreas,
+  postAreaProposal,
   getAgentImage,
   getAgentProducts,
   getCashOnHand,
@@ -57,6 +58,9 @@ const router = Router();
 router.use(authMiddleware, requireSalesAgent());
 
 router.get("/areas", getAgentAreas);
+// The rep proposes; nothing is added until the owner approves it from the
+// ordinary approvals screen.
+router.post("/areas/propose", postAreaProposal);
 
 router.get("/today", getToday);
 router.get("/customers", getMyCustomers);

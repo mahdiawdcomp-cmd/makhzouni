@@ -5,6 +5,8 @@
  * something the rep must never see, so it is served from a router the rep cannot
  * reach at all rather than from a shared route that filters by role.
  */
+import { getAgentDay, getAgentsOverview, getAreaPerformance } from "../services/sales-agent-day.service";
+import { shopDateKey } from "../utils/shop-day";
 import { asyncHandler } from "../utils/async-handler";
 import {
   addToVisitPlan,
@@ -214,4 +216,42 @@ export const getAgentCustomers = asyncHandler(async (req, res) => {
       limit: Number.isFinite(limit) ? limit : undefined,
     }),
   });
+});
+
+/* ── «صفحة تحكم المندوب» ──────────────────────────────────────────────── */
+
+/**
+ * A default window for the comparison screens: the last 30 days, shop time.
+ *
+ * Validated rather than trusted — an unparsable `from` would otherwise become
+ * an Invalid Date and every range query would silently return nothing, which
+ * reads on screen exactly like a rep who did no work.
+ */
+function rangeFromQuery(query: Record<string, unknown>) {
+  const key = (value: unknown) =>
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  const to = key(query.to) ?? shopDateKey(new Date());
+  const from = key(query.from) ?? shopDateKey(new Date(Date.now() - 29 * 86_400_000));
+  // A reversed range is a typo, not a request for nothing.
+  return from <= to ? { from, to } : { from: to, to: from };
+}
+
+/** One rep's day: what they filed, when, and where they were. */
+export const getAgentDayCtrl = asyncHandler(async (req, res) => {
+  const salesAgentId = String(req.query.salesAgentId ?? "");
+  if (!salesAgentId) throw new AppError("حدد المندوب", 400, "SALES_AGENT_REQUIRED");
+  const date = typeof req.query.date === "string" ? req.query.date : undefined;
+  res.json({ success: true, data: await getAgentDay(salesAgentId, date) });
+});
+
+/** Every rep side by side over a window. */
+export const getAgentsOverviewCtrl = asyncHandler(async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query as Record<string, unknown>);
+  res.json({ success: true, data: { from, to, agents: await getAgentsOverview(from, to) } });
+});
+
+/** Which neighbourhoods produce and which are dead. */
+export const getAreaPerformanceCtrl = asyncHandler(async (req, res) => {
+  const { from, to } = rangeFromQuery(req.query as Record<string, unknown>);
+  res.json({ success: true, data: { from, to, areas: await getAreaPerformance(from, to) } });
 });

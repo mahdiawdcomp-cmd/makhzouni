@@ -97,6 +97,10 @@ export const approvalRequestTypes = {
   // «اطلب سعراً خاصاً» — the rep cannot discount, so they ask through the same
   // approvals screen everything else uses.
   AGENT_PRICE_REQUEST: "AGENT_PRICE_REQUEST",
+  // «هذا الحي مو بالقائمة» — the rep found a neighbourhood nobody has added.
+  // They propose; the owner adds. Letting the rep write the list directly is
+  // how it ends up holding three spellings of one place within a month.
+  AGENT_AREA_REQUEST: "AGENT_AREA_REQUEST",
   // «جرد الزبون» — the customer counted what reached them and it differs from
   // the invoice. Unlike the worker's count (applied on submit), nothing moves
   // until the owner approves this.
@@ -138,6 +142,7 @@ const approvalTypeLabels: Record<string, string> = {
   INVOICE_COUNT_ADJUSTMENT: "جرد الزبون لفاتورة",
   NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة (عجز مخزون)",
   AGENT_PRICE_REQUEST: "طلب سعر خاص من مندوب",
+  AGENT_AREA_REQUEST: "اقتراح منطقة جديدة من مندوب",
 };
 
 // ── Human-readable display for the approvals page ──────────────────────────
@@ -950,6 +955,34 @@ async function executeApprovedRequest(
             }
           : body;
       return executeTransferWithin(tx, execBody, reviewerId, true);
+    }
+    case approvalRequestTypes.AGENT_AREA_REQUEST: {
+      // Approving CREATES the area, with the centre the rep was standing on.
+      // Nothing was written when they proposed it, so a refused suggestion
+      // leaves no trace in the list the shop actually uses.
+      const name = String(data.name ?? "").trim().replace(/\s+/g, " ");
+      if (!name) throw new AppError("اسم المنطقة مفقود", 400, "AREA_NAME_REQUIRED");
+      // Someone may have added the same neighbourhood by hand while this sat
+      // waiting. Approving then means "yes, that place" — linking to the row
+      // that exists rather than failing on the unique index.
+      const existing = await tx.area.findFirst({ where: { name }, select: { id: true } });
+      if (existing) return { areaId: existing.id, created: false };
+      const lat = Number(data.centerLat);
+      const lng = Number(data.centerLng);
+      const hasCentre =
+        Number.isFinite(lat) && Number.isFinite(lng) &&
+        Math.abs(lat) <= 90 && Math.abs(lng) <= 180 &&
+        !(Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001);
+      const created = await tx.area.create({
+        data: {
+          name,
+          city: String(data.city ?? "").trim() || null,
+          centerLat: hasCentre ? lat : null,
+          centerLng: hasCentre ? lng : null,
+        },
+        select: { id: true },
+      });
+      return { areaId: created.id, created: true };
     }
     case approvalRequestTypes.AGENT_PRICE_REQUEST: {
       // Flip the request to APPROVED so the rep's next order can spend it. The

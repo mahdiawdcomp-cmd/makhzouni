@@ -17,6 +17,8 @@
 import { Suspense, lazy, useState } from "react"
 import { Crosshair, Loader2, MapPin } from "lucide-react"
 import { Button } from "../../components/ui/button"
+import { Input } from "../../components/ui/input"
+import { apiErrorMessage } from "../../utils/apiError"
 import { api } from "../../api/client"
 import { toast } from "../../components/ui/use-toast"
 import { cn } from "../../utils/cn"
@@ -80,6 +82,11 @@ export function ShopLocationPicker({
   const [accuracyM, setAccuracyM] = useState<number | null>(null)
   const [suggested, setSuggested] = useState<string | null>(null)
   const [mapOpen, setMapOpen] = useState(false)
+  // «هذا الحي مو بالقائمة». The rep types a name; it goes to the owner as an
+  // approval and nothing is added to the list until they say yes.
+  const [proposeOpen, setProposeOpen] = useState(false)
+  const [proposed, setProposed] = useState("")
+  const [sending, setSending] = useState(false)
 
   /**
    * Apply a point: remember it, then fill the area IF the rep has not already
@@ -117,6 +124,28 @@ export function ShopLocationPicker({
       await applyPoint({ lat: location.latitude as number, lng: location.longitude as number })
     } finally {
       setReading(false)
+    }
+  }
+
+  const sendProposal = async () => {
+    const name = proposed.trim()
+    if (!name) return
+    setSending(true)
+    try {
+      await api.post("/sales-agent/areas/propose", {
+        name,
+        // The pin the rep already dropped becomes the proposed centre, so the
+        // owner is not asked to place a neighbourhood they have never stood in.
+        centerLat: point?.lat,
+        centerLng: point?.lng,
+      })
+      toast({ title: "انرسل الاقتراح لصاحب المحل", description: "كمّل الزبون هسه — المنطقة تنربط بعد الموافقة" })
+      setProposed("")
+      setProposeOpen(false)
+    } catch (err) {
+      toast({ title: "ما انرسل", description: apiErrorMessage(err), variant: "destructive" })
+    } finally {
+      setSending(false)
     }
   }
 
@@ -186,6 +215,37 @@ export function ShopLocationPicker({
             ))}
           </select>
         )}
+        {/* The rep is standing in a neighbourhood nobody added yet. Without
+            this they either pick a wrong nearby area or leave it blank, and
+            the customer becomes invisible to every area filter. */}
+        {proposeOpen ? (
+          <div className="mt-2 space-y-2 rounded-lg border border-[var(--theme-cardBorder)] p-3">
+            <Input
+              value={proposed}
+              onChange={(e) => setProposed(e.target.value)}
+              placeholder="اسم الحي مثل ما يسمّونه هنا"
+              aria-label="اسم الحي المقترح"
+              className="h-11"
+            />
+            <p className="text-[12px] text-slate-500">
+              راح ينرسل لصاحب المحل. كمّل الزبون هسه — الموقع محفوظ، والمنطقة تنربط بعد الموافقة.
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" className="h-11" disabled={!proposed.trim() || sending} onClick={() => void sendProposal()}>
+                {sending ? <Loader2 className="size-4 animate-spin" /> : null}
+                أرسل الاقتراح
+              </Button>
+              <Button type="button" variant="ghost" className="h-11" onClick={() => setProposeOpen(false)}>
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button type="button" variant="ghost" className="mt-1 h-11" onClick={() => setProposeOpen(true)}>
+            هذا الحي مو بالقائمة
+          </Button>
+        )}
+
         {/* Named when it differs, so the rep sees that their own choice is the
             one being saved and not silently replaced by the suggestion. */}
         {suggested && areaName && suggested !== areaName && (

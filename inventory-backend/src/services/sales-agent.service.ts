@@ -143,6 +143,71 @@ export async function listSalesAgentAreas(): Promise<string[]> {
   return raw.map((a) => String(a).trim()).filter(Boolean);
 }
 
+/**
+ * «هذا الحي مو بالقائمة» — the rep proposes a neighbourhood.
+ *
+ * Nothing is written to the areas table here. The proposal goes through the
+ * SAME approvals screen every other rep request already uses, and the area is
+ * created only when the owner says yes.
+ *
+ * Why the rep may not just add it: an area list written by whoever is standing
+ * outside a shop at the time becomes «حي الحسين», «الحسين» and «حي الحسين (ع)»
+ * as three separate places inside a month, and then no filter finds all three.
+ * One curator, many proposers.
+ *
+ * The rep is NOT blocked meanwhile: the customer they are adding saves with
+ * coordinates and no area, and the area attaches when the owner approves.
+ */
+export async function proposeArea(
+  agentId: string,
+  agentName: string,
+  input: { name?: unknown; centerLat?: unknown; centerLng?: unknown; city?: unknown },
+) {
+  const name = String(input.name ?? "").trim().replace(/\s+/g, " ");
+  if (!name) throw new AppError("اكتب اسم المنطقة", 400, "AREA_NAME_REQUIRED");
+  if (name.length > 120) throw new AppError("اسم المنطقة طويل", 400, "AREA_NAME_TOO_LONG");
+
+  // Already on the list: say so instead of queueing a proposal the owner would
+  // have to read and reject.
+  const existing = await prisma.area.findFirst({ where: { name }, select: { id: true, isActive: true } });
+  if (existing) {
+    throw new AppError(
+      existing.isActive ? "هذي المنطقة موجودة بالقائمة" : "هذي المنطقة موجودة بس معطّلة — راجع صاحب المحل",
+      409,
+      "AREA_EXISTS",
+    );
+  }
+
+  // Already proposed and still waiting — by this rep or another one. A second
+  // row would mean the owner approving the same place twice and the unique
+  // index rejecting the second one.
+  const pending = await prisma.pendingApproval.findFirst({
+    where: { requestType: approvalRequestTypes.AGENT_AREA_REQUEST, status: "PENDING" },
+    select: { requestData: true },
+  });
+  if (pending) {
+    const other = String(((pending.requestData ?? {}) as { name?: string }).name ?? "").trim();
+    if (other === name) throw new AppError("مقترحة من قبل وبانتظار الموافقة", 409, "AREA_PENDING");
+  }
+
+  const centre = validCoords(input.centerLat, input.centerLng);
+  const approval = await createPendingApproval(
+    approvalRequestTypes.AGENT_AREA_REQUEST,
+    {
+      source: "SALES_AGENT",
+      salesAgentId: agentId,
+      salesAgentName: agentName,
+      name,
+      city: String(input.city ?? "").trim() || null,
+      centerLat: centre?.lat ?? null,
+      centerLng: centre?.lng ?? null,
+    },
+    agentId,
+  );
+
+  return { approvalId: approval.id, name };
+}
+
 /* ── customers ───────────────────────────────────────────────────────── */
 
 /**

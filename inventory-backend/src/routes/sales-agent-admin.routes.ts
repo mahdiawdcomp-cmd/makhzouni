@@ -11,6 +11,9 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { adminOnly } from "../middleware/admin-only.middleware";
 import {
   deleteSettlement,
+  getAgentDayCtrl,
+  getAgentsOverviewCtrl,
+  getAreaPerformanceCtrl,
   getCommissionCtrl,
   getHandovers,
   getHealth,
@@ -30,6 +33,12 @@ import {
 const router = Router();
 
 router.use(authMiddleware, adminOnly);
+
+// «صفحة تحكم المندوب» — the owner's read of a rep's day and of every rep
+// side by side. All three are reports: nothing here writes.
+router.get("/agent-day", getAgentDayCtrl);
+router.get("/agents-overview", getAgentsOverviewCtrl);
+router.get("/area-performance", getAreaPerformanceCtrl);
 
 router.get("/liability", getLiability);
 router.get("/handovers", getHandovers);
