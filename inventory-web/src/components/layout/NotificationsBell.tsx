@@ -113,9 +113,23 @@ const IMPORTANT_LAST_KEY = "notif_important_last"
 const SOUND_LAST_PLAYED_KEY = "notif_sound_last_played"
 const SOUND_COOLDOWN_MS = 10_000
 
-async function fetchRecent(): Promise<Notification[]> {
-  const { data } = await api.get<{ success: boolean; data: Notification[] }>("/notifications/recent", { params: { limit: 30 } })
-  return data.data ?? []
+/**
+ * The legacy feed, WITH the server's own unread count and «seen» marker.
+ *
+ * Both used to be worked out here, from a timestamp in this browser's
+ * localStorage and from the 30 rows this call returned: every device kept its
+ * own marker and showed its own number, and the number could never pass 30.
+ */
+async function fetchRecent(): Promise<{ items: Notification[]; unreadCount: number; seenAt: number }> {
+  const { data } = await api.get<{ success: boolean; data: Notification[]; unreadCount?: number; seenAt?: string | null }>(
+    "/notifications/recent",
+    { params: { limit: 30 } },
+  )
+  return {
+    items: data.data ?? [],
+    unreadCount: data.unreadCount ?? 0,
+    seenAt: data.seenAt ? new Date(data.seenAt).getTime() : 0,
+  }
 }
 
 async function fetchAppNotifications(): Promise<AppNotification[]> {
@@ -171,11 +185,12 @@ export function NotificationsBell() {
 
   // Legacy derived feed (AuditLog / PendingApproval) — display-only fallback so
   // existing events don't disappear before every producer is migrated (23E).
-  const { data: legacy = [] } = useQuery({
+  const { data: legacyFeed } = useQuery({
     queryKey: ["notifications", "recent"],
     queryFn: fetchRecent,
     refetchInterval: 30_000,
   })
+  const legacy = legacyFeed?.items ?? []
 
   // New AppNotification center feed (structured, server read/unread).
   const { data: appItems = [] } = useQuery({
@@ -216,11 +231,14 @@ export function NotificationsBell() {
     return () => document.removeEventListener("mousedown", onClick)
   }, [openSeverity])
 
-  // Legacy "unread" = anything newer than the last-seen timestamp (localStorage).
-  const [seenAt, setSeenAt] = useState<number>(() => {
-    try { return Number(localStorage.getItem("notif_seen_at") || 0) } catch { return 0 }
+  // Legacy "unread" comes from the server, counted against the user's own
+  // «seen» marker there. `seenAt` is kept only to highlight the new rows.
+  const seenAt = legacyFeed?.seenAt ?? 0
+  const legacyUnread = legacyFeed?.unreadCount ?? 0
+  const markLegacySeen = useMutation({
+    mutationFn: () => api.post("/notifications/recent/seen"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications", "recent"] }),
   })
-  const legacyUnread = legacy.filter((n) => new Date(n.createdAt).getTime() > seenAt).length
 
   // Multi-tone sound for NEW IMPORTANT AppNotifications only (batch 23F).
   // NORMAL/MEDIUM and legacy are silent. Guarded by mute, a 10s cooldown, and a
@@ -266,12 +284,9 @@ export function NotificationsBell() {
 
   function markSeenForPanel(sev: AppSeverity) {
     markAllSeverity.mutate(sev)
-    // The NORMAL panel also carries the legacy feed → clear its local seen marker.
-    if (sev === "NORMAL") {
-      const now = Date.now()
-      setSeenAt(now)
-      try { localStorage.setItem("notif_seen_at", String(now)) } catch {}
-    }
+    // The NORMAL panel also carries the legacy feed → clear its seen marker ON
+    // THE SERVER, so the iPad and the desktop clear together.
+    if (sev === "NORMAL") markLegacySeen.mutate()
   }
 
   // The unread badge per button. NORMAL also includes legacy (shown in its panel).

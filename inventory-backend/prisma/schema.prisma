@@ -322,6 +322,10 @@ model User {
   // the value it was signed with; authMiddleware rejects a token whose version
   // is stale, so changing the password actually revokes existing sessions.
   tokenVersion              Int                       @default(0) @map("token_version")
+  // When this user last cleared the «عادي» bell panel. It used to live in each
+  // browser's localStorage, so the iPad, the desktop and the phone each kept
+  // their own and showed three different counts for the same shop.
+  notificationsSeenAt       DateTime?                 @map("notifications_seen_at")
   role                      UserRole                  @default(STAFF)
   // Free-form capability strings (see frontend UserPermission union). Also carries
   // DENY markers such as "HIDE_PROFIT_REPORTS" which revoke a capability even from an

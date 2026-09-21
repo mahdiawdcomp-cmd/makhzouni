@@ -38,7 +38,9 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   catalog: ["catalog-customers", "catalog-categories", "retail-catalog", "public-catalog"],
   coupons: ["coupons"],
   customers: ["customers", "customer", "customer-transactions", "customer-balance", "debts"],
-  invoices: ["invoices", "invoice", "dashboard-report", "reports", "customers", "products"],
+  // «approvals» too: a rep's invoice edit publishes «invoices» whether it was
+  // applied or queued, and a queued one lands in the approvals screen.
+  invoices: ["invoices", "invoice", "dashboard-report", "reports", "customers", "products", "approvals"],
   notifications: ["notifications"],
   "order-preparations": ["order-preparations", "approvals"],
   products: ["products", "product", "product-movement", "dashboard-report", "reports"],
@@ -64,12 +66,41 @@ const salesAgentKeysByResource: Partial<Record<RealtimeResource, string[]>> = {
   "stock-losses": ["products"],
   stocktake: ["products"],
   transfers: ["products"],
-  customers: ["customers", "customer-header", "customer-detail", "visit-customers"],
+  customers: ["customers", "customer-header", "customer-detail", "visit-customers", "visit-plan", "area-rows", "areas"],
   vouchers: ["cash", "today", "receipts", "handovers", "customers", "customer-header", "customer-detail"],
   approvals: ["orders", "today", "price-requests", "issues"],
   "order-preparations": ["orders", "today"],
   catalog: ["products", "customer-offers"],
 }
+
+/**
+ * Resources whose writes CREATE notifications, and the queries that show them.
+ *
+ * The bell and «إشعارات المندوبين» are fed by rows written inside ordinary
+ * saves — an invoice, a voucher, a rep's order. Only the «notifications»
+ * resource used to refresh them, and that fires when someone marks a
+ * notification read, not when one is created. So the counter sat stale until
+ * its own 30-second poll, and looked wrong in the meantime.
+ */
+const NOTIFYING_RESOURCES = new Set<RealtimeResource>([
+  "approvals",
+  "customers",
+  "invoices",
+  "notifications",
+  "order-preparations",
+  "products",
+  "vouchers",
+])
+const NOTIFICATION_QUERY_KEYS: string[][] = [
+  ["notifications", "recent"],
+  ["app-notifications"],
+  ["app-notification-counts"],
+  ["sales-agent-admin", "activity"],
+  ["sales-agent-admin", "activity-counts"],
+  // The sidebar's approvals badge. Its key does not start with «approvals»,
+  // so the approvals rule above never reached it either.
+  ["approvals-pending-count"],
+]
 
 function realtimeUrl(token: string): string | null {
   const configuredBase = String(import.meta.env.VITE_REALTIME_API_URL ?? "").trim()
@@ -144,6 +175,10 @@ export function RealtimeSyncBridge() {
         if (resources.includes("all")) {
           invalidateEverything()
           return
+        }
+
+        if (resources.some((item) => NOTIFYING_RESOURCES.has(item))) {
+          for (const queryKey of NOTIFICATION_QUERY_KEYS) void queryClient.invalidateQueries({ queryKey })
         }
 
         const salesAgentKeys = new Set(resources.flatMap((item) => salesAgentKeysByResource[item] ?? []))

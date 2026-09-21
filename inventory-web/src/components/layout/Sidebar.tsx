@@ -39,6 +39,7 @@ import {
 } from "lucide-react"
 import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
+import { api } from "../../api/client"
 import { getAiEscalationsOpenCount, getApprovals, getInboundMessages, getRequestedProductsOpenCount, getWholesaleInstagramStockAlerts } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
@@ -476,6 +477,17 @@ export function Sidebar() {
   })
   const pendingCount = approvalsQuery.data?.length ?? 0
 
+  // «إشعارات المندوبين» — the server's own COUNT, so every device agrees.
+  const repActivityQuery = useQuery({
+    queryKey: ["sales-agent-admin", "activity-counts"],
+    queryFn: async () =>
+      (await api.get<{ data: { unread: number; importantUnread: number } }>("/sales-agent-admin/activity/counts")).data.data,
+    refetchInterval: 60_000,
+    enabled: isAdmin,
+  })
+  const repUnread = repActivityQuery.data?.unread ?? 0
+  const repImportant = repActivityQuery.data?.importantUnread ?? 0
+
   function hasPermission(item: Item): boolean {
     if (isAdmin) return true
     // Inventory group: visible when user can see at least one child (products or transfers)
@@ -608,6 +620,19 @@ export function Sidebar() {
                 {adminItem.to === "/approvals" && pendingCount > 0 && (
                   <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
                     {pendingCount}
+                  </span>
+                )}
+                {/* Red when something needs a decision, otherwise the plain
+                    unread count — the colour says which, the number says how many. */}
+                {adminItem.to === "/sales-agents" && repUnread > 0 && (
+                  <span
+                    className={cn(
+                      "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white",
+                      repImportant > 0 ? "bg-red-500" : "bg-sky-500",
+                    )}
+                    title={repImportant > 0 ? `${repImportant} يحتاج انتباهك` : `${repUnread} غير مقروء`}
+                  >
+                    {repImportant > 0 ? repImportant : repUnread > 99 ? "99+" : repUnread}
                   </span>
                 )}
               </NavLink>

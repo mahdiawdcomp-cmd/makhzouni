@@ -1,4 +1,5 @@
 import prisma from "../config/database";
+import { getSettings } from "./settings.service";
 
 type Severity = "info" | "success" | "warning" | "error";
 
@@ -308,7 +309,20 @@ export async function getRecentNotifications(
     })
     .filter((n): n is FriendlyNotification => n !== null);
 
-  const catalogNotifs: FriendlyNotification[] = catalogOrders.map((a) => {
+  // A rep's order already reaches the bell as «فاتورة جديدة من المندوب» in the
+  // متوسط panel. Listing it here as well put the SAME order in two badges, and
+  // the owner counted one order twice. Kept here only when that alert is
+  // switched off, so the order is never missing from the bell either.
+  const settings = await getSettings().catch(() => null);
+  const repOrdersAlreadyNotified = settings?.salesAgentNotifyNewOrder !== false;
+  const shownOrders = repOrdersAlreadyNotified
+    ? catalogOrders.filter((a) => {
+        const d = (a.requestData && typeof a.requestData === "object" ? a.requestData : {}) as Record<string, unknown>;
+        return !d.salesAgentId;
+      })
+    : catalogOrders;
+
+  const catalogNotifs: FriendlyNotification[] = shownOrders.map((a) => {
     const d = (a.requestData && typeof a.requestData === "object" ? a.requestData : {}) as Record<string, unknown>;
     const customerName = typeof d.customerName === "string" ? d.customerName : "زبون";
     const itemCount = Array.isArray(d.displayItems) ? d.displayItems.length : "?";

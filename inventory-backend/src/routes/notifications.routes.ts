@@ -7,14 +7,17 @@ import {
   getRecent,
   markAllAppRead,
   markAppRead,
+  markRecentSeen,
 } from "../controllers/notifications.controller";
 
 const router = Router();
 
 router.use(authMiddleware);
 
-// Legacy derived feed (AuditLog / PendingApproval) — kept as-is.
+// Legacy derived feed (AuditLog / PendingApproval). Its «seen» marker now lives
+// on the user, so every device shows the same unread count.
 router.get("/recent", getRecent);
+router.post("/recent/seen", markRecentSeen);
 
 // New AppNotification center (role-filtered inside the service).
 router.get("/app/recent", getAppRecent);

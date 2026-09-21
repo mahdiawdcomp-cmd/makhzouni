@@ -11,6 +11,8 @@
  */
 import { useMemo, useRef, useState } from "react"
 import { AgentControlPanel } from "./sales-agent/AgentControlPanel"
+import { AgentActivityPanel } from "./sales-agent/AgentActivityPanel"
+import { AgentSettingsPanel } from "./sales-agent/AgentSettingsPanel"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../api/client"
 import { toast } from "../components/ui/use-toast"
@@ -133,6 +135,9 @@ export function SalesAgentAdminPage() {
         </Card>
       ) : (
         <>
+          {/* «إشعارات المندوبين» first — where anything needing a decision
+              shows up, with the same unread count the iPad shows. */}
+          <AgentActivityPanel agents={agents.map((a) => ({ id: a.agentId, name: a.name }))} />
           <HandoverPanel
             agents={agents}
             loading={liability.isLoading}
@@ -144,6 +149,7 @@ export function SalesAgentAdminPage() {
           {/* «متابعة المندوب» — the owner reads a rep's day here too. Reports
               only; it writes nothing. */}
           <AgentControlPanel agents={agents.map((a) => ({ id: a.agentId, name: a.name }))} />
+          <AgentSettingsPanel />
           <CommissionPanel agents={agents} />
           <LiabilityHealthPanel />
           <IssueReportsPanel />

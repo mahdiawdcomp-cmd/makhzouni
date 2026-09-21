@@ -62,6 +62,7 @@ import { OrderReviewDialog } from "./sales-agent/OrderReviewDialog"
 import { PendingOrdersScreen } from "./sales-agent/PendingOrdersScreen"
 import { VisitsScreen } from "./sales-agent/VisitsScreen"
 import { ShopLocationPicker, type AreaOption, type ShopPoint } from "./sales-agent/ShopLocationPicker"
+import { AgentInvoiceDialog, AgentReceiptDialog } from "./sales-agent/DocumentDialogs"
 import { distanceMetres, hasFix, locationNote, readAgentLocation, type AgentLocation } from "../utils/agentLocation"
 import type { FollowUpReason, OrderReview, SubmittedOrder } from "./sales-agent/types"
 
@@ -216,6 +217,10 @@ type StatementRow = {
   status?: string | null
   runningBalance?: number
   createdByName?: string | null
+  /** Written under this rep's account — the only rows they may change. */
+  mine?: boolean
+  /** A change to this row already waits on the owner. */
+  pending?: "EDIT" | "CANCEL" | null
 }
 
 type CustomerStatement = {
@@ -1104,6 +1109,15 @@ function SalesAgentWorkspace() {
               <CustomerDetailScreen
                 customerId={detailCustomerId}
                 onBack={() => setScreen("customers")}
+                // Today's wholesale price per unit from the grid already loaded,
+                // for the «أكثر من ٦٪» warning. The server re-checks it.
+                catalogUnitPrice={(productId, unit, priceMode) => {
+                  const product = productById.get(productId)
+                  // Against the invoice's OWN price mode: a carton invoice is
+                  // cheaper by design, and comparing it with the wholesale
+                  // price would warn about a discount nobody gave.
+                  return product ? unitPrice(product, unit, priceMode === "CARTON" ? "CARTON" : "WHOLESALE") : null
+                }}
               />
             ) : (
               <EmptyState
@@ -3156,10 +3170,15 @@ const TX_LABEL: Record<string, string> = {
 function CustomerDetailScreen({
   customerId,
   onBack,
+  catalogUnitPrice,
 }: {
   customerId: string
   onBack: () => void
+  catalogUnitPrice: (productId: string, unit: Unit, priceMode: string) => number | null
 }) {
+  // The row the rep tapped. An invoice row and its «دفعة على فاتورة» row share
+  // an id, and both open the invoice.
+  const [opened, setOpened] = useState<{ kind: "invoice" | "receipt"; id: string } | null>(null)
   const statement = useQuery({
     queryKey: ["sales-agent", "customer-detail", customerId],
     queryFn: async () => {
@@ -3211,27 +3230,47 @@ function CustomerDetailScreen({
             <TBody>
               {/* Newest first: the rep is standing in front of the shopkeeper and
                   the argument is always about the last few movements. */}
-              {[...rows].reverse().map((row) => (
-                <TR
-                  key={`${row.id}:${row.type}`}
-                  className={row.status === "CANCELLED" ? "opacity-60" : ""}
-                >
-                  <TD className="tabular-nums">{shortDate(row.date)}</TD>
-                  <TD>
-                    {TX_LABEL[row.type] ?? row.type}
-                    {row.status === "CANCELLED" && <StatusPill tone="bad">ملغية</StatusPill>}
-                  </TD>
-                  <TD className="tabular-nums">{row.referenceNumber}</TD>
-                  <TD className="font-medium tabular-nums">{money(row.amount)}</TD>
-                  <TD className="tabular-nums">
-                    {row.runningBalance != null ? money(row.runningBalance) : "—"}
-                  </TD>
-                </TR>
-              ))}
+              {[...rows].reverse().map((row) => {
+                // Invoices and receipts open; a «سند دفع» is the shop paying
+                // the customer and is nothing a rep acts on.
+                const kind = row.type === "RECEIPT" ? "receipt" : row.type === "PAYMENT" ? null : "invoice"
+                return (
+                  <TR
+                    key={`${row.id}:${row.type}`}
+                    className={cn(
+                      row.status === "CANCELLED" && "opacity-60",
+                      kind && "cursor-pointer hover:bg-[var(--theme-accentSoft)]",
+                    )}
+                    onClick={kind ? () => setOpened({ kind, id: row.id }) : undefined}
+                  >
+                    <TD className="tabular-nums">{shortDate(row.date)}</TD>
+                    <TD>
+                      {TX_LABEL[row.type] ?? row.type}
+                      {row.status === "CANCELLED" && <StatusPill tone="bad">ملغية</StatusPill>}
+                      {/* Which rows are the rep's to change, and which already
+                          wait on the owner — visible before they tap. */}
+                      {row.pending ? (
+                        <StatusPill tone="wait">{row.pending === "CANCEL" ? "إلغاء بانتظار الموافقة" : "تعديل بانتظار الموافقة"}</StatusPill>
+                      ) : row.mine ? (
+                        <StatusPill tone="ok">{row.type === "RECEIPT" ? "سندك" : "فاتورتك"}</StatusPill>
+                      ) : null}
+                    </TD>
+                    <TD className="tabular-nums">{row.referenceNumber}</TD>
+                    <TD className="font-medium tabular-nums">{money(row.amount)}</TD>
+                    <TD className="tabular-nums">
+                      {row.runningBalance != null ? money(row.runningBalance) : "—"}
+                    </TD>
+                  </TR>
+                )
+              })}
             </TBody>
           </Table>
         )}
       </CardContent>
+      {opened?.kind === "invoice" && (
+        <AgentInvoiceDialog invoiceId={opened.id} onClose={() => setOpened(null)} catalogUnitPrice={catalogUnitPrice} />
+      )}
+      {opened?.kind === "receipt" && <AgentReceiptDialog voucherId={opened.id} onClose={() => setOpened(null)} />}
     </Card>
   )
 }
