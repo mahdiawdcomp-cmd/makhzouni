@@ -4,6 +4,7 @@ import { AppError } from "../utils/app-error";
 import { encryptSecret, decryptSecret } from "../utils/crypto";
 import { publicMediaUrl } from "./media-asset.service";
 import { backendPublicUrl } from "../utils/public-urls";
+import { invalidateSettingsCache } from "./settings.service";
 
 // Instagram auto-publish for «كتلوك المفرد» — Meta Graph API (Business/Creator
 // accounts). Every publish goes through an InstagramPost row prepared in the
@@ -42,6 +43,7 @@ export async function saveInstagramAppConfig(input: { appId?: string; appSecret?
   for (const [key, value] of entries) {
     await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
   }
+  invalidateSettingsCache();
   return getInstagramAppConfig();
 }
 

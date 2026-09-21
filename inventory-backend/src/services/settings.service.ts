@@ -681,7 +681,77 @@ export const defaultSettings: AppSettings = {
 const OLD_INVOICE_TEMPLATE =
   "مرحباً {{customerName}}،\nفاتورتك رقم {{invoiceNumber}} بتاريخ {{date}}\nالمجموع: {{total}} {{currency}}\nالمدفوع: {{paid}} {{currency}}\nالباقي: {{remaining}} {{currency}}\nالحساب النهائي: {{finalBalance}} {{currency}}\nشكراً لتعاملكم مع {{storeName}}.";
 
+/* ── settings cache ──────────────────────────────────────────────────────
+ * getSettings() is called on nearly every request that does anything — the
+ * rep's catalog, every notification, every WhatsApp send — and each call read
+ * the whole settings table. It is now read at most once per SETTINGS_TTL_MS.
+ *
+ * Safe per tenant: a backend process serves exactly one shop's database (one
+ * PrismaClient on one DATABASE_URL), so a process-level cache can never hand
+ * one shop another shop's settings.
+ *
+ * Kept fresh two ways:
+ *   - every write that goes through this codebase calls
+ *     invalidateSettingsCache() — the settings page, and the six services
+ *     that write their own keys (WhatsApp, Telegram, Instagram, retail
+ *     catalog, wholesale Instagram, danger zone). The owner's own change shows
+ *     on their very next request.
+ *   - the TTL bounds anything that writes around this code (a backup restore,
+ *     a second instance) to a few seconds of staleness.
+ *
+ * Every caller receives its own deep copy. Some callers adjust the object they
+ * get back; without the copy, one request's adjustment would leak into every
+ * other request for the life of the cache.
+ */
+const SETTINGS_TTL_MS = 15_000;
+let settingsCache: { value: AppSettings; at: number } | null = null;
+let settingsInFlight: Promise<AppSettings> | null = null;
+/** Bumped on every invalidation, so a read already in flight cannot store a pre-write value. */
+let settingsGeneration = 0;
+// Tests drive settings through mocked tables and expect every read to see the
+// latest row; a cache would make them order-dependent. The cache's own test
+// turns it back on explicitly.
+let settingsCacheEnabled = process.env.NODE_ENV !== "test";
+
+/** Drop the cached settings. Call after ANY write to the settings table. */
+export function invalidateSettingsCache() {
+  settingsCache = null;
+  settingsInFlight = null;
+  settingsGeneration += 1;
+}
+
+/** For the cache's own test only. */
+export function __setSettingsCacheEnabledForTests(enabled: boolean) {
+  settingsCacheEnabled = enabled;
+  invalidateSettingsCache();
+}
+
 export async function getSettings(): Promise<AppSettings> {
+  if (!settingsCacheEnabled) return readSettingsFromDb();
+
+  if (settingsCache && Date.now() - settingsCache.at < SETTINGS_TTL_MS) {
+    return structuredClone(settingsCache.value);
+  }
+  // Coalesce a cold start: twenty requests arriving together make one read,
+  // not twenty.
+  if (!settingsInFlight) {
+    const generation = settingsGeneration;
+    settingsInFlight = readSettingsFromDb()
+      .then((value) => {
+        // A write landed while this read was running: its value may predate
+        // the write, so it is returned to the callers that asked but never
+        // stored for anyone else.
+        if (generation === settingsGeneration) settingsCache = { value, at: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        if (generation === settingsGeneration) settingsInFlight = null;
+      });
+  }
+  return structuredClone(await settingsInFlight);
+}
+
+async function readSettingsFromDb(): Promise<AppSettings> {
   const rows = await prisma.setting.findMany();
   const values = { ...defaultSettings } as Record<string, unknown>;
 
@@ -729,6 +799,7 @@ export async function updateSettings(input: Partial<AppSettings>) {
       })
     )
   );
+  invalidateSettingsCache();
 
   // getSettings() re-syncs WhatsApp credentials automatically
   const saved = await getSettings();
@@ -742,6 +813,7 @@ export async function updateSettings(input: Partial<AppSettings>) {
       create: { key: "whatsappCloudVerifyToken", value: token },
       update: { value: token },
     });
+    invalidateSettingsCache();
     return getSettings();
   }
 

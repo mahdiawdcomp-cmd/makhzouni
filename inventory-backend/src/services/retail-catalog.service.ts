@@ -4,7 +4,7 @@ import prisma, { ensureConnected } from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { createInvoice } from "./invoice.service";
-import { getSettings } from "./settings.service";
+import { getSettings, invalidateSettingsCache } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 import { totalStock } from "../utils/product-stock";
 
@@ -495,6 +495,7 @@ export async function setRetailReferralSettings(discountPercent: number) {
     update: { value: pct },
     create: { key: "retailReferralDiscountPercent", value: pct },
   });
+  invalidateSettingsCache();
   return { discountPercent: pct };
 }
 

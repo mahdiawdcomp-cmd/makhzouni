@@ -1,5 +1,6 @@
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { invalidateSettingsCache } from "./settings.service";
 
 /**
  * Destructive maintenance operations. Every function here permanently removes
@@ -169,6 +170,11 @@ export async function mergeWarehouses(
 
   // Warehouse merge rewrites every product/stock/movement row pointing at the
   // branches being removed — far beyond Prisma's 5s default.
+  //
+  // It also repoints «shopWarehouseId» in settings. The settings cache is
+  // cleared AFTER the transaction commits, never inside it: a request reading
+  // between the write and the commit would refill the cache with the old
+  // warehouse and hold it for the whole TTL.
   return prisma.$transaction(async (tx) => {
     let reassignedCustomers = 0;
 
@@ -229,5 +235,5 @@ export async function mergeWarehouses(
       deletedBranches: toDelete.map((b) => ({ id: b.id, name: b.name })),
       reassignedCustomers,
     };
-  });
+  }).finally(() => invalidateSettingsCache());
 }

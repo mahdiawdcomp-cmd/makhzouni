@@ -12,7 +12,7 @@
 // — never the backup bot's telegramBotToken/telegramChatId.
 import crypto from "crypto";
 import prisma from "../config/database";
-import { getSettings, updateSettings, AppSettings } from "./settings.service";
+import { getSettings, invalidateSettingsCache, updateSettings, AppSettings } from "./settings.service";
 import { totalStock } from "../utils/product-stock";
 import { AppError } from "../utils/app-error";
 import { backendPublicUrl } from "../utils/public-urls";
@@ -377,6 +377,7 @@ export async function getTelegramWebhookSecret(): Promise<string> {
     create: { key: WEBHOOK_SECRET_KEY, value: secret },
     update: { value: secret },
   });
+  invalidateSettingsCache();
   return secret;
 }
 

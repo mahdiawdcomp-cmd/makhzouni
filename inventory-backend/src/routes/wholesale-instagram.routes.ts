@@ -6,6 +6,7 @@ import { requirePermission, requireAnyPermission } from "../middleware/permissio
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import { MAX_IMAGE_BYTES } from "../services/media-asset.service";
+import { invalidateSettingsCache } from "../services/settings.service";
 import { getPublishingQuota } from "../services/instagram.service";
 import {
   listConnectedAccounts,
@@ -73,6 +74,7 @@ router.put("/suggested-times", requirePermission("MANAGE_WHOLESALE_INSTAGRAM"), 
     create: { key: "wholesaleInstagramSuggestedTimes", value: times },
     update: { value: times },
   });
+  invalidateSettingsCache();
   res.json({ success: true, data: { times } });
 }));
 
