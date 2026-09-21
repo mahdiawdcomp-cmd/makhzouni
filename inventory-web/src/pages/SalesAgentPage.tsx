@@ -46,12 +46,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
+import { ToastAction } from "../components/ui/toast"
 import { QueryErrorBox } from "../components/ui/query-error"
 import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 import { useAuthStore } from "../store/authStore"
 import { piecesPerUnit as sharedPiecesPerUnit } from "../utils/units"
 import { agentDefaultUnit, agentWholesaleUnits, stableThumbnailBatches } from "../utils/salesAgentCatalog"
+import { scoreProduct } from "../utils/search"
 import { cartonEligible, cleanAgentLines, draftKey, EMPTY_DRAFT, isDefinitiveOrderRejection, mergeAgentDrafts, pendingAttempts, readAgentWorkspace, workspaceKey, type AgentDraft, type AgentMode, type AgentWorkspace, type OrderPayload, type PendingMeta } from "../utils/salesAgentDrafts"
 import { AgentDialog, AgentEmptyState, AgentField, AgentLoading, AgentStatusPill } from "./sales-agent/shared"
 import { UNIT_LABEL, money, shortDate } from "./sales-agent/format"
@@ -354,10 +356,21 @@ type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "r
 type CatalogColumns = 2 | 3 | 4
 type CatalogSort = "name" | "newest" | "stock" | "price-low" | "price-high"
 
+/**
+ * The rep's own choice when they made one; otherwise sized to the device.
+ *
+ * Two columns on an iPad left each picture the width of half the screen and the
+ * rep scrolling through a dozen products to see a shelf's worth. The reps work
+ * on iPads almost entirely, so a wide screen now opens at four; a phone keeps
+ * two, where four would shrink every name to 11px.
+ */
 function savedCatalogColumns(): CatalogColumns {
   try {
     const value = Number(localStorage.getItem("sales-agent-catalog-columns"))
-    return value === 2 || value === 3 || value === 4 ? value : 2
+    if (value === 2 || value === 3 || value === 4) return value
+  } catch { /* storage blocked — fall through to the device default */ }
+  try {
+    return window.matchMedia("(min-width: 700px)").matches ? 4 : 2
   } catch { return 2 }
 }
 
@@ -574,6 +587,78 @@ function SalesAgentWorkspace() {
       toast({ title: `انضاف: ${product.name}` })
     }
 
+  /**
+   * Take back ONE unit that the quick-add button put in.
+   *
+   * Reads the live workspace rather than this render's `cart`: the toast that
+   * offers «تراجع» outlives the render that created it, and the rep may have
+   * added three more lines by the time they tap it. Undoing from a stale copy
+   * would silently throw those lines away.
+   *
+   * `key` is the draft the unit was added to — captured at add time, so undoing
+   * after switching customer still removes it from the right cart.
+   */
+  const undoQuickAdd = (key: string, productId: string, unit: Unit) => {
+    setWorkspace((current) => {
+      const live = current.drafts[key] ?? EMPTY_DRAFT
+      if (live.pending) return current
+      const items = live.items
+        .map((l) => (l.productId === productId && l.unit === unit ? { ...l, quantity: l.quantity - 1 } : l))
+        .filter((l) => l.quantity > 0)
+      const next = { ...current, drafts: { ...current.drafts, [key]: { ...live, items } } }
+      try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch { /* still undone in memory */ }
+      return next
+    })
+  }
+
+  /**
+   * «+» on a catalog card: one piece, straight into the cart.
+   *
+   * Always a PIECE in wholesale — the owner's call: a rep who wants a dozen opens
+   * the product. Carton mode has no piece to add, so there it is one carton, the
+   * only unit that mode sells.
+   *
+   * On a tablet a tap meant for scrolling can land on the button, so every
+   * quick add carries its own «تراجع» instead of leaving the rep to find the
+   * line in the cart and decrement it.
+   */
+  const quickAdd = (product: AgentProduct) => {
+    if (draft.pending) { toast({ title: "تحقق من الطلب المرسل أولاً" }); return }
+    const unit: Unit = mode === "CARTON" ? "CARTON" : "PIECE"
+    const existing = cart.find((l) => l.productId === product.id && l.unit === unit)?.quantity ?? 0
+    if (existing + 1 > 100000) { toast({ title: "الكمية كبيرة جداً", variant: "destructive" }); return }
+    const key = activeKey
+    setCart((prev) => {
+      const idx = prev.findIndex((l) => l.productId === product.id && l.unit === unit)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 }
+        return next
+      }
+      return [...prev, { productId: product.id, unit, quantity: 1 }]
+    })
+    captureCartLocation()
+    toast({
+      title: `انضاف ${UNIT_LABEL[unit]}: ${product.name}`,
+      action: (
+        <ToastAction altText="تراجع عن الإضافة" onClick={() => undoQuickAdd(key, product.id, unit)}>
+          تراجع
+        </ToastAction>
+      ),
+    })
+  }
+
+  /** What is already in the cart per product, for the «بالسلة» note on a card. */
+  const inCart = useMemo(() => {
+    const map = new Map<string, Array<{ unit: Unit; quantity: number }>>()
+    for (const line of cart) {
+      const rows = map.get(line.productId) ?? []
+      rows.push({ unit: line.unit, quantity: line.quantity })
+      map.set(line.productId, rows)
+    }
+    return map
+  }, [cart])
+
   const submit = useMutation({
     networkMode: "always",
     mutationFn: async (payload: OrderPayload) => {
@@ -756,17 +841,43 @@ function SalesAgentWorkspace() {
     toast({ title: "انحذفت المسودة من هذا الجهاز" })
   }
 
+  /**
+   * The category strip: only categories that have something the rep can sell
+   * right now, in the current price mode. A chip that opens onto an empty grid
+   * teaches the rep to stop trusting the strip.
+   *
+   * Alphabetical, not by size: a chip that moves because a count changed is a
+   * chip the rep has to hunt for every morning.
+   */
+  const categoryOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const p of products.data ?? []) {
+      if (!p.category || p.currentStock <= 0) continue
+      if (mode === "CARTON" && !cartonEligible(p)) continue
+      counts.set(p.category, (counts.get(p.category) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], "ar"))
+      .map(([name, count]) => ({ name, count }))
+  }, [products.data, mode])
+
   const filtered = useMemo(() => {
     const list = (products.data ?? []).filter(p => p.currentStock > 0 && (mode !== "CARTON" || cartonEligible(p))
       && (!category || p.category === category) && (!catalogFilter || (catalogFilter === "new" ? p.isNewArrival : p.isOffer)))
-    const term = search.trim().toLowerCase()
-    const matching = !term ? list : list.filter(
-      (p) =>
-        p.name.toLowerCase().includes(term) ||
-        p.itemNumber.toLowerCase().includes(term) ||
-        (p.category ?? "").toLowerCase().includes(term),
-    )
+    // The app-wide Arabic search, not a literal substring match: «بيبسى» finds
+    // «بيبسي», «ڤيمتو» finds «فيمتو», and a rep typing half a name gets the
+    // closest match first. Every other product search in the app already works
+    // this way; the rep's grid was the one place that did not.
+    const term = search.trim()
+    const scores = new Map<string, number>()
+    if (term) for (const p of list) scores.set(p.id, scoreProduct(p, term))
+    const matching = !term ? list : list.filter((p) => (scores.get(p.id) ?? 0) > 0)
     return [...matching].sort((a, b) => {
+      // While searching, the best match leads; the chosen sort only breaks ties.
+      if (term) {
+        const byScore = (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0)
+        if (byScore !== 0) return byScore
+      }
       if (catalogSort === "stock") return b.currentStock - a.currentStock || a.name.localeCompare(b.name, "ar")
       if (catalogSort === "price-low" || catalogSort === "price-high") {
         const price = (p: AgentProduct) => mode === "CARTON" ? unitPrice(p, "CARTON", mode) : p.salePrice
@@ -1022,25 +1133,62 @@ function SalesAgentWorkspace() {
                     <Search className="pointer-events-none absolute inset-y-0 right-3 my-auto size-4 text-slate-400" aria-hidden="true" />
                     <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="دور على مادة أو رقمها" aria-label="بحث عن مادة" className="h-11 pe-10" />
                   </label>
-                  <Button className="h-11" variant={filtersOpen || category || catalogFilter ? "default" : "outline"} aria-expanded={filtersOpen} aria-controls="agent-catalog-filters" onClick={() => setFiltersOpen(value => !value)}>
-                    <SlidersHorizontal className="size-4" /> الفلاتر {(category || catalogFilter) && <span className="rounded-full bg-white/20 px-1.5 text-xs">{Number(Boolean(category)) + Number(Boolean(catalogFilter))}</span>}
+                  {/* Only the sort lives behind this now; categories moved to the
+                      strip below, where the rep can see them without a tap. */}
+                  <Button className="h-11" variant={filtersOpen || catalogSort !== "name" ? "default" : "outline"} aria-expanded={filtersOpen} aria-controls="agent-catalog-filters" onClick={() => setFiltersOpen(value => !value)}>
+                    <SlidersHorizontal className="size-4" /> الترتيب
                   </Button>
                   <div className="flex items-center gap-1 rounded-xl border border-[var(--theme-cardBorder)] p-1" role="group" aria-label="عدد الصور في السطر">
                     <LayoutGrid className="mx-1 hidden size-4 text-slate-400 sm:block" aria-hidden="true" />
                     {([2, 3, 4] as const).map(value => <button key={value} type="button" aria-label={`${value} صور في السطر`} aria-pressed={catalogColumns === value} title={`${value} صور في السطر`} onClick={() => changeCatalogColumns(value)} className={cn("min-h-11 min-w-11 rounded-lg px-2 text-sm font-bold transition-colors", catalogColumns === value ? "bg-[var(--theme-accent)] text-white shadow-sm" : "text-slate-500 hover:bg-[var(--theme-accentSoft)] hover:text-[var(--theme-accent)]")}>{value}</button>)}
                   </div>
                 </div>
-                {filtersOpen && <div id="agent-catalog-filters" className="sales-agent-filter-panel mt-3 grid gap-2 border-t border-[var(--theme-cardBorder)] pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
-                  <select aria-label="قسم المواد" className="h-11 min-w-0 rounded-xl border border-[var(--theme-cardBorder)] bg-[var(--theme-cardBg)] px-3" value={category} onChange={e => setCategory(e.target.value)}>
-                    <option value="">كل الأقسام</option>
-                    {[...new Set((products.data ?? []).map(p => p.category).filter(Boolean))].map(c => <option key={c} value={c!}>{c}</option>)}
-                  </select>
+                {/* One row, always visible, scrolling sideways when it overflows.
+                    The category is the first thing a rep narrows by, and it was
+                    two taps deep behind «الفلاتر». */}
+                <div
+                  className="-mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
+                  role="group"
+                  aria-label="الأقسام"
+                >
+                  {[
+                    { key: "all", label: "الكل", active: !category && !catalogFilter, onClick: () => { setCategory(""); setCatalogFilter("") } },
+                    { key: "new", label: "الجديد", active: catalogFilter === "new", onClick: () => setCatalogFilter(catalogFilter === "new" ? "" : "new") },
+                    { key: "offer", label: "العروض", active: catalogFilter === "offer", onClick: () => setCatalogFilter(catalogFilter === "offer" ? "" : "offer") },
+                    ...categoryOptions.map((c) => ({
+                      key: `c:${c.name}`,
+                      label: c.name,
+                      count: c.count,
+                      active: category === c.name,
+                      onClick: () => setCategory(category === c.name ? "" : c.name),
+                    })),
+                  ].map((chip) => (
+                    <button
+                      key={chip.key}
+                      type="button"
+                      aria-pressed={chip.active}
+                      onClick={chip.onClick}
+                      className={cn(
+                        "flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-4 text-sm font-semibold transition-colors",
+                        chip.active
+                          ? "border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white"
+                          : "border-[var(--theme-cardBorder)] bg-[var(--theme-cardBg)] text-slate-600 hover:border-[var(--theme-accent)] dark:text-slate-300",
+                      )}
+                    >
+                      {chip.label}
+                      {"count" in chip && (
+                        <span className={cn("text-xs tabular-nums", chip.active ? "text-white/80" : "text-slate-400")}>
+                          {chip.count}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {filtersOpen && <div id="agent-catalog-filters" className="sales-agent-filter-panel mt-3 grid gap-2 border-t border-[var(--theme-cardBorder)] pt-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <select aria-label="ترتيب المواد" className="h-11 min-w-0 rounded-xl border border-[var(--theme-cardBorder)] bg-[var(--theme-cardBg)] px-3" value={catalogSort} onChange={e => setCatalogSort(e.target.value as CatalogSort)}>
                     <option value="name">الاسم</option><option value="newest">الجديد أولاً</option><option value="stock">الأكثر توفراً</option><option value="price-low">السعر: الأقل</option><option value="price-high">السعر: الأعلى</option>
                   </select>
-                  <Button className="h-11" variant={catalogFilter === "new" ? "default" : "outline"} aria-pressed={catalogFilter === "new"} onClick={() => setCatalogFilter(catalogFilter === "new" ? "" : "new")}>الجديد</Button>
-                  <Button className="h-11" variant={catalogFilter === "offer" ? "default" : "outline"} aria-pressed={catalogFilter === "offer"} onClick={() => setCatalogFilter(catalogFilter === "offer" ? "" : "offer")}>العروض</Button>
-                  {(category || catalogFilter || catalogSort !== "name") && <Button className="h-11 sm:col-span-4" variant="ghost" onClick={() => { setCategory(""); setCatalogFilter(""); setCatalogSort("name") }}>مسح الفلاتر</Button>}
+                  {catalogSort !== "name" && <Button className="h-11" variant="ghost" onClick={() => setCatalogSort("name")}>رجّع الترتيب</Button>}
                 </div>}
               </section>
               {/* «يشتريها عادةً» + «عروضه»: the reason the rep picked this
@@ -1066,6 +1214,9 @@ function SalesAgentWorkspace() {
                 search={search}
                 columns={catalogColumns}
                 onOpen={p => { if (!submit.isPending && !preview.isPending) setOpenProduct(p) }}
+                onQuickAdd={p => { if (!submit.isPending && !preview.isPending) quickAdd(p) }}
+                locked={Boolean(draft.pending) || submit.isPending || preview.isPending}
+                inCart={inCart}
                 specialPrice={specialPriceFor}
               />
             </div>
@@ -1284,6 +1435,9 @@ function CatalogScreen({
   search,
   columns,
   onOpen,
+  onQuickAdd,
+  locked,
+  inCart,
   specialPrice,
 }: {
   allProductIds: string[]
@@ -1296,6 +1450,10 @@ function CatalogScreen({
   search: string
   columns: CatalogColumns
   onOpen: (p: AgentProduct) => void
+  onQuickAdd: (p: AgentProduct) => void
+  /** A sent order awaits confirmation: nothing may be added until it settles. */
+  locked: boolean
+  inCart: Map<string, Array<{ unit: Unit; quantity: number }>>
   specialPrice: (productId: string, unit: Unit) => number | null
 }) {
   const [visible, setVisible] = useState<string[]>([])
@@ -1357,15 +1515,31 @@ function CatalogScreen({
           <div className={cn("grid", columns === 4 ? "gap-1.5 sm:gap-3" : "gap-2.5 sm:gap-3")} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
             {products.map((product) => {
               const special = availableUnits(product).some((u) => specialPrice(product.id, u) !== null)
+              const pieces = product.currentStock
+              // «أقل من كارتون» is the owner's own line for "running out". Shown
+              // in red, never enforced: a shortage does not block a sale here.
+              const low = product.pcsPerCarton > 0 && pieces < product.pcsPerCarton
+              // The reps count in pieces and dozens; cartons are rare. So the
+              // wholesale line says both, and carton mode says cartons.
+              const stockText =
+                mode === "CARTON"
+                  ? `متوفر ${Math.floor(pieces / Math.max(1, product.pcsPerCarton))} كارتون · ${product.pcsPerCarton} قطعة بالكارتون`
+                  : pieces >= 12
+                    ? `المتوفر ${pieces} قطعة · يكفي ${Math.floor(pieces / 12)} درزن`
+                    : `المتوفر ${pieces} قطعة`
+              const held = inCart.get(product.id)
               return (
+                // A wrapper, not the card itself: the quick-add button cannot
+                // live INSIDE the card's button — a button in a button is
+                // invalid, and the browser hands the tap to the outer one.
+                <div key={product.id} className="relative min-w-0">
                 <button
-                  key={product.id}
                   type="button"
                   data-pid={product.id}
                   ref={observe}
                   onClick={() => onOpen(product)}
-                  className="sales-agent-product group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-[var(--theme-cardBg)] text-start shadow-sm transition-[transform,box-shadow,border-color] duration-200 active:scale-[0.98] hover:-translate-y-0.5 hover:border-[var(--theme-accent)] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-accent)]"
-                  style={{ borderColor: "var(--theme-cardBorder)" }}
+                  className="sales-agent-product group flex h-full w-full min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-[var(--theme-cardBg)] text-start shadow-sm transition-[transform,box-shadow,border-color] duration-200 active:scale-[0.98] hover:-translate-y-0.5 hover:border-[var(--theme-accent)] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-accent)]"
+                  style={{ borderColor: held ? "var(--theme-accent)" : "var(--theme-cardBorder)" }}
                 >
                   <div className="relative aspect-square w-full bg-slate-100 dark:bg-slate-800">
                     {thumbs[product.id] ? (
@@ -1396,12 +1570,36 @@ function CatalogScreen({
                     <p className={cn("mt-auto break-words font-bold tabular-nums", columns === 4 ? "text-xs sm:text-base" : "text-sm sm:text-base")}>
                       {money(mode === "CARTON" ? unitPrice(product, "CARTON", mode) : product.salePrice)} <span className="text-[10px] font-normal sm:text-xs">/ {mode === "CARTON" ? "كارتون" : "قطعة"}</span>
                     </p>
-                    <span className={cn("text-slate-500 tabular-nums", columns === 4 ? "text-[10px]" : "text-[12px]")}>
-                      {mode === "CARTON" ? `${product.pcsPerCarton} قطعة · القطعة ${money(Number(product.cartonPiecePrice))}` : `المتوفر ${product.currentStock} قطعة`}
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        low ? "font-semibold text-red-600 dark:text-red-400" : "text-slate-500",
+                        // 10px on a phone at four columns only. It stayed 10px
+                        // on the iPad too, the one screen the reps actually use.
+                        columns === 4 ? "text-[10px] sm:text-xs" : "text-[12px]",
+                      )}
+                    >
+                      {stockText}
                     </span>
-                    <span className={cn("mt-2 flex min-h-10 items-center justify-center gap-1 rounded-xl bg-[var(--theme-accentSoft)] font-semibold text-[var(--theme-accent)] sm:min-h-11", columns === 4 ? "text-[10px] sm:text-sm" : "text-xs sm:text-sm")}><Plus className="size-3 shrink-0 sm:size-4" /> {columns === 4 ? "عرض" : "عرض وإضافة"}</span>
+                    {held && (
+                      <span className={cn("font-semibold text-[var(--theme-accent)] tabular-nums", columns === 4 ? "text-[10px] sm:text-xs" : "text-[12px]")}>
+                        بالسلة: {held.map((h) => `${h.quantity} ${UNIT_LABEL[h.unit]}`).join(" + ")}
+                      </span>
+                    )}
+                    <span className={cn("mt-2 flex min-h-10 items-center justify-center gap-1 rounded-xl bg-[var(--theme-accentSoft)] font-semibold text-[var(--theme-accent)] sm:min-h-11", columns === 4 ? "text-[10px] sm:text-sm" : "text-xs sm:text-sm")}>{columns === 4 ? "تفاصيل" : "تفاصيل ووحدات"}</span>
                   </div>
                 </button>
+                <button
+                  type="button"
+                  disabled={locked}
+                  onClick={() => onQuickAdd(product)}
+                  aria-label={`أضف ${mode === "CARTON" ? "كارتون" : "قطعة"}: ${product.name}`}
+                  title={mode === "CARTON" ? "أضف كارتون" : "أضف قطعة"}
+                  className="absolute start-2 top-2 grid size-11 place-items-center rounded-full bg-[var(--theme-accent)] text-white shadow-md transition-transform active:scale-90 disabled:opacity-40"
+                >
+                  <Plus className="size-5" />
+                </button>
+                </div>
               )
             })}
           </div>

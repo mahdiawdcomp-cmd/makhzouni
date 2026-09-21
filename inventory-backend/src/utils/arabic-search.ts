@@ -25,6 +25,14 @@ export function normalizeArabic(input: string): string {
     .replace(/ى/g, "ي")
     // teh marbuta ة → ه
     .replace(/ة/g, "ه")
+    // Iraqi and Persian-keyboard letters → their Arabic base. A shop writes
+    // «ڤيمتو» or «فيمتو», «گلاص» or «كلاص» depending on who typed it, and a
+    // rep searching one spelling must find the other.
+    .replace(/[گک]/g, "ك")
+    .replace(/ی/g, "ي")
+    .replace(/ڤ/g, "ف")
+    .replace(/پ/g, "ب")
+    .replace(/چ/g, "ج")
     .replace(/\s+/g, " ")
     .trim();
 }

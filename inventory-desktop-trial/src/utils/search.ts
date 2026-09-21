@@ -90,6 +90,13 @@ export function normalizeArabic(input: string): string {
     .replace(/[آأإٱ]/g, "ا")
     .replace(/ى/g, "ي")
     .replace(/ة/g, "ه")
+    // Iraqi and Persian-keyboard letters — same folding as the backend's
+    // utils/arabic-search, so «ڤيمتو» finds «فيمتو» on every screen.
+    .replace(/[گک]/g, "ك")
+    .replace(/ی/g, "ي")
+    .replace(/ڤ/g, "ف")
+    .replace(/پ/g, "ب")
+    .replace(/چ/g, "ج")
     .replace(/\s+/g, " ")
     .trim()
 }

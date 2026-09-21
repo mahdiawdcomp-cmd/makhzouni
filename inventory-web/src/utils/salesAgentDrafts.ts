@@ -91,6 +91,21 @@ export function cleanDraftLocation(value: unknown): DraftLocation | undefined {
   }
 }
 
+/**
+ * A sent attempt with its reading re-validated — and with NO `location` key at
+ * all when there is none.
+ *
+ * An attempt must come back from storage exactly as it went in: its key is what
+ * lets a retry return the first order instead of creating a second one. Writing
+ * `location: undefined` onto an attempt saved before readings existed changed
+ * its shape, which is the one thing «keep it exactly» forbids.
+ */
+function keepLocation(payload: OrderPayload, raw: unknown): OrderPayload {
+  const { location: _discarded, ...rest } = payload
+  const location = cleanDraftLocation(raw)
+  return location ? { ...rest, location } : rest
+}
+
 function cleanPendingMeta(value: unknown): PendingMeta | undefined {
   if (!value || typeof value !== "object") return undefined
   const m = value as Record<string, unknown>
@@ -156,7 +171,7 @@ export function readAgentWorkspace(raw: string | null): AgentWorkspace {
         && typeof p.reviewToken === "string" && /^[0-9a-f]{64}$/.test(p.reviewToken)
         && ["WHOLESALE", "CARTON"].includes(p.priceMode)
         && draftKey(p.priceMode, p.customerId) === key && Array.isArray(p.items)
-        && cleanAgentLines(p.items).length === p.items.length ? { ...p, items: cleanAgentLines(p.items), location: cleanDraftLocation(p.location) } : undefined
+        && cleanAgentLines(p.items).length === p.items.length ? keepLocation({ ...p, items: cleanAgentLines(p.items) }, p.location) : undefined
       drafts[key] = {
         items: pending?.items ?? items,
         notes: typeof d.notes === "string" ? d.notes : "",
@@ -166,7 +181,7 @@ export function readAgentWorkspace(raw: string | null): AgentWorkspace {
         // settled attempt keeps its reason on screen after the payload is
         // dropped, which is how the rep learns why the order did not go.
         pendingMeta: cleanPendingMeta(d.pendingMeta),
-        location: cleanDraftLocation(d.location),
+        ...(cleanDraftLocation(d.location) ? { location: cleanDraftLocation(d.location) } : {}),
       }
     }
     return { drafts, mode: parsed.mode === "CARTON" ? "CARTON" : "WHOLESALE", customerId: typeof parsed.customerId === "string" && uuid.test(parsed.customerId) ? parsed.customerId : null }

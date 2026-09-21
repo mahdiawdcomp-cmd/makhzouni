@@ -46,3 +46,24 @@ test("a pending payload belonging to a different customer is not restored into t
 test("oversized merged quantities are rejected rather than silently truncated", () => {
   assert.throws(() => mergeAgentDrafts({ items: [{ ...line, quantity: 100000 }], notes: "" }, { items: [line], notes: "" }))
 })
+test("the reading taken in the shop survives a reload, on the draft and on the sent attempt", () => {
+  const key = draftKey("CARTON", id)
+  const location = { latitude: 32.6156, longitude: 44.0309, accuracyM: 12, status: "OK" as const, capturedAt: 1_790_000_000_000 }
+  const pending = { customerId: id, priceMode: "CARTON" as const, clientRequestId: id, items: [line], reviewToken: "b".repeat(64), location }
+  const state = readAgentWorkspace(JSON.stringify({ mode: "CARTON", customerId: id, drafts: { [key]: { items: [line], notes: "", location, pending } } }))
+  assert.deepEqual(state.drafts[key].location, location)
+  assert.deepEqual(state.drafts[key].pending, pending)
+})
+test("a corrupt reading is dropped without taking the draft or the attempt with it", () => {
+  const key = draftKey("CARTON", id)
+  const pending = { customerId: id, priceMode: "CARTON" as const, clientRequestId: id, items: [line], reviewToken: "c".repeat(64), location: { status: "NONSENSE", capturedAt: 5 } }
+  const state = readAgentWorkspace(JSON.stringify({ mode: "CARTON", customerId: id, drafts: { [key]: { items: [line], notes: "", location: { latitude: "x" }, pending } } }))
+  assert.equal(state.drafts[key].location, undefined)
+  assert.ok(state.drafts[key].pending, "the attempt itself must survive a bad reading")
+  assert.equal("location" in (state.drafts[key].pending as object), false)
+})
+test("a stored OK with no coordinates is not trusted as a fix", () => {
+  const key = draftKey("CARTON", id)
+  const state = readAgentWorkspace(JSON.stringify({ mode: "CARTON", customerId: id, drafts: { [key]: { items: [line], notes: "", location: { status: "OK", capturedAt: 1_790_000_000_000 } } } }))
+  assert.equal(state.drafts[key].location?.status, "UNAVAILABLE")
+})
