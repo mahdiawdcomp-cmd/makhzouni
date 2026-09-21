@@ -30,6 +30,26 @@ describe("resourceForPath", () => {
     assert.equal(resourceForPath("/api/public/catalog/access/request"), "approvals");
   });
 
+  test("a rep's document edits map to what they change, never «all»", () => {
+    assert.equal(resourceForPath("/api/sales-agent/invoices/abc"), "invoices");
+    assert.equal(resourceForPath("/api/sales-agent/invoices/abc/cancel"), "invoices");
+    // Queues an approval; the receipt is untouched until the owner decides.
+    assert.equal(resourceForPath("/api/sales-agent/receipts/abc/edit-request"), "approvals");
+    assert.equal(resourceForPath("/api/sales-agent/receipts/abc/cancel-request"), "approvals");
+    assert.equal(resourceForPath("/api/sales-agent/receipts"), "vouchers");
+    assert.equal(resourceForPath("/api/areas/123"), "customers");
+  });
+
+  test("the owner's rep screen no longer falls through to «all»", () => {
+    assert.equal(resourceForPath("/api/sales-agent-admin/handovers"), "vouchers");
+    assert.equal(resourceForPath("/api/sales-agent-admin/settlements"), "vouchers");
+    assert.equal(resourceForPath("/api/sales-agent-admin/visit-plan/1"), "customers");
+    assert.equal(resourceForPath("/api/sales-agent-admin/customers/1/location"), "customers");
+    assert.equal(resourceForPath("/api/sales-agent-admin/activity/read"), "notifications");
+    assert.equal(resourceForPath("/api/sales-agent-admin/edit-modes/1"), "users");
+    assert.equal(resourceForPath("/api/sales-agent-admin/anything-new"), null);
+  });
+
   test("query strings never change the answer", () => {
     assert.equal(resourceForPath("/api/public/catalog/thumbnails?access=abc"), null);
     assert.equal(resourceForPath("/api/products?limit=50"), "products");

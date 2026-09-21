@@ -7,6 +7,17 @@
  */
 import { Unit } from "@prisma/client";
 import { fillCustomerLocationIfBlank, recordStamp, type StampInput } from "../services/agent-stamp.service";
+import { annotateVisitOutcome, notifySalesAgentEvent } from "../services/sales-agent-notify.service";
+import {
+  cancelAgentInvoice,
+  editAgentInvoice,
+  getAgentInvoice,
+  getAgentReceipt,
+  requestReceiptCancel,
+  requestReceiptEdit,
+  statementFlags,
+} from "../services/sales-agent-documents.service";
+import prisma from "../config/database";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import {
@@ -199,6 +210,17 @@ export const postStartVisit = asyncHandler(async (req, res) => {
     // A shop whose position nobody ever recorded gets it from the rep standing
     // in its doorway. Only fills a blank — see fillCustomerLocationIfBlank.
     await fillCustomerLocationIfBlank(customerId, (req.body as { location?: StampInput })?.location ?? null);
+    // One feed row per visit, written on arrival. The outcome is added to this
+    // same row when the rep closes the visit, rather than as a second row.
+    void describeForFeed(customerId, null).then((names) =>
+      notifySalesAgentEvent("visit", {
+        agentName: agent.name,
+        salesAgentId: agent.id,
+        customerId,
+        referenceId: (visit as { id?: string } | null)?.id ?? null,
+        customerName: names.customerName,
+      }),
+    );
   }
 
   res.status(visit.duplicate ? 200 : 201).json({ success: true, data: visit });
@@ -207,14 +229,35 @@ export const postStartVisit = asyncHandler(async (req, res) => {
 export const postEndVisit = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
   const body = (req.body ?? {}) as { outcome?: unknown; note?: unknown };
-  res.json({
-    success: true,
-    data: await endVisit(agent.id, String(req.params.id), {
-      outcome: body.outcome,
-      note: body.note == null ? undefined : String(body.note),
-    }),
+  const visitId = String(req.params.id);
+  const ended = await endVisit(agent.id, visitId, {
+    outcome: body.outcome,
+    note: body.note == null ? undefined : String(body.note),
   });
+  // The visit's feed row gains its result — «ما طلب», «المحل مغلق» — instead
+  // of a second row appearing for the same stop.
+  const outcome = VISIT_OUTCOMES[String(body.outcome) as keyof typeof VISIT_OUTCOMES];
+  if (outcome) void annotateVisitOutcome(visitId, outcome);
+  res.json({ success: true, data: ended });
 });
+
+/**
+ * Customer and product names for a feed row, read once, never throwing.
+ *
+ * A missing name degrades to a generic word rather than failing: the row
+ * exists to tell the owner something happened, and it still does.
+ */
+async function describeForFeed(customerId: string, productId: string | null) {
+  try {
+    const [customer, product] = await Promise.all([
+      prisma.customer.findUnique({ where: { id: customerId }, select: { name: true } }),
+      productId ? prisma.product.findUnique({ where: { id: productId }, select: { name: true } }) : null,
+    ]);
+    return { customerName: customer?.name ?? "زبون", productName: product?.name ?? null };
+  } catch {
+    return { customerName: "زبون", productName: null };
+  }
+}
 
 /**
  * Pin the CUSTOMER's shop — where the business is, set once and rarely again.
@@ -490,7 +533,77 @@ export const getMyHandovers = asyncHandler(async (req, res) => {
 /** The full account of one of the rep's customers — the same statement the owner reads. */
 export const getCustomerDetailCtrl = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
-  res.json({ success: true, data: await getAgentCustomerDetail(agent.id, String(req.params.id)) });
+  const detail = await getAgentCustomerDetail(agent.id, String(req.params.id));
+
+  // Each row learns two things the statement builder does not know: whether it
+  // was written under this rep's account (the only rows they may change), and
+  // whether a change to it is already waiting on the owner.
+  const rows = ((detail as { transactions?: Array<{ id?: string; type?: string }> }).transactions ?? []);
+  const invoiceIds = rows.filter((r) => r.id && r.type !== "RECEIPT" && r.type !== "PAYMENT").map((r) => r.id!);
+  const voucherIds = rows.filter((r) => r.id && r.type === "RECEIPT").map((r) => r.id!);
+  const flags = await statementFlags(agent.id, invoiceIds, voucherIds);
+
+  res.json({
+    success: true,
+    data: {
+      ...detail,
+      transactions: rows.map((r) => ({
+        ...r,
+        mine: r.id ? flags.mine.has(r.id) : false,
+        pending: r.id ? flags.waiting.get(r.id) ?? null : null,
+      })),
+    },
+  });
+});
+
+/* ── «فواتيري وسنداتي» — opened from the statement ───────────────────── */
+
+/** The rep, with the permissions the edit rules read. */
+function repAgent(reqUser: Express.User | undefined) {
+  const agent = requireAgent(reqUser);
+  return { ...agent, permissions: reqUser?.permissions ?? [] };
+}
+
+export const getAgentInvoiceCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await getAgentInvoice(repAgent(req.user), String(req.params.id)) });
+});
+
+export const putAgentInvoiceCtrl = asyncHandler(async (req, res) => {
+  const result = await editAgentInvoice(repAgent(req.user), String(req.params.id), req.body ?? {});
+  res.json({
+    success: true,
+    message: result.status === "APPLIED" ? "انعدّلت الفاتورة" : "انرسل التعديل لصاحب المحل",
+    data: result,
+  });
+});
+
+export const postAgentInvoiceCancelCtrl = asyncHandler(async (req, res) => {
+  const result = await cancelAgentInvoice(repAgent(req.user), String(req.params.id), req.body ?? {});
+  res.json({
+    success: true,
+    message: result.status === "APPLIED" ? "انلغت الفاتورة" : "انرسل طلب الإلغاء لصاحب المحل",
+    data: result,
+  });
+});
+
+export const getAgentReceiptCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await getAgentReceipt(repAgent(req.user), String(req.params.id)) });
+});
+
+export const postReceiptEditRequestCtrl = asyncHandler(async (req, res) => {
+  res.status(201).json({
+    success: true,
+    message: "انرسل طلب تعديل السند لصاحب المحل",
+    data: await requestReceiptEdit(repAgent(req.user), String(req.params.id), req.body ?? {}),
+  });
+});
+
+export const postReceiptCancelRequestCtrl = asyncHandler(async (req, res) => {
+  res.status(201).json({
+    success: true,
+    message: "انرسل طلب إلغاء السند لصاحب المحل",
+    data: await requestReceiptCancel(repAgent(req.user), String(req.params.id), req.body ?? {}),
+  });
 });
 
 /* ── «أكو مشكلة» ─────────────────────────────────────────────────────── */
@@ -518,6 +631,20 @@ export const postAgentIssue = asyncHandler(async (req, res) => {
     note: body.note,
     competitorInfo: body.competitorInfo,
   });
+
+  // For «إشعارات المندوبين». Names are looked up here rather than inside the
+  // service because only this layer knows who the rep is by name.
+  void describeForFeed(String(body.customerId), body.productId ? String(body.productId) : null).then((names) =>
+    notifySalesAgentEvent("issue", {
+      agentName: agent.name,
+      salesAgentId: agent.id,
+      customerId: String(body.customerId),
+      referenceId: issue.id,
+      customerName: names.customerName,
+      productName: names.productName ?? undefined,
+      reason: ISSUE_REASONS.find((r) => r.code === body.reason)?.label ?? String(body.reason),
+    }),
+  );
 
   res.status(201).json({ success: true, message: "انسجلت المشكلة", data: issue });
 });

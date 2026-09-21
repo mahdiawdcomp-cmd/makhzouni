@@ -34,10 +34,31 @@ function resourceForPath(path: string): RealtimeResource | null {
   if (clean.startsWith("/api/sales-agent/")) {
     const sub = clean.slice("/api/sales-agent".length);
     if (sub.startsWith("/customers")) return "customers";
+    // A rep asking to change or cancel a receipt only QUEUES an approval; the
+    // receipt itself is untouched until the owner decides. Checked before the
+    // plain «/receipts» rule below, which would call it a voucher change.
+    if (/^\/receipts\/[^/]+\/(edit|cancel)-request$/.test(sub)) return "approvals";
     if (sub.startsWith("/receipts")) return "vouchers";
+    // A rep's own invoice edit or cancel. Applied directly it moves stock and a
+    // balance; queued it lands in approvals — the frontend maps «invoices» to
+    // both, so either outcome refreshes the screens that show it.
+    if (sub.startsWith("/invoices")) return "invoices";
     if (sub.startsWith("/visits")) return null;
     // orders, issues, price requests all land as approvals.
     return "approvals";
+  }
+
+  // The owner's rep screen. It had no rule at all, so every handover, settlement
+  // and visit-plan edit fell to "all" at the bottom — an unfiltered refetch of
+  // every query on every open tab, the same pattern that locked the shop out
+  // with 429s before.
+  if (clean.startsWith("/api/sales-agent-admin/")) {
+    const sub = clean.slice("/api/sales-agent-admin".length);
+    if (sub.startsWith("/handovers") || sub.startsWith("/settlements")) return "vouchers";
+    if (sub.startsWith("/visit-plan") || sub.startsWith("/customers")) return "customers";
+    if (sub.startsWith("/activity")) return "notifications";
+    if (sub.startsWith("/edit-modes")) return "users";
+    return null;
   }
 
   // Auction pages poll on their own; a bid or a new auction must never fan out

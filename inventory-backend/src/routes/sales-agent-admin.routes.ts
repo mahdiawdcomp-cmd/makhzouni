@@ -12,6 +12,11 @@ import { adminOnly } from "../middleware/admin-only.middleware";
 import {
   deleteSettlement,
   getAgentDayCtrl,
+  getAgentActivityCtrl,
+  getAgentActivityCountsCtrl,
+  postAgentActivityReadCtrl,
+  getRepEditModesCtrl,
+  putRepEditModesCtrl,
   getAgentsOverviewCtrl,
   getAreaPerformanceCtrl,
   getCommissionCtrl,
@@ -39,6 +44,15 @@ router.use(authMiddleware, adminOnly);
 router.get("/agent-day", getAgentDayCtrl);
 router.get("/agents-overview", getAgentsOverviewCtrl);
 router.get("/area-performance", getAreaPerformanceCtrl);
+
+// «إشعارات المندوبين» — everything reps do, with one honest unread count.
+router.get("/activity", getAgentActivityCtrl);
+router.get("/activity/counts", getAgentActivityCountsCtrl);
+router.post("/activity/read", postAgentActivityReadCtrl);
+
+// What each rep may change on their own invoices without asking.
+router.get("/edit-modes", getRepEditModesCtrl);
+router.put("/edit-modes/:id", putRepEditModesCtrl);
 
 router.get("/liability", getLiability);
 router.get("/handovers", getHandovers);

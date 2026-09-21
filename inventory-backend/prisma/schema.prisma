@@ -358,6 +358,7 @@ model User {
   // identity to historical rows later is painful, leaving it in costs nothing.
   assignedCustomers         Customer[]                @relation("CustomerSalesAgent")
   agentStamps               SalesAgentStamp[]         @relation("SalesAgentStamps")
+  agentActivities           SalesAgentActivity[]      @relation("SalesAgentActivities")
   salesAgentInvoices        Invoice[]                 @relation("InvoiceSalesAgent")
   salesAgentVouchers        PaymentVoucher[]          @relation("PaymentVoucherSalesAgent")
   salesAgentHandovers       SalesAgentHandover[]      @relation("HandoverAgent")
@@ -757,6 +758,47 @@ model SalesAgentStamp {
   @@index([salesAgentId, createdAt])
   @@index([customerId])
   @@map("sales_agent_stamps")
+}
+
+/// «إشعارات المندوبين» — one row for everything a rep does, for the owner.
+///
+/// Its own table rather than more `AppNotification` rows, for two reasons:
+///   - the owner asked for EVERYTHING here, visits and refusals included. In the
+///     bell that would bury the few items that need a decision under a day's
+///     worth of routine; here it is the point. The bell still gets the ones that
+///     need attention (`important`), and nothing else.
+///   - the unread count is ONE server-side number over ONE table. The old bell
+///     added a per-browser «seen» timestamp to it, so every device showed a
+///     different count and none of them was right.
+///
+/// `readAt` is shared by every admin: a shop has one owner reading this, and a
+/// per-user read state would bring back exactly the disagreement it replaces.
+model SalesAgentActivity {
+  id           String    @id @default(uuid()) @db.Uuid
+  salesAgentId String    @map("sales_agent_id") @db.Uuid
+  salesAgent   User      @relation("SalesAgentActivities", fields: [salesAgentId], references: [id])
+  /// ORDER, RECEIPT, VISIT, ISSUE, NEW_CUSTOMER, PRICE_REQUEST, AREA_PROPOSAL,
+  /// INVOICE_EDIT, INVOICE_CANCEL, and the *_REQUEST forms of the last two plus
+  /// RECEIPT_EDIT_REQUEST / RECEIPT_CANCEL_REQUEST when an approval was queued.
+  kind         String
+  customerId   String?   @map("customer_id") @db.Uuid
+  /// The row the action touched — an invoice, voucher, approval or visit id.
+  referenceId  String?   @map("reference_id")
+  /// Set when the action is waiting on the owner in the approvals screen.
+  approvalId   String?   @map("approval_id") @db.Uuid
+  title        String
+  message      String
+  /// Needs a decision or changes money after the fact: edits, cancels,
+  /// approvals. The filter the owner reaches for first.
+  important    Boolean   @default(false)
+  amount       Decimal?  @db.Decimal(14, 2)
+  readAt       DateTime? @map("read_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([salesAgentId, createdAt])
+  @@index([readAt])
+  @@map("sales_agent_activities")
 }
 
 // Potential / lead customers (زبائن محتملين) imported from contact lists or

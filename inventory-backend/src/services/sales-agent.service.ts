@@ -205,6 +205,15 @@ export async function proposeArea(
     agentId,
   );
 
+  notifySalesAgentEvent("areaProposal", {
+    agentName,
+    salesAgentId: agentId,
+    referenceId: approval.id,
+    approvalId: approval.id,
+    // The proposed name travels in `reason`: build() prints it as «المنطقة».
+    reason: name,
+  }).catch((err) => logger.warn(`[SalesAgent] area-proposal notify failed: ${String(err)}`));
+
   return { approvalId: approval.id, name };
 }
 
@@ -485,6 +494,8 @@ export async function createAgentCustomer(
 
   notifySalesAgentEvent("newCustomer", {
     agentName,
+    salesAgentId: agentId,
+    referenceId: created.id,
     customerName: name,
     phone,
     area: area ?? null,
@@ -1053,6 +1064,10 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
 
   notifySalesAgentEvent("newOrder", {
     agentName,
+    salesAgentId: agentId,
+    customerId: customer.id,
+    referenceId: approval.id,
+    approvalId: approval.id,
     customerName: customer.name,
     phone: customer.phone,
     total: subtotal,
@@ -1169,6 +1184,8 @@ export async function createAgentReceipt(
 
   notifySalesAgentEvent("receipt", {
     agentName,
+    salesAgentId: agentId,
+    referenceId: (voucher as { id?: string } | null)?.id ?? null,
     customerName: customer.name,
     phone: customer.phone,
     customerId: customer.id,
@@ -1516,6 +1533,9 @@ export async function requestSpecialPrice(
 
   notifySalesAgentEvent("priceRequest", {
     agentName,
+    salesAgentId: agentId,
+    referenceId: approval.id,
+    approvalId: approval.id,
     customerName: customer.name,
     customerId: customer.id,
     productName: product.name,

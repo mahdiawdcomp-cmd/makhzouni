@@ -19,6 +19,12 @@ import {
   getAgentProducts,
   getCashOnHand,
   getCustomerDetailCtrl,
+  getAgentInvoiceCtrl,
+  putAgentInvoiceCtrl,
+  postAgentInvoiceCancelCtrl,
+  getAgentReceiptCtrl,
+  postReceiptEditRequestCtrl,
+  postReceiptCancelRequestCtrl,
   getCustomerOffers,
   getFrequentProducts,
   getIssueReasons,
@@ -82,6 +88,16 @@ router.get("/cash-on-hand", getCashOnHand);
 router.post("/receipts", requireAgentCapability("RECEIPT"), postAgentReceipt);
 router.get("/receipts", getMyReceipts);
 router.get("/handovers", getMyHandovers);
+
+// «فواتيري وسنداتي» — opened from a customer's statement. Every rule about who
+// may change what (their own documents only, the rep's edit mode, the 6% floor,
+// receipts always through the owner) is enforced in the service, not here.
+router.get("/invoices/:id", getAgentInvoiceCtrl);
+router.put("/invoices/:id", putAgentInvoiceCtrl);
+router.post("/invoices/:id/cancel", postAgentInvoiceCancelCtrl);
+router.get("/receipts/:id", getAgentReceiptCtrl);
+router.post("/receipts/:id/edit-request", postReceiptEditRequestCtrl);
+router.post("/receipts/:id/cancel-request", postReceiptCancelRequestCtrl);
 
 router.get("/issue-reasons", getIssueReasons);
 router.post("/issues", requireAgentCapability("ISSUE"), postAgentIssue);

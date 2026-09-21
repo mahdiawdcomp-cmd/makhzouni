@@ -1981,10 +1981,10 @@ async function updateInvoiceInTransaction(
  * The rep is told directly, not just the owner, because an edit moves their
  * commission and they should know today rather than at month end.
  */
-function announceAgentInvoiceChange(invoiceId: string, changeKind: string) {
+function announceAgentInvoiceChange(invoiceId: string, changeKind: string, actorId?: string) {
   setImmediate(() => {
     void import("./sales-agent-admin.service")
-      .then((m) => m.notifyInvoiceChangedForAgent(invoiceId, changeKind))
+      .then((m) => m.notifyInvoiceChangedForAgent(invoiceId, changeKind, actorId))
       .catch(() => undefined);
   });
 }
@@ -2007,7 +2007,7 @@ export async function updateInvoice(
         INVOICE_TX_OPTIONS
       );
 
-  announceAgentInvoiceChange(id, "تعديل");
+  announceAgentInvoiceChange(id, "تعديل", updatedBy);
   return result;
 }
 
@@ -2054,7 +2054,7 @@ async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?
     return serializeInvoice(cancelled);
 }
 
-export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: string) {
+export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: string, actorId?: string) {
   await assertInvoicePeriodOpen(id, db);
   const result = db
     ? await cancelInvoiceInTransaction(db, id, returnWarehouseId)
@@ -2063,7 +2063,7 @@ export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: str
         INVOICE_TX_OPTIONS
       );
 
-  announceAgentInvoiceChange(id, "إلغاء");
+  announceAgentInvoiceChange(id, "إلغاء", actorId);
   return result;
 }
 

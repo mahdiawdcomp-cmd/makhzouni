@@ -6,7 +6,14 @@
  * reach at all rather than from a shared route that filters by role.
  */
 import { getAgentDay, getAgentsOverview, getAreaPerformance } from "../services/sales-agent-day.service";
-import { shopDateKey } from "../utils/shop-day";
+import { shopDateKey, shopDayEndExclusive, shopDayStart } from "../utils/shop-day";
+import {
+  agentActivityCounts,
+  listAgentActivity,
+  markAgentActivityRead,
+  type ActivityFilter,
+} from "../services/sales-agent-activity.service";
+import { listRepEditModes, setRepEditModes } from "../services/sales-agent-documents.service";
 import { asyncHandler } from "../utils/async-handler";
 import {
   addToVisitPlan,
@@ -254,4 +261,61 @@ export const getAgentsOverviewCtrl = asyncHandler(async (req, res) => {
 export const getAreaPerformanceCtrl = asyncHandler(async (req, res) => {
   const { from, to } = rangeFromQuery(req.query as Record<string, unknown>);
   res.json({ success: true, data: { from, to, areas: await getAreaPerformance(from, to) } });
+});
+
+/* ── «إشعارات المندوبين» ──────────────────────────────────────────────── */
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The owner's filters, validated: a garbage value is ignored, never an error. */
+function activityFilter(query: Record<string, unknown>): ActivityFilter {
+  const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const agentId = text(query.agentId);
+  const day = (v: unknown) => {
+    const s = text(v);
+    return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+  };
+  const from = day(query.from);
+  const to = day(query.to);
+  const limit = Number(query.limit);
+  return {
+    agentId: agentId && UUID_RE.test(agentId) ? agentId : undefined,
+    kind: text(query.kind)?.toUpperCase().replace(/[^A-Z_]/g, "") || undefined,
+    importantOnly: String(query.important) === "1",
+    unreadOnly: String(query.unread) === "1",
+    from: from ? shopDayStart(from) : undefined,
+    to: to ? shopDayEndExclusive(to) : undefined,
+    before: text(query.before) && UUID_RE.test(String(query.before)) ? String(query.before) : undefined,
+    limit: Number.isFinite(limit) ? limit : undefined,
+  };
+}
+
+export const getAgentActivityCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await listAgentActivity(activityFilter(req.query as Record<string, unknown>)) });
+});
+
+/** Just the two numbers, for a badge that must not fetch the whole feed. */
+export const getAgentActivityCountsCtrl = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await agentActivityCounts() });
+});
+
+export const postAgentActivityReadCtrl = asyncHandler(async (req, res) => {
+  const body = (req.body ?? {}) as { ids?: unknown; filter?: Record<string, unknown> };
+  res.json({
+    success: true,
+    data: await markAgentActivityRead({
+      ids: body.ids,
+      filter: body.filter ? activityFilter(body.filter) : undefined,
+    }),
+  });
+});
+
+/* ── rep settings: what they may change without asking ──────────────── */
+
+export const getRepEditModesCtrl = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listRepEditModes() });
+});
+
+export const putRepEditModesCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await setRepEditModes(String(req.params.id), req.body ?? {}) });
 });

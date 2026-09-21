@@ -468,7 +468,7 @@ export async function getCommission(agentId: string, month: string, ratePercent?
  * than inline in those paths so the rule "the rep hears about it immediately,
  * because their commission moved" lives in one place.
  */
-export async function notifyInvoiceChangedForAgent(invoiceId: string, changeKind: string) {
+export async function notifyInvoiceChangedForAgent(invoiceId: string, changeKind: string, actorId?: string) {
   try {
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
@@ -481,6 +481,10 @@ export async function notifyInvoiceChangedForAgent(invoiceId: string, changeKind
       },
     });
     if (!invoice?.salesAgentId) return; // not a rep's invoice — nothing to say
+    // The rep made this change themselves. Telling them about their own edit is
+    // noise, and the owner already got a fuller message from the rep's own
+    // edit path («المندوب عدّل فاتورة») with what changed line by line.
+    if (actorId && actorId === invoice.salesAgentId) return;
 
     await notifySalesAgentEvent("invoiceChanged", {
       agentName: invoice.salesAgent?.name ?? "المندوب",

@@ -27,7 +27,51 @@ export type SalesAgentEvent =
   | "newCustomer"
   | "receipt"
   | "priceRequest"
-  | "invoiceChanged";
+  | "invoiceChanged"
+  // Added with «إشعارات المندوبين». The first two are routine and reach the
+  // owner's rep page only; the rest change money after the fact or wait on
+  // the owner, so they also reach WhatsApp and the bell, unconditionally.
+  | "visit"
+  | "issue"
+  | "areaProposal"
+  | "invoiceEditedByAgent"
+  | "invoiceCancelledByAgent"
+  | "editRequest";
+
+/**
+ * Events the REP did, as opposed to things done TO the rep's work.
+ *
+ * `invoiceChanged` is the owner editing a rep's invoice: the rep is told, but it
+ * is not rep activity and does not belong in the owner's feed of what reps did.
+ */
+const REP_ORIGINATED: ReadonlySet<SalesAgentEvent> = new Set<SalesAgentEvent>([
+  "newOrder",
+  "newCustomer",
+  "receipt",
+  "priceRequest",
+  "visit",
+  "issue",
+  "areaProposal",
+  "invoiceEditedByAgent",
+  "invoiceCancelledByAgent",
+  "editRequest",
+]);
+
+/**
+ * Events that need the owner's eyes: they change money after it was recorded,
+ * or they are sitting in the approvals screen. These go to WhatsApp and the
+ * bell regardless of the per-event switches — the switches exist to quiet
+ * routine traffic, and none of these is routine.
+ */
+const ALWAYS_LOUD: ReadonlySet<SalesAgentEvent> = new Set<SalesAgentEvent>([
+  "areaProposal",
+  "invoiceEditedByAgent",
+  "invoiceCancelledByAgent",
+  "editRequest",
+]);
+
+/** Routine events: recorded for the owner's rep page, never pushed anywhere. */
+const PAGE_ONLY: ReadonlySet<SalesAgentEvent> = new Set<SalesAgentEvent>(["visit", "issue"]);
 
 const money = (n: number) => Math.round(n).toLocaleString("en-US");
 
@@ -46,6 +90,12 @@ function isEnabled(
     receipt: settings?.salesAgentNotifyReceipt,
     priceRequest: settings?.salesAgentNotifyPriceRequest,
     invoiceChanged: settings?.salesAgentNotifyInvoiceChanged,
+    visit: undefined,
+    issue: undefined,
+    areaProposal: undefined,
+    invoiceEditedByAgent: undefined,
+    invoiceCancelledByAgent: undefined,
+    editRequest: undefined,
   };
   return map[event] !== false;
 }
@@ -67,6 +117,21 @@ function targetPhone(settings: Awaited<ReturnType<typeof getSettings>> | null) {
 
 type EventPayload = {
   agentName: string;
+  /**
+   * The rep's id. Required for the event to reach the owner's rep feed —
+   * a name alone cannot be filtered by, and two reps can share one.
+   */
+  salesAgentId?: string;
+  /** The row the action touched: invoice, voucher, approval or visit. */
+  referenceId?: string | null;
+  /** Set when the action is waiting in the approvals screen. */
+  approvalId?: string | null;
+  /** editRequest: what is being asked for, already in Arabic. */
+  requestLabel?: string;
+  /** editRequest / edits: human-readable changes, one per line. */
+  changes?: string[];
+  /** visit: the outcome the rep chose, already in Arabic. */
+  outcome?: string | null;
   customerName?: string;
   phone?: string;
   customerId?: string;
@@ -152,6 +217,77 @@ function build(event: SalesAgentEvent, p: EventPayload): { title: string; lines:
           ...(p.reason ? ["", `السبب: ${p.reason}`] : []),
         ],
       };
+    case "visit":
+      return {
+        title: "زيارة",
+        lines: [
+          `${p.agentName} زار ${p.customerName ?? "زبون"}`,
+          ...(p.outcome ? [`النتيجة: ${p.outcome}`] : []),
+        ],
+      };
+    case "issue":
+      return {
+        title: "مشكلة مسجّلة",
+        lines: [
+          `${p.agentName} سجّل مشكلة عند ${p.customerName ?? "زبون"}`,
+          ...(p.productName ? [`المادة: ${p.productName}`] : []),
+          ...(p.reason ? [`السبب: ${p.reason}`] : []),
+        ],
+      };
+    case "areaProposal":
+      return {
+        title: "اقتراح منطقة جديدة",
+        lines: [
+          "المندوب يقترح منطقة مو موجودة بالقائمة",
+          "",
+          `المندوب: ${p.agentName}`,
+          `المنطقة: ${p.reason ?? ""}`,
+          "",
+          "روح لصفحة الموافقات حتى تضيفها أو ترفضها.",
+        ],
+      };
+    case "invoiceEditedByAgent":
+      return {
+        title: "المندوب عدّل فاتورة",
+        lines: [
+          "المندوب عدّل فاتورة — التعديل انطبق",
+          "",
+          `المندوب: ${p.agentName}`,
+          `الفاتورة: ${p.invoiceNumber ?? ""}`,
+          `الزبون: ${p.customerName ?? ""}`,
+          ...(p.total != null ? [`المجموع الجديد: ${money(p.total)}`] : []),
+          ...((p.changes ?? []).length > 0 ? ["", "شنو تغيّر:", ...p.changes!.slice(0, 12).map((c) => `• ${c}`)] : []),
+        ],
+      };
+    case "invoiceCancelledByAgent":
+      return {
+        title: "المندوب ألغى فاتورة",
+        lines: [
+          "المندوب ألغى فاتورة — البضاعة رجعت لمخزن المحل",
+          "",
+          `المندوب: ${p.agentName}`,
+          `الفاتورة: ${p.invoiceNumber ?? ""}`,
+          `الزبون: ${p.customerName ?? ""}`,
+          ...(p.total != null ? [`المبلغ: ${money(p.total)}`] : []),
+          ...(p.reason ? [`السبب: ${p.reason}`] : []),
+        ],
+      };
+    case "editRequest":
+      return {
+        title: p.requestLabel ?? "طلب من المندوب",
+        lines: [
+          `${p.requestLabel ?? "طلب"} — ينتظر موافقتك`,
+          "",
+          `المندوب: ${p.agentName}`,
+          ...(p.invoiceNumber ? [`المستند: ${p.invoiceNumber}`] : []),
+          `الزبون: ${p.customerName ?? ""}`,
+          ...(p.total != null ? [`المبلغ: ${money(p.total)}`] : []),
+          ...((p.changes ?? []).length > 0 ? ["", ...p.changes!.slice(0, 12).map((c) => `• ${c}`)] : []),
+          ...(p.reason ? ["", `السبب: ${p.reason}`] : []),
+          "",
+          "روح لصفحة الموافقات.",
+        ],
+      };
     case "invoiceChanged":
       return {
         title: "تعديل على فاتورة مندوب",
@@ -182,11 +318,21 @@ function unitLabel(unit: string) {
  */
 export async function notifySalesAgentEvent(event: SalesAgentEvent, payload: EventPayload) {
   try {
-    const settings = await getSettings().catch(() => null);
-    if (!isEnabled(settings, event)) return;
-
     const { title, lines } = build(event, payload);
     const text = lines.join("\n");
+
+    // The owner's feed gets EVERY rep action, first and unconditionally. The
+    // per-event switches below were built to quiet WhatsApp and the bell; they
+    // used to gate this too, so muting "receipt" alerts also erased receipts
+    // from the record of what the rep did.
+    if (REP_ORIGINATED.has(event)) {
+      await recordAgentActivity(event, payload, title, text);
+    }
+
+    if (PAGE_ONLY.has(event)) return;
+
+    const settings = await getSettings().catch(() => null);
+    if (!ALWAYS_LOUD.has(event) && !isEnabled(settings, event)) return;
 
     const owner = targetPhone(settings);
     if (owner) {
@@ -210,16 +356,85 @@ export async function notifySalesAgentEvent(event: SalesAgentEvent, payload: Eve
       // no severity panel at all and is invisible. An invoice change costs the
       // rep money, so it is IMPORTANT; the rest are MEDIUM, which is where the
       // owner looks for "what happened today".
-      severity: event === "invoiceChanged" ? "IMPORTANT" : "MEDIUM",
+      severity: event === "invoiceChanged" || ALWAYS_LOUD.has(event) ? "IMPORTANT" : "MEDIUM",
       title,
       message: text,
       roleTarget: "ADMIN",
       entityType: payload.customerId ? "Customer" : null,
       entityId: payload.customerId ?? null,
-      metadata: { agentName: payload.agentName, event },
+      metadata: { agentName: payload.agentName, salesAgentId: payload.salesAgentId ?? null, event },
     }).catch((err) => logger.warn(`[SalesAgent] in-app notification failed: ${String(err)}`));
   } catch (err) {
     logger.warn(`[SalesAgent] notify failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Add a finished visit's result to the row written when it started.
+ *
+ * One row per stop: a second «زيارة» row for the same visit would count twice
+ * in the owner's unread number and read as two stops. Never throws.
+ */
+export async function annotateVisitOutcome(visitId: string, outcomeLabel: string) {
+  try {
+    const row = await prisma.salesAgentActivity.findFirst({
+      where: { referenceId: visitId, kind: "VISIT" },
+      select: { id: true, message: true },
+    });
+    if (!row || row.message.includes("النتيجة:")) return;
+    await prisma.salesAgentActivity.update({
+      where: { id: row.id },
+      data: { message: `${row.message}\nالنتيجة: ${outcomeLabel}` },
+    });
+  } catch (err) {
+    logger.warn(`[SalesAgent] visit outcome not recorded: ${String(err)}`);
+  }
+}
+
+/** The feed's own name for each event, so the owner can filter by kind. */
+const ACTIVITY_KIND: Record<SalesAgentEvent, string> = {
+  newOrder: "ORDER",
+  newCustomer: "NEW_CUSTOMER",
+  receipt: "RECEIPT",
+  priceRequest: "PRICE_REQUEST",
+  invoiceChanged: "INVOICE_CHANGED",
+  visit: "VISIT",
+  issue: "ISSUE",
+  areaProposal: "AREA_PROPOSAL",
+  invoiceEditedByAgent: "INVOICE_EDIT",
+  invoiceCancelledByAgent: "INVOICE_CANCEL",
+  editRequest: "EDIT_REQUEST",
+};
+
+/**
+ * One row in «إشعارات المندوبين».
+ *
+ * Skipped silently without a rep id: a row nobody can filter by rep is noise,
+ * and every caller in this codebase now passes one. Never throws.
+ */
+async function recordAgentActivity(
+  event: SalesAgentEvent,
+  payload: EventPayload,
+  title: string,
+  message: string,
+) {
+  if (!payload.salesAgentId) return;
+  try {
+    await prisma.salesAgentActivity.create({
+      data: {
+        salesAgentId: payload.salesAgentId,
+        kind: ACTIVITY_KIND[event],
+        customerId: payload.customerId ?? null,
+        referenceId: payload.referenceId ?? null,
+        approvalId: payload.approvalId ?? null,
+        title,
+        message,
+        important: ALWAYS_LOUD.has(event),
+        amount: payload.total != null && Number.isFinite(payload.total) ? payload.total : null,
+      },
+    });
+  } catch (err) {
+    logger.warn(`[SalesAgent] activity not recorded: ${String(err)}`);
   }
 }
 

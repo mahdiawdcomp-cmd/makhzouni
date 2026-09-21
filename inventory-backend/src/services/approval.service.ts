@@ -156,6 +156,28 @@ type ApprovalDisplay = {
 
 const fmtMoney = (v: unknown) => Number(v ?? 0).toLocaleString("en-US");
 
+/**
+ * A rep's request, shown the way the owner needs it: who asked, and exactly
+ * what would change, line by line.
+ *
+ * The rep's edit path writes `changes` once, when the request is made. Without
+ * it the owner saw only the invoice as it stands TODAY and had to open the
+ * editor to guess what the rep wanted different.
+ */
+function appendAgentRequestDetails(
+  details: Array<{ label: string; value: string }>,
+  data: Record<string, unknown>,
+) {
+  if (data.source !== "SALES_AGENT") return;
+  if (typeof data.salesAgentName === "string" && data.salesAgentName) {
+    details.unshift({ label: "المندوب", value: data.salesAgentName });
+  }
+  const changes = Array.isArray(data.changes) ? data.changes.filter((c): c is string => typeof c === "string") : [];
+  changes.slice(0, 20).forEach((change, index) => {
+    details.push({ label: index === 0 ? "التغييرات المطلوبة" : "", value: change });
+  });
+}
+
 async function buildApprovalDisplay(
   requestType: string,
   requestData: unknown
@@ -195,8 +217,9 @@ async function buildApprovalDisplay(
           const wh = await prisma.branch.findUnique({ where: { id: data.returnWarehouseId }, select: { name: true } });
           if (wh) details.push({ label: "مخزن إرجاع البضاعة", value: wh.name });
         }
+        appendAgentRequestDetails(details, data);
         return {
-          summary: `فاتورة ${inv.invoiceNumber} — ${inv.customer?.name ?? "—"} — ${fmtMoney(inv.totalAmount)}`,
+          summary: `${data.source === "SALES_AGENT" ? "من المندوب · " : ""}فاتورة ${inv.invoiceNumber} — ${inv.customer?.name ?? "—"} — ${fmtMoney(inv.totalAmount)}`,
           details,
         };
       }
@@ -237,8 +260,9 @@ async function buildApprovalDisplay(
           { label: "التاريخ", value: new Date(v.date).toLocaleDateString("en-GB") },
         ];
         if (typeof data.reason === "string" && data.reason) details.push({ label: "سبب الطلب", value: data.reason });
+        appendAgentRequestDetails(details, data);
         return {
-          summary: `سند ${typeAr} ${v.voucherNumber} — ${v.customer?.name ?? v.description ?? "—"} — ${fmtMoney(v.amount)}`,
+          summary: `${data.source === "SALES_AGENT" ? "من المندوب · " : ""}سند ${typeAr} ${v.voucherNumber} — ${v.customer?.name ?? v.description ?? "—"} — ${fmtMoney(v.amount)}`,
           details,
         };
       }
@@ -360,6 +384,20 @@ async function buildApprovalDisplay(
         return {
           summary: `${link.recipientName} جرد فاتورة ${link.invoice?.invoiceNumber ?? ""} — ${changed.length} صنف مختلف`,
           details,
+        };
+      }
+      case approvalRequestTypes.AGENT_AREA_REQUEST: {
+        const name = typeof data.name === "string" ? data.name : "—";
+        const hasCentre = data.centerLat != null && data.centerLng != null;
+        return {
+          summary: `منطقة جديدة: ${name}`,
+          details: [
+            { label: "المندوب", value: typeof data.salesAgentName === "string" ? data.salesAgentName : "—" },
+            { label: "المنطقة المقترحة", value: name },
+            // Said plainly, because the owner decides differently for a name
+            // with a place on the map and a name typed from memory.
+            { label: "الموقع", value: hasCentre ? "محدد من مكان المندوب" : "بدون موقع" },
+          ],
         };
       }
       default:

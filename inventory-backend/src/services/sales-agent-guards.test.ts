@@ -475,3 +475,37 @@ test("the order's shortage/available figures use shop-floor stock, not every war
   assert.match(submit, /available\s*=\s*sellableStock\(/);
   assert.match(submit, /availableStock:\s*sellableStock\(/);
 });
+
+describe("«فواتيري وسنداتي» — a rep opening their own documents", () => {
+  const docs = code(read("services/sales-agent-documents.service.ts"));
+
+  test("no cost-bearing field name appears in the rep's document service", () => {
+    // The price floor needs the cost; it lives in rep-price-floor.ts and hands
+    // back line indexes only. This file must never name a cost column.
+    for (const forbidden of ["costPrice", "purchasePrice", "landedCost", "profit", "margin"]) {
+      assert.ok(!docs.includes(forbidden), `«${forbidden}» must never appear in the rep's document service`);
+    }
+  });
+
+  test("invoice reads never use include — a new column must not reach the rep", () => {
+    assert.ok(!/prisma\.invoice\.find\w*\([\s\S]{0,400}?include:/.test(docs), "an invoice read uses include");
+  });
+
+  test("the price floor returns indexes, not money", () => {
+    const floor = code(read("services/rep-price-floor.ts"));
+    assert.match(floor, /overDiscount:\s*number\[\]/);
+    assert.match(floor, /belowCost:\s*number\[\]/);
+    // Nothing numeric about cost leaves the function: the result type carries
+    // only index arrays.
+    assert.ok(!/cost\s*:\s*number[^[]/.test(floor.split("export type FloorResult")[1]?.split("};")[0] ?? ""));
+  });
+
+  test("receipt edits and cancels always queue an approval", () => {
+    const edit = docs.slice(docs.indexOf("export async function requestReceiptEdit"), docs.indexOf("export async function requestReceiptCancel"));
+    const cancel = docs.slice(docs.indexOf("export async function requestReceiptCancel"), docs.indexOf("/* ── owner"));
+    for (const [name, body] of [["edit", edit], ["cancel", cancel]] as const) {
+      assert.match(body, /createPendingApproval\(/, `receipt ${name} must go through an approval`);
+      assert.ok(!/updateVoucher\(|cancelVoucher\(/.test(body), `receipt ${name} must never apply directly`);
+    }
+  });
+});
