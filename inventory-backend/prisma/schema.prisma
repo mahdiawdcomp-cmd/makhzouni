@@ -357,6 +357,7 @@ model User {
   // to them. Stamped from day one even while a single rep exists: adding an
   // identity to historical rows later is painful, leaving it in costs nothing.
   assignedCustomers         Customer[]                @relation("CustomerSalesAgent")
+  agentStamps               SalesAgentStamp[]         @relation("SalesAgentStamps")
   salesAgentInvoices        Invoice[]                 @relation("InvoiceSalesAgent")
   salesAgentVouchers        PaymentVoucher[]          @relation("PaymentVoucherSalesAgent")
   salesAgentHandovers       SalesAgentHandover[]      @relation("HandoverAgent")
@@ -656,13 +657,20 @@ model Customer {
   salesAgent                      User?                        @relation("CustomerSalesAgent", fields: [salesAgentId], references: [id])
   // Area/neighbourhood INSIDE the city — distinct from `province` above, which
   // is the governorate. The rep works one city, so the governorate never varies
-  // and the area is what actually identifies where a shop sits. Picked from a
-  // per-tenant list held in settings (salesAgentAreas), never free text.
+  // and the area is what actually identifies where a shop sits.
+  //
+  // Kept as free text for the shops still on the old settings-list flow and for
+  // display on rows whose area predates `areaId`. `areaId` is the real link;
+  // this column is written alongside it so an area rename cannot silently
+  // rewrite history the owner already read.
   area                            String?
-  // Shop coordinates for the rep's visit map. Optional and entered by hand (or
-  // captured once while standing at the shop) — NOT derived from any tracking of
-  // where the rep goes. Most existing customers have none, and every map screen
-  // has to keep working when they are null.
+  areaId                          String?                      @map("area_id") @db.Uuid
+  areaRef                         Area?                        @relation(fields: [areaId], references: [id])
+  // Shop coordinates. Captured once while the rep stands at the shop (adding
+  // the customer or filing a visit), or dropped on the map by hand. This is the
+  // SHOP's position, never a trace of where the rep goes — the rep's own
+  // positions live in `SalesAgentStamp`, one row per action, and are compared
+  // against this to answer "was he actually there".
   latitude                        Decimal?                     @db.Decimal(10, 7)
   longitude                       Decimal?                     @db.Decimal(10, 7)
   createdAt                       DateTime                     @default(now()) @map("created_at")
@@ -673,6 +681,82 @@ model Customer {
   @@index([lastTransactionAt])
   @@index([salesAgentId])
   @@map("customers")
+}
+
+/// «المنطقة» — a neighbourhood inside the one city this shop sells in.
+///
+/// Replaces the old `settings.salesAgentAreas` string list. A row, not a
+/// string, for three reasons the list could not give:
+///   - the customer points at an `id`, so renaming «حي الحسين» to «حي الحسين (ع)»
+///     does not orphan every customer already filed under the old spelling;
+///   - a centre point lets the map suggest the area from where the rep is
+///     standing, instead of asking them to pick from a dropdown of 50 names;
+///   - `isActive` retires an area without deleting the history that used it.
+///
+/// Per-tenant data, seeded by the shop — NEVER a list baked into shared code.
+/// The importable Karbala dataset is one shop's choice, not this table's meaning.
+model Area {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  /// The city this neighbourhood sits in. One value in practice today, kept so
+  /// a shop that later covers two cities does not need a migration.
+  city      String?
+  /// Centre of the neighbourhood, used to suggest an area from a dropped pin.
+  /// Null is normal: an area typed by hand before anyone stood in it has none,
+  /// and every caller has to keep working without it.
+  centerLat Decimal?  @map("center_lat") @db.Decimal(10, 7)
+  centerLng Decimal?  @map("center_lng") @db.Decimal(10, 7)
+  /// Owner-controlled display order. Equal values fall back to name.
+  sortOrder Int       @default(0) @map("sort_order")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  customers Customer[]
+
+  @@index([isActive, sortOrder])
+  @@map("areas")
+}
+
+/// Where the rep was standing when they did something — NOT a trace of where
+/// they go.
+///
+/// One row per action the rep files (an order, a receipt, a visit, a new
+/// customer). Nothing is recorded between actions, the browser is never asked
+/// to watch the position in the background, and no row exists for a rep who is
+/// simply carrying the phone around. That is the whole difference between
+/// answering «was he at the shop when he wrote this» and following someone.
+///
+/// `capturedAt` is when the POSITION was read, which is not when the row was
+/// written: a rep with no signal fills a cart inside the shop and sends it from
+/// somewhere else an hour later. Stamping the send would accuse an honest rep,
+/// so the reading travels with the draft and its own timestamp comes with it.
+model SalesAgentStamp {
+  id           String   @id @default(uuid()) @db.Uuid
+  salesAgentId String   @map("sales_agent_id") @db.Uuid
+  salesAgent   User     @relation("SalesAgentStamps", fields: [salesAgentId], references: [id])
+  /// The customer the action was about. Null for actions that have none.
+  customerId   String?  @map("customer_id") @db.Uuid
+  /// ORDER | RECEIPT | VISIT | NEW_CUSTOMER — what the rep was doing.
+  action       String
+  /// The row this stamp belongs to (approval id, voucher id, …), for auditing.
+  referenceId  String?  @map("reference_id")
+  latitude     Decimal? @db.Decimal(10, 7)
+  longitude    Decimal? @db.Decimal(10, 7)
+  /// The browser's own error radius, in metres. A 400 m reading proves nothing
+  /// about a 200 m walk, so the report must be able to discard it.
+  accuracyM    Int?     @map("accuracy_m")
+  /// OK | DENIED | UNAVAILABLE | TIMEOUT — why there are no coordinates. A
+  /// refusal is itself the finding, so it is recorded rather than dropped.
+  status       String   @default("OK")
+  /// Metres between this reading and the customer's own saved position, frozen
+  /// at write time. Null when either side has no coordinates.
+  distanceM    Int?     @map("distance_m")
+  capturedAt   DateTime @map("captured_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([salesAgentId, createdAt])
+  @@index([customerId])
+  @@map("sales_agent_stamps")
 }
 
 // Potential / lead customers (زبائن محتملين) imported from contact lists or

@@ -1,7 +1,24 @@
 export type AgentMode = "WHOLESALE" | "CARTON"
 export type AgentUnit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 export type AgentLine = { productId: string; unit: AgentUnit; quantity: number }
-export type OrderPayload = { customerId: string; priceMode: AgentMode; notes?: string; clientRequestId: string; items: AgentLine[]; reviewToken: string }
+/**
+ * Where the rep was when they built this cart.
+ *
+ * Part of the PAYLOAD, not of the meta, because it is sent to the server and
+ * because it has to survive a reload: a rep who fills a cart inside a shop
+ * with no signal sends it from wherever signal returns, sometimes an hour and
+ * a kilometre later. Reading the position at send time would put them there
+ * instead of at the shop, and the owner would be looking at a fabricated
+ * discrepancy for an entirely honest sale.
+ */
+export type DraftLocation = {
+  latitude?: number
+  longitude?: number
+  accuracyM?: number
+  status: "OK" | "DENIED" | "UNAVAILABLE" | "TIMEOUT"
+  capturedAt: number
+}
+export type OrderPayload = { customerId: string; priceMode: AgentMode; notes?: string; clientRequestId: string; items: AgentLine[]; reviewToken: string; location?: DraftLocation }
 /**
  * What the «الطلبات المعلّقة» screen needs to explain an unconfirmed attempt,
  * kept BESIDE the payload rather than inside it: the payload is posted to the
@@ -28,7 +45,7 @@ export type PendingMeta = {
    */
   settled?: boolean
 }
-export type AgentDraft = { items: AgentLine[]; notes: string; pending?: OrderPayload; pendingMeta?: PendingMeta }
+export type AgentDraft = { items: AgentLine[]; notes: string; pending?: OrderPayload; pendingMeta?: PendingMeta; location?: DraftLocation }
 export type AgentWorkspace = { customerId: string | null; mode: AgentMode; drafts: Record<string, AgentDraft> }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const EMPTY_DRAFT: AgentDraft = { items: [], notes: "" }
@@ -41,6 +58,39 @@ export function cleanAgentLines(value: unknown): AgentLine[] {
     && Number.isInteger(x.quantity) && x.quantity > 0 && x.quantity <= 100000)
     .map(({ productId, unit, quantity }) => ({ productId, unit, quantity }))
 }
+/**
+ * A stored reading, validated the same way every other stored field is.
+ *
+ * localStorage is editable by anyone holding the phone, so nothing here is
+ * trusted: a bad shape drops the reading rather than the draft it belongs to.
+ * The server re-validates anyway — this only stops a corrupt entry from
+ * travelling.
+ */
+export function cleanDraftLocation(value: unknown): DraftLocation | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const v = value as Record<string, unknown>
+  const status = String(v.status ?? "")
+  if (!["OK", "DENIED", "UNAVAILABLE", "TIMEOUT"].includes(status)) return undefined
+  const capturedAt = typeof v.capturedAt === "number" && Number.isFinite(v.capturedAt) ? v.capturedAt : 0
+  if (capturedAt <= 0) return undefined
+  const coord = (x: unknown, limit: number) =>
+    typeof x === "number" && Number.isFinite(x) && Math.abs(x) <= limit ? x : undefined
+  const latitude = coord(v.latitude, 90)
+  const longitude = coord(v.longitude, 180)
+  const accuracy = typeof v.accuracyM === "number" && Number.isFinite(v.accuracyM) && v.accuracyM >= 0
+    ? Math.round(v.accuracyM) : undefined
+  return {
+    ...(latitude != null && longitude != null ? { latitude, longitude } : {}),
+    ...(accuracy != null ? { accuracyM: accuracy } : {}),
+    // A stored "OK" with no coordinates is not OK. Trusting the label over
+    // the payload would let an edited entry claim a fix that never existed.
+    status: status === "OK" && (latitude == null || longitude == null)
+      ? "UNAVAILABLE"
+      : (status as DraftLocation["status"]),
+    capturedAt,
+  }
+}
+
 function cleanPendingMeta(value: unknown): PendingMeta | undefined {
   if (!value || typeof value !== "object") return undefined
   const m = value as Record<string, unknown>
@@ -106,7 +156,7 @@ export function readAgentWorkspace(raw: string | null): AgentWorkspace {
         && typeof p.reviewToken === "string" && /^[0-9a-f]{64}$/.test(p.reviewToken)
         && ["WHOLESALE", "CARTON"].includes(p.priceMode)
         && draftKey(p.priceMode, p.customerId) === key && Array.isArray(p.items)
-        && cleanAgentLines(p.items).length === p.items.length ? { ...p, items: cleanAgentLines(p.items) } : undefined
+        && cleanAgentLines(p.items).length === p.items.length ? { ...p, items: cleanAgentLines(p.items), location: cleanDraftLocation(p.location) } : undefined
       drafts[key] = {
         items: pending?.items ?? items,
         notes: typeof d.notes === "string" ? d.notes : "",
@@ -116,6 +166,7 @@ export function readAgentWorkspace(raw: string | null): AgentWorkspace {
         // settled attempt keeps its reason on screen after the payload is
         // dropped, which is how the rep learns why the order did not go.
         pendingMeta: cleanPendingMeta(d.pendingMeta),
+        location: cleanDraftLocation(d.location),
       }
     }
     return { drafts, mode: parsed.mode === "CARTON" ? "CARTON" : "WHOLESALE", customerId: typeof parsed.customerId === "string" && uuid.test(parsed.customerId) ? parsed.customerId : null }

@@ -59,6 +59,8 @@ import { CustomerInsights } from "./sales-agent/CustomerInsights"
 import { OrderReviewDialog } from "./sales-agent/OrderReviewDialog"
 import { PendingOrdersScreen } from "./sales-agent/PendingOrdersScreen"
 import { VisitsScreen } from "./sales-agent/VisitsScreen"
+import { ShopLocationPicker, type AreaOption, type ShopPoint } from "./sales-agent/ShopLocationPicker"
+import { distanceMetres, hasFix, locationNote, readAgentLocation, type AgentLocation } from "../utils/agentLocation"
 import type { FollowUpReason, OrderReview, SubmittedOrder } from "./sales-agent/types"
 
 /* ── types ───────────────────────────────────────────────────────────── */
@@ -124,6 +126,9 @@ type AgentToday = {
 
 type CustomerHeader = AgentCustomer & {
   lastPayment: { amount: number; date: string } | null
+  /** The SHOP position, for showing the rep how far they are from it. */
+  latitude: number | null
+  longitude: number | null
 }
 
 type PhoneLookup = {
@@ -525,6 +530,33 @@ function SalesAgentWorkspace() {
     [cart, productById, specialPriceFor, mode],
   )
 
+  /**
+   * Read the position the FIRST time a cart gets a line, and keep it.
+   *
+   * This is the moment the rep is demonstrably standing in the shop. Reading
+   * it again at send time would overwrite it with wherever they finally found
+   * signal, which on a bad day is home. Re-reading on every added line would
+   * also wake the GPS several times for one order and drain the battery.
+   *
+   * Fire-and-forget: the cart line is added immediately and the reading lands
+   * whenever it lands. Nothing waits on it, and a refusal costs no sale.
+   */
+  const captureCartLocation = () => {
+    if (draft.location || draft.pending) return
+    void readAgentLocation().then((location) => {
+      setWorkspace((current) => {
+        // Re-read from the freshest workspace, not the render that started
+        // this: several seconds pass while the GPS settles, and the rep may
+        // have added more lines meanwhile.
+        const live = current.drafts[activeKey] ?? EMPTY_DRAFT
+        if (live.location || live.pending) return current
+        const next = { ...current, drafts: { ...current.drafts, [activeKey]: { ...live, location } } }
+        try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch { /* draft still lives in memory */ }
+        return next
+      })
+    })
+  }
+
   const addToCart = (product: AgentProduct, unit: Unit, quantity: number) => {
       if (draft.pending) { toast({ title: "تحقق من الطلب المرسل أولاً" }); return }
       const existingQuantity = cart.find(l => l.productId === product.id && l.unit === unit)?.quantity ?? 0
@@ -538,6 +570,7 @@ function SalesAgentWorkspace() {
         }
         return [...prev, { productId: product.id, unit, quantity }]
       })
+      captureCartLocation()
       toast({ title: `انضاف: ${product.name}` })
     }
 
@@ -604,11 +637,34 @@ function SalesAgentWorkspace() {
     },
   })
 
+  /**
+   * What to tell the rep about their own position, on the review dialog.
+   *
+   * Uses the reading taken when the cart was started, measured against the
+   * shop the order is for. Null when either side is missing — most shops have
+   * no pin on day one, and a screen that nags about it would train the rep to
+   * ignore the banner that matters.
+   */
+  const reviewLocationNote = useMemo(() => {
+    const here = draft.location
+    if (!here) return null
+    const shopLat = header.data?.latitude
+    const shopLng = header.data?.longitude
+    const far =
+      hasFix(here) && shopLat != null && shopLng != null
+        ? distanceMetres(here.latitude as number, here.longitude as number, shopLat, shopLng)
+        : null
+    return locationNote(here, far)
+  }, [draft.location, header.data?.latitude, header.data?.longitude])
+
   const submitLock = useRef(false)
   const confirmOrder = async () => {
     if (submitLock.current || !online || !customerId || (!review && !draft.pending)) return
     submitLock.current = true
-    const payload: OrderPayload = draft.pending ?? { customerId, priceMode: mode, notes: notes.trim() || undefined, clientRequestId: crypto.randomUUID(), items: cart, reviewToken: review!.reviewToken }
+    // `draft.location` was read when the cart got its first line — inside the
+    // shop. It rides along unchanged on every retry, so an order re-sent an
+    // hour later still reports where it was actually taken.
+    const payload: OrderPayload = draft.pending ?? { customerId, priceMode: mode, notes: notes.trim() || undefined, clientRequestId: crypto.randomUUID(), items: cart, reviewToken: review!.reviewToken, location: draft.location }
     // A re-check keeps the ORIGINAL attempt's key and its creation time; only
     // the counter and the timestamp move. That is what makes «إعادة المحاولة»
     // a re-check of one order instead of a second order.
@@ -1124,6 +1180,7 @@ function SalesAgentWorkspace() {
           isRetry={Boolean(draft.pending)}
           reviewChanged={reviewChanged}
           knownStock={(productId) => productById.get(productId)?.currentStock ?? null}
+          locationNote={reviewLocationNote}
           onClose={() => { if (!submit.isPending) setReview(null) }}
           onConfirm={() => void confirmOrder()}
         />
@@ -1947,18 +2004,26 @@ function NewCustomerScreen({
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [address, setAddress] = useState("")
-  const [area, setArea] = useState("")
   const [lookup, setLookup] = useState<PhoneLookup | null>(null)
   const qc = useQueryClient()
 
+  // Full rows, not names: the picker needs ids to save the link and centres to
+  // suggest an area from the pin.
   const areas = useQuery({
-    queryKey: ["sales-agent", "areas"],
+    queryKey: ["sales-agent", "area-rows"],
     queryFn: async () => {
-      const res = await api.get<{ data: string[] }>("/sales-agent/areas")
+      const res = await api.get<{ data: AreaOption[] }>("/areas", { params: { activeOnly: 1 } })
       return res.data.data ?? []
     },
     staleTime: 30 * 60 * 1000,
   })
+
+  const [point, setPoint] = useState<ShopPoint | null>(null)
+  const [areaId, setAreaId] = useState("")
+  // The GPS reading that produced the pin, kept so the save carries WHEN it was
+  // taken and how precise it was — not re-read at submit time, when the rep may
+  // already be back in the car.
+  const [located, setLocated] = useState<AgentLocation | null>(null)
 
   const checkPhone = useMutation({
     mutationFn: async (value: string) => {
@@ -2005,7 +2070,12 @@ function NewCustomerScreen({
         name,
         phone,
         address: address.trim() || undefined,
-        area: area || undefined,
+        areaId: areaId || undefined,
+        // The reading taken when the pin was dropped, with its own timestamp.
+        // The server fills the shop position from it and files one stamp.
+        location: located ?? undefined,
+        latitude: point?.lat,
+        longitude: point?.lng,
       })
       return res.data.data
     },
@@ -2091,30 +2161,21 @@ function NewCustomerScreen({
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="العنوان">
-            <Input value={address} onChange={(e) => setAddress(e.target.value)} className="h-11" />
-          </Field>
-          <Field label="المنطقة">
-            {(areas.data ?? []).length === 0 ? (
-              <p className="rounded border border-slate-300 bg-slate-50 p-2.5 text-[13px] text-slate-500 dark:border-slate-700 dark:bg-slate-900">
-                ما اكو مناطق مضافة. صاحب المحل يضيفها من الإعدادات.
-              </p>
-            ) : (
-              <select
-                value={area}
-                onChange={(e) => setArea(e.target.value)}
-                aria-label="المنطقة"
-                className="h-11 w-full cursor-pointer rounded border border-slate-300 bg-white px-3 text-[13.5px] focus:border-[var(--theme-accent)] focus:outline-none dark:border-slate-700 dark:bg-slate-900"
-              >
-                <option value="">— اختر المنطقة —</option>
-                {(areas.data ?? []).map((a) => (
-                  <option key={a} value={a}>{a}</option>
-                ))}
-              </select>
-            )}
-          </Field>
-        </div>
+        <Field label="العنوان">
+          <Input value={address} onChange={(e) => setAddress(e.target.value)} className="h-11" />
+        </Field>
+
+        {/* Position and area together, because the rep is standing in the shop
+            exactly once — when they add it. Coming back later to place a pin is
+            a trip nobody makes. */}
+        <ShopLocationPicker
+          point={point}
+          onPoint={setPoint}
+          areas={areas.data ?? []}
+          areaId={areaId}
+          onAreaId={setAreaId}
+          onLocationRead={setLocated}
+        />
 
         <Button className="h-11" disabled={!canSave || create.isPending} onClick={() => create.mutate()}>
           {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -2281,11 +2342,16 @@ function MoneyScreen({
 
   const save = useMutation({
     mutationFn: async () => {
+      // Read HERE, not at render: the position that matters is where the rep
+      // stood when they took the money. A receipt is always written online —
+      // unlike a cart, it has no offline draft — so reading it now is honest.
+      const location = await readAgentLocation()
       const res = await api.post("/sales-agent/receipts", {
         customerId,
         amount: Number(amount),
         notes: notes.trim() || undefined,
         clientRequestId: requestId.current,
+        location,
       })
       return res.data
     },

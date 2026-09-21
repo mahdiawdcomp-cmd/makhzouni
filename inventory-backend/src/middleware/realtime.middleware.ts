@@ -45,6 +45,12 @@ function resourceForPath(path: string): RealtimeResource | null {
   if (clean.startsWith("/api/auctions")) return null;
   if (clean.startsWith("/api/products")) return "products";
   if (clean.startsWith("/api/customers")) return "customers";
+  // Areas are neighbourhoods customers are filed under, and renaming one
+  // rewrites every customer row that carries it — so an area edit IS a
+  // customer change as far as any open screen is concerned. Listing it here
+  // also keeps it off the "all" fallback, which refetches every query on
+  // every tab.
+  if (clean.startsWith("/api/areas")) return "customers";
   if (clean.startsWith("/api/invoices")) return "invoices";
   if (clean.startsWith("/api/vouchers")) return "vouchers";
   if (clean.startsWith("/api/transfers")) return "transfers";

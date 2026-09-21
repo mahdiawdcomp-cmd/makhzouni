@@ -45,9 +45,20 @@ function pinIcon(pin: MapPin) {
 export default function VisitMap({
   pins,
   onPick,
+  picking,
+  picked,
+  onPickPoint,
+  center,
 }: {
   pins: MapPin[]
   onPick: (customerId: string) => void
+  /** Turns the map into a point picker: a tap drops the shop marker. */
+  picking?: boolean
+  /** The point currently chosen, drawn in the accent colour. */
+  picked?: { lat: number; lng: number } | null
+  onPickPoint?: (point: { lat: number; lng: number }) => void
+  /** Where to open when there is nothing to fit — the shop's own city. */
+  center?: [number, number] | null
 }) {
   const host = useRef<HTMLDivElement | null>(null)
   const map = useRef<L.Map | null>(null)
@@ -59,10 +70,21 @@ export default function VisitMap({
     pick.current = onPick
   }, [onPick])
 
+  // Same reason as `pick`: the tap handler is attached to the map ONCE, and
+  // reads the current callback through a ref. Re-attaching it on every render
+  // would stack listeners and fire a single tap several times.
+  const pickPoint = useRef(onPickPoint)
+  const pickingRef = useRef(picking)
+  useEffect(() => {
+    pickPoint.current = onPickPoint
+    pickingRef.current = picking
+  }, [onPickPoint, picking])
+  const pickedMarker = useRef<L.Marker | null>(null)
+
   useEffect(() => {
     if (!host.current || map.current) return
     const instance = L.map(host.current, {
-      center: FALLBACK_CENTER,
+      center: center ?? FALLBACK_CENTER,
       zoom: 12,
       // Touch first: a rep pans with a thumb, and scroll-wheel zoom on a
       // trackpad inside a scrolling page hijacks the page scroll.
@@ -74,6 +96,12 @@ export default function VisitMap({
       attribution: "© OpenStreetMap",
     }).addTo(instance)
     layer.current = L.layerGroup().addTo(instance)
+    // Attached unconditionally and gated by the ref: adding and removing the
+    // listener as `picking` flips would drop a tap that lands mid-render.
+    instance.on("click", (event: L.LeafletMouseEvent) => {
+      if (!pickingRef.current) return
+      pickPoint.current?.({ lat: event.latlng.lat, lng: event.latlng.lng })
+    })
     map.current = instance
     return () => {
       instance.remove()
@@ -100,9 +128,35 @@ export default function VisitMap({
         )
         .on("click", () => pick.current(p.id))
     }
+    // While picking, the rep is aiming at a spot — refitting the view under
+    // their finger would move the map out from under the tap they are about
+    // to make.
+    if (pickingRef.current) return
     if (points.length === 1) instance.setView(points[0], 15)
     else if (points.length > 1) instance.fitBounds(L.latLngBounds(points), { padding: [32, 32] })
   }, [pins])
+
+  // The chosen point lives on the map itself, not in the pin layer: the pin
+  // layer is cleared and rebuilt whenever the customer list changes, which
+  // would wipe the marker the rep just dropped.
+  useEffect(() => {
+    const instance = map.current
+    if (!instance) return
+    pickedMarker.current?.remove()
+    pickedMarker.current = null
+    if (!picked) return
+    pickedMarker.current = L.marker([picked.lat, picked.lng], {
+      icon: L.divIcon({
+        className: "",
+        html: `<span style="display:block;width:22px;height:22px;border-radius:9999px;border:4px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5);background:#4338ca"></span>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      }),
+    })
+      .addTo(instance)
+      .bindTooltip("موقع المحل", { direction: "top" })
+    instance.setView([picked.lat, picked.lng], Math.max(instance.getZoom(), 16))
+  }, [picked])
 
   return (
     <div

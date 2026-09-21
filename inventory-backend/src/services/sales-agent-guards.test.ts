@@ -71,6 +71,28 @@ function routerLevelMiddlewareCount(router: unknown): number {
   return layersOf(router).filter((l) => !l.route).length;
 }
 
+/**
+ * The text of one call's argument object, found by matching braces.
+ *
+ * Was a fixed 900-character window ending at the first `});`, which silently
+ * passed any call that did not close that exact way — a read nested inside a
+ * `Promise.all([...])` ends with `}),` and the window fell off the end,
+ * producing a two-character body that trivially contained no `include:`. A
+ * guard that stops looking is worse than no guard, because it reads green.
+ */
+function callBody(source: string, openBraceIndex: number): string | null {
+  let depth = 0;
+  for (let i = openBraceIndex; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(openBraceIndex, i + 1);
+    }
+  }
+  return null;
+}
+
 describe("«المندوب» — cost and profit never leave the server", () => {
   const service = code(read("services/sales-agent.service.ts"));
 
@@ -83,14 +105,14 @@ describe("«المندوب» — cost and profit never leave the server", () => 
     assert.ok(reads.length > 0, "expected the rep service to read products");
 
     for (const match of reads) {
-      const window = service.slice(match.index ?? 0, (match.index ?? 0) + 900);
-      const body = window.slice(0, window.indexOf("});") + 3);
+      const body = callBody(service, (match.index ?? 0) + match[0].length - 1);
+      assert.ok(body !== null, `could not find the end of the call at offset ${match.index}`);
       assert.ok(
-        body.includes("select:"),
+        body!.includes("select:"),
         `a product read without an explicit select at offset ${match.index}`,
       );
       assert.ok(
-        !body.includes("include:"),
+        !body!.includes("include:"),
         `a product read using include at offset ${match.index} — include leaks new columns`,
       );
     }

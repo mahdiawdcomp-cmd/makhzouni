@@ -25,6 +25,7 @@ export function OrderReviewDialog({
   isRetry,
   reviewChanged,
   knownStock,
+  locationNote,
   onClose,
   onConfirm,
 }: {
@@ -40,6 +41,14 @@ export function OrderReviewDialog({
   knownStock: (productId: string) => number | null
   onClose: () => void
   onConfirm: () => void
+  /**
+   * What the rep should know about their own position before confirming.
+   *
+   * Shown to the REP first, deliberately. A distance the owner sees in a
+   * report but the rep never saw is an ambush; a distance the rep read and
+   * confirmed is a fact both of them agreed on.
+   */
+  locationNote?: { text: string; tone: "ok" | "wait" | "bad" } | null
 }) {
   const stockMoved = review.items.filter((item) => {
     const known = knownStock(item.productId)
@@ -86,6 +95,20 @@ export function OrderReviewDialog({
           <span className="block text-[12px] text-slate-500">
             للعرض فقط — إرسال الطلب لا يغيّر الرصيد، الرصيد يتغير عند الفاتورة.
           </span>
+        </p>
+      )}
+
+      {locationNote && (
+        <p
+          className={
+            locationNote.tone === "ok"
+              ? "mb-3 rounded-xl bg-emerald-50 p-3 text-[13px] text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+              : locationNote.tone === "bad"
+                ? "mb-3 rounded-xl bg-red-50 p-3 text-[13px] text-red-800 dark:bg-red-950/40 dark:text-red-200"
+                : "mb-3 rounded-xl bg-amber-50 p-3 text-[13px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          }
+        >
+          {locationNote.text}
         </p>
       )}
 

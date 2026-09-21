@@ -37,6 +37,7 @@ import {
 import { OFFER_ENDING_SOON_DAYS, offerMapForCustomer } from "./sales-agent-offers.service";
 import { lastPaidPrices, priceChangeFor } from "./sales-agent-history.service";
 import { shopDateKey, shopDayStart, shopInclusiveEndKey } from "../utils/shop-day";
+import { validCoords } from "./area.service";
 
 /* ── unit maths ──────────────────────────────────────────────────────────
  * Deliberately identical to the catalog's own conversion. A rep's carton must
@@ -125,6 +126,17 @@ function assertUuid(value: string | undefined | null, message: string) {
  * list would bake one tenant's city into shared code.
  */
 export async function listSalesAgentAreas(): Promise<string[]> {
+  // The `areas` table is the source now. The old settings list is read only
+  // when that table is still empty, so a shop that typed its areas before the
+  // table existed keeps them until the owner imports — after which the
+  // fallback stops firing on its own.
+  const rows = await prisma.area.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { name: true },
+  }).catch(() => [] as Array<{ name: string }>);
+  if (rows.length > 0) return rows.map((r) => r.name);
+
   const settings = await getSettings().catch(() => null);
   const raw = settings?.salesAgentAreas;
   if (!Array.isArray(raw)) return [];
@@ -174,6 +186,11 @@ export async function getCustomerHeader(agentId: string, customerId: string) {
     area: customer.area,
     province: customer.province,
     currentBalance: toNumber(customer.currentBalance),
+    // The SHOP position, so the rep can be shown how far they are standing
+    // from it before they confirm an order. Null for a shop nobody has pinned
+    // yet, and every caller renders without it.
+    latitude: customer.latitude == null ? null : toNumber(customer.latitude),
+    longitude: customer.longitude == null ? null : toNumber(customer.longitude),
     lastPayment: lastPayment
       ? { amount: toNumber(lastPayment.amount), date: lastPayment.date }
       : null,
@@ -302,6 +319,9 @@ export type AgentCustomerInput = {
   phone: string;
   address?: string;
   area?: string;
+  areaId?: string;
+  latitude?: unknown;
+  longitude?: unknown;
 };
 
 /**
@@ -321,6 +341,11 @@ export async function createAgentCustomer(
   const phone = normalizePhone(String(input.phone ?? "").trim());
   if (!phone) throw new AppError("رقم الهاتف مطلوب", 400, "PHONE_REQUIRED");
 
+  // Validated rather than trusted: (0,0) and a swapped pair both arrive looking
+  // like numbers, and a shop pinned in the Atlantic breaks every distance the
+  // rest of this feature computes.
+  const coords = validCoords(input.latitude, input.longitude);
+
   // The duplicate check the client already ran is advisory — it can be skipped
   // by calling the API directly, and a customer can be created by someone else
   // between the check and the save. Re-run it here where it is binding.
@@ -332,14 +357,30 @@ export async function createAgentCustomer(
     throw new AppError(`هذا الرقم موجود مسبقاً باسم «${existing.name}»`, 409, "PHONE_IN_USE");
   }
 
-  const area = input.area?.trim() || undefined;
-  if (area) {
+  // `areaId` is what the client sends now. The name is still resolved and
+  // stored beside it: every existing list, filter and export reads the text
+  // column, and a row that carried only an id would read blank on all of them.
+  let area = input.area?.trim() || undefined;
+  let areaId: string | undefined;
+  if (input.areaId) {
+    const row = await prisma.area.findFirst({
+      where: { id: String(input.areaId), isActive: true },
+      select: { id: true, name: true },
+    });
+    if (!row) throw new AppError("المنطقة غير موجودة بالقائمة", 400, "AREA_NOT_ALLOWED");
+    areaId = row.id;
+    area = row.name;
+  } else if (area) {
     const allowed = await listSalesAgentAreas();
     // An empty list means the shop has not filled its areas yet — accept what
     // the rep sends rather than blocking the sale over a settings gap.
     if (allowed.length > 0 && !allowed.includes(area)) {
       throw new AppError("المنطقة غير موجودة بالقائمة", 400, "AREA_NOT_ALLOWED");
     }
+    // Link it when the name happens to match a row, so a client still on the
+    // old shape does not create an unlinked customer.
+    const row = await prisma.area.findFirst({ where: { name: area }, select: { id: true } });
+    areaId = row?.id;
   }
 
   const created = await createCustomer({
@@ -355,7 +396,16 @@ export async function createAgentCustomer(
   // the same logic drifting apart.
   await prisma.customer.update({
     where: { id: created.id },
-    data: { salesAgentId: agentId, area: area ?? null },
+    data: {
+      salesAgentId: agentId,
+      area: area ?? null,
+      areaId: areaId ?? null,
+      // The shop position, when the rep pinned it while standing there. Only
+      // set at creation — moving a shop afterwards goes through the visits
+      // screen, which writes an audit entry.
+      latitude: coords?.lat ?? null,
+      longitude: coords?.lng ?? null,
+    },
   });
 
   await prisma.auditLog.create({

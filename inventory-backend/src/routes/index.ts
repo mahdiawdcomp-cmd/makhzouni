@@ -2,6 +2,7 @@ import { Router } from "express";
 import approvalsRoutes from "./approvals.routes";
 import agentRoutes from "./agent.routes";
 // «المندوب» — the sales rep. Unrelated to agentRoutes above (the AI assistant).
+import areaRoutes from "./area.routes";
 import salesAgentRoutes from "./sales-agent.routes";
 import salesAgentAdminRoutes from "./sales-agent-admin.routes";
 import customerOffersRoutes from "./customer-offers.routes";
@@ -60,6 +61,7 @@ router.use("/tenant-info", tenantInfoRoutes);
 router.use("/public", publicRoutes);
 router.use("/realtime", realtimeRoutes);
 router.use("/agent", agentRoutes);
+router.use("/areas", areaRoutes);
 router.use("/sales-agent", salesAgentRoutes);
 router.use("/sales-agent-admin", salesAgentAdminRoutes);
 router.use("/customer-offers", customerOffersRoutes);

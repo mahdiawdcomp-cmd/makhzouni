@@ -6,6 +6,7 @@
  * access model handed to whoever wants to type a different uuid.
  */
 import { Unit } from "@prisma/client";
+import { fillCustomerLocationIfBlank, recordStamp, type StampInput } from "../services/agent-stamp.service";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import {
@@ -184,6 +185,21 @@ export const postStartVisit = asyncHandler(async (req, res) => {
     // Optional: starting from today's plan links the visit to that entry.
     planId: body.planId == null ? undefined : String(body.planId),
   });
+  // A duplicate is the same visit re-opened after a dropped connection, not a
+  // second arrival, so it must not file a second position.
+  if (!visit.duplicate) {
+    await recordStamp({
+      salesAgentId: agent.id,
+      action: "VISIT",
+      customerId,
+      referenceId: (visit as { id?: string } | null)?.id ?? null,
+      input: (req.body as { location?: StampInput })?.location ?? null,
+    });
+    // A shop whose position nobody ever recorded gets it from the rep standing
+    // in its doorway. Only fills a blank — see fillCustomerLocationIfBlank.
+    await fillCustomerLocationIfBlank(customerId, (req.body as { location?: StampInput })?.location ?? null);
+  }
+
   res.status(visit.duplicate ? 200 : 201).json({ success: true, data: visit });
 });
 
@@ -199,7 +215,13 @@ export const postEndVisit = asyncHandler(async (req, res) => {
   });
 });
 
-/** Pin the CUSTOMER's shop. The only location this feature ever writes. */
+/**
+ * Pin the CUSTOMER's shop — where the business is, set once and rarely again.
+ *
+ * Distinct from a `SalesAgentStamp`, which records where the REP was at the
+ * moment of one action. This writes the shop; that witnesses the visit. Mixing
+ * them would let a rep standing anywhere quietly move a shop onto themselves.
+ */
 export const putCustomerLocation = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
   const body = (req.body ?? {}) as { latitude?: unknown; longitude?: unknown };
@@ -296,13 +318,38 @@ export const postClaimCustomer = asyncHandler(async (req, res) => {
 
 export const postAgentCustomer = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
-  const body = (req.body ?? {}) as { name?: string; phone?: string; address?: string; area?: string };
+  const body = (req.body ?? {}) as {
+    name?: string;
+    phone?: string;
+    address?: string;
+    area?: string;
+    areaId?: string;
+    latitude?: unknown;
+    longitude?: unknown;
+  };
   const created = await createAgentCustomer(agent.id, agent.name, {
     name: String(body.name ?? ""),
     phone: String(body.phone ?? ""),
     address: body.address,
     area: body.area,
+    areaId: body.areaId,
+    latitude: body.latitude,
+    longitude: body.longitude,
   });
+  // The rep is standing in the shop right now — this is the one moment its
+  // position is free to capture. Every later screen (the visit map, the
+  // distance check on an order) depends on it, and a customer added without
+  // it needs a separate trip to place.
+  const where = (req.body as { location?: StampInput })?.location ?? null;
+  await fillCustomerLocationIfBlank(created.id, where);
+  await recordStamp({
+    salesAgentId: agent.id,
+    action: "NEW_CUSTOMER",
+    customerId: created.id,
+    referenceId: created.id,
+    input: where,
+  });
+
   res.status(201).json({ success: true, message: "تم إنشاء الزبون", data: created });
 });
 
@@ -363,6 +410,18 @@ function agentOrderHandler(preview: boolean) { return asyncHandler(async (req, r
     items,
   }, preview);
 
+  // A preview is the rep looking at prices, not a visit to a shop. Stamping it
+  // would file a position for an order that may never be sent.
+  if (!preview) {
+    await recordStamp({
+      salesAgentId: agent.id,
+      action: "ORDER",
+      customerId: String(body.customerId),
+      referenceId: (result as { approvalId?: string } | null)?.approvalId ?? null,
+      input: (req.body as { location?: StampInput })?.location ?? null,
+    });
+  }
+
   res.status(preview ? 200 : 201).json({ success: true, message: preview ? "مراجعة الطلب بدون إرسال" : "انرسل الطلب للموافقة", data: result });
 }); }
 
@@ -399,6 +458,14 @@ export const postAgentReceipt = asyncHandler(async (req, res) => {
     // as an idempotency key — a double-tap on a bad connection returns the
     // voucher that was created rather than creating a second one.
     clientRequestId: body.clientRequestId,
+  });
+
+  await recordStamp({
+    salesAgentId: agent.id,
+    action: "RECEIPT",
+    customerId: String(body.customerId),
+    referenceId: (voucher as { id?: string } | null)?.id ?? null,
+    input: (req.body as { location?: StampInput })?.location ?? null,
   });
 
   res.status(201).json({ success: true, message: "انحفظ السند", data: voucher });

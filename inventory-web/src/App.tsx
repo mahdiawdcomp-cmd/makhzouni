@@ -49,6 +49,7 @@ const AuctionsPage = lazyPage(() => import("./pages/AuctionsPage"), "AuctionsPag
 const PublicAuctionPage = lazyPage(() => import("./pages/PublicAuctionPage"), "PublicAuctionPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage")
+const AreasPage = lazyPage(() => import("./pages/AreasPage"), "AreasPage")
 const InvoiceDesignerPage = lazyPage(() => import("./pages/InvoiceDesignerPage"), "InvoiceDesignerPage")
 const UsersPage = lazyPage(() => import("./pages/UsersPage"), "UsersPage")
 const VoucherDetailPage = lazyPage(() => import("./pages/VoucherDetailPage"), "VoucherDetailPage")
@@ -177,6 +178,10 @@ const router = createBrowserRouter([
             element: <PermissionRoute permission="MANAGE_SETTINGS" />,
             children: [
               { path: "settings", element: s(<SettingsPage />) },
+              // Behind MANAGE_SETTINGS with the rest of the shop's own setup:
+              // one curated area list is the whole point, and a second person
+              // editing it re-creates the duplicate spellings it exists to stop.
+              { path: "areas", element: s(<AreasPage />) },
               { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
             ],
           },
