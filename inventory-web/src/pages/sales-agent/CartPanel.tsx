@@ -16,6 +16,7 @@ export function CartPanel({
   onSubmit,
   submitting,
   specialPrice,
+  onRemoved,
 }: {
   mode: AgentMode
   locked: boolean
@@ -28,6 +29,11 @@ export function CartPanel({
   onSubmit: () => void
   submitting: boolean
   specialPrice: (productId: string, unit: Unit) => number | null
+  /**
+   * A line just left the cart — by «×», or by «−» taking it to zero. The page
+   * offers «تراجع», because a thumb on a tablet hits «×» when it meant «−».
+   */
+  onRemoved?: (line: CartLine, index: number) => void
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -55,7 +61,10 @@ export function CartPanel({
                     <button
                       type="button"
                       aria-label="احذف السطر"
-                      onClick={() => onChange((prev) => prev.filter((_, i) => i !== idx))}
+                      onClick={() => {
+                        onChange((prev) => prev.filter((_, i) => i !== idx))
+                        onRemoved?.(line, idx)
+                      }}
                       className="-m-1.5 grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded text-slate-400 transition-colors duration-150 hover:bg-slate-100 hover:text-red-600 dark:hover:bg-slate-800"
                     >
                       <X className="h-4 w-4" />
@@ -74,13 +83,15 @@ export function CartPanel({
                         variant="outline"
                         className="h-11 w-11 p-0"
                         aria-label="أنقص"
-                        onClick={() =>
+                        onClick={() => {
                           onChange((prev) =>
                             prev
                               .map((l, i) => (i === idx ? { ...l, quantity: l.quantity - 1 } : l))
                               .filter((l) => l.quantity > 0),
                           )
-                        }
+                          // The last one: «−» just removed the line, same as «×».
+                          if (line.quantity === 1) onRemoved?.(line, idx)
+                        }}
                       >
                         <Minus className="h-4 w-4" />
                       </Button>

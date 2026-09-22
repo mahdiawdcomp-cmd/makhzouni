@@ -219,8 +219,17 @@ async function harness(t, viewport, opts = {}) {
 
   await page.goto(`${fixture.origin}${path}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(ready, { timeout: 20_000 });
+  // The rep's page opens on «يومي» now. Tests written against the catalog go
+  // there first, the way a rep would; the «يومي» test opts out to see it.
+  if (path === "/sales-agent" && opts.landOnToday !== true) await openCatalog(page);
 
   return { page, context, origin: fixture.origin };
+}
+
+/** Tap the «الكتلوك» tab — the name may carry the cart count after it. */
+async function openCatalog(page) {
+  await page.getByRole("button", { name: "الكتلوك" }).first().click();
+  await page.waitForSelector('[aria-label="كتلوك المندوب"]', { timeout: 15_000 });
 }
 
 const clickByText = async (page, text) => {
@@ -331,10 +340,43 @@ test("an unconfirmed send survives going offline and a reload, and re-checking c
   await t.diagnostic("phone 390x844: offline → reload → reconnect → one order");
 });
 
+test("«يومي» is where the rep lands, and it answers «وين أبدي؟»", async (t) => {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 768 }]) {
+    const { page } = await harness(t, viewport, { landOnToday: true });
+    // The day's figures, the list of who to see, and the three quick starts.
+    await page.getByText("قبضت اليوم").first().waitFor();
+    await page.getByText("معي الآن").first().waitFor();
+    await page.getByText(/زبائن اليوم|يحتاجون زيارة/).first().waitFor();
+    for (const action of ["طلب جديد", "سند قبض", "زبون جديد"]) {
+      assert.equal(await page.getByRole("button", { name: action }).count() > 0, true, `«${action}» is one tap away`);
+    }
+    // A figure that has not arrived is never printed as zero — «0» is a claim.
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    // «طلب جديد» takes the rep straight to the catalog.
+    await page.getByRole("button", { name: "طلب جديد" }).click();
+    await page.waitForSelector('[aria-label="كتلوك المندوب"]', { timeout: 15_000 });
+  }
+});
+
+test("the statement opens on a summary: balance, last payment, last sale", async (t) => {
+  const { page } = await harness(t, { width: 1024, height: 768 });
+  await clickByText(page, "زبائني");
+  await page.getByRole("button", { name: /كشف/ }).first().click();
+  // Each tile, found by its own title: the same amounts also appear in the
+  // statement table underneath.
+  const tile = (title) => page.locator("div.rounded-xl", { has: page.getByText(title, { exact: true }) }).first();
+  await tile("الرصيد").waitFor();
+  // Positive is what the customer owes — said in words, not left to the sign.
+  await tile("الرصيد").getByText("250,000", { exact: true }).waitFor();
+  await tile("الرصيد").getByText("عليه", { exact: true }).waitFor();
+  await tile("آخر دفعة").getByText("50,000", { exact: true }).waitFor();
+  await tile("آخر فاتورة").getByText("300,000", { exact: true }).waitFor();
+});
+
 test("the rep screens fit an iPad without a horizontal scroll", async (t) => {
   const { page } = await harness(t, { width: 1024, height: 768 });
 
-  for (const tab of ["زبائني", "زياراتي", "الكتلوك"]) {
+  for (const tab of ["يومي", "زبائني", "زياراتي", "الكتلوك"]) {
     await closeDialogs(page);
     await clickByText(page, tab);
     await page.waitForTimeout(600);
@@ -388,8 +430,19 @@ test("catalog filters and 2/3/4 picture layout work on phone and iPad", async (t
     await held.getByText("بالسلة: 2 قطعة").waitFor();
     await page.getByRole("button", { name: "تراجع" }).first().click();
     await held.getByText("بالسلة: 1 قطعة").waitFor();
+
+    // «×» on a cart line offers «تراجع» too — a thumb meant for «−» lands on it.
+    // The order panel sits beside the grid from 1024px; below that it is a dialog.
+    if (viewport.width >= 1024) {
+      await page.getByRole("button", { name: "احذف السطر" }).first().click();
+      await held.getByText("بالسلة:").waitFor({ state: "detached" });
+      await page.getByRole("button", { name: "تراجع" }).first().click();
+      await held.getByText("بالسلة: 1 قطعة").waitFor();
+    }
+
     await page.getByRole("button", { name: "4 صور في السطر" }).click();
     await page.reload();
+    await openCatalog(page);
     assert.equal(await page.getByRole("button", { name: "4 صور في السطر" }).getAttribute("aria-pressed"), "true", "layout persists on this device");
   }
 });

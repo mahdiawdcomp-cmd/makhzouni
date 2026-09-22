@@ -36,6 +36,7 @@ describe("resourceForPath", () => {
     // Queues an approval; the receipt is untouched until the owner decides.
     assert.equal(resourceForPath("/api/sales-agent/receipts/abc/edit-request"), "approvals");
     assert.equal(resourceForPath("/api/sales-agent/receipts/abc/cancel-request"), "approvals");
+    assert.equal(resourceForPath("/api/sales-agent/receipts/abc/send-whatsapp"), null);
     assert.equal(resourceForPath("/api/sales-agent/receipts"), "vouchers");
     assert.equal(resourceForPath("/api/areas/123"), "customers");
   });

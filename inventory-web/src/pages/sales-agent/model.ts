@@ -203,7 +203,7 @@ export function availableUnits(product: AgentProduct, mode: AgentMode = "WHOLESA
   return agentWholesaleUnits
 }
 
-export type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "receipts" | "customer-detail" | "issues" | "visits" | "pending"
+export type Screen = "today" | "catalog" | "customers" | "new-customer" | "orders" | "money" | "receipts" | "customer-detail" | "issues" | "visits" | "pending"
 
 export type CatalogColumns = 2 | 3 | 4
 

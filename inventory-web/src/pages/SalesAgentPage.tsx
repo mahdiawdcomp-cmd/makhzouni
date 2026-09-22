@@ -49,6 +49,7 @@ import { OrdersScreen } from "./sales-agent/OrdersScreen"
 import { MoneyScreen } from "./sales-agent/MoneyScreen"
 import { IssueDialog, PriceRequestDialog, MyIssuesScreen } from "./sales-agent/IssueScreens"
 import { CustomerDetailScreen } from "./sales-agent/CustomerDetailScreen"
+import { TodayScreen } from "./sales-agent/TodayScreen"
 
 // The screens, their shared shapes and hooks live in ./sales-agent/ — this file
 // is the workspace that holds the carts and routes between them.
@@ -74,6 +75,9 @@ function savedCatalogColumns(): CatalogColumns {
 const CARTS_KEY = "sales_agent_carts"
 
 const TABS: Array<{ key: Screen; label: string }> = [
+  // First, and where the page opens: the rep's first question every morning is
+  // «وين أبدي؟», and the answer used to be spread over four other tabs.
+  { key: "today", label: "يومي" },
   { key: "catalog", label: "الكتلوك" },
   { key: "customers", label: "زبائني" },
   { key: "visits", label: "زياراتي" },
@@ -136,7 +140,7 @@ function SalesAgentWorkspace() {
   const draft = workspace.drafts[activeKey] ?? EMPTY_DRAFT
   const cart = draft.items
   const notes = draft.notes
-  const [screen, setScreen] = useState<Screen>("catalog")
+  const [screen, setScreen] = useState<Screen>("today")
   const setCustomerId = (id: string | null) => persist({ ...workspace, customerId: id })
   const updateDraft = (next: AgentDraft) => persist({ ...workspace, drafts: { ...workspace.drafts, [activeKey]: next } })
   const setCart = (updater: (prev: CartLine[]) => CartLine[]) => {
@@ -295,6 +299,44 @@ function SalesAgentWorkspace() {
    * `key` is the draft the unit was added to — captured at add time, so undoing
    * after switching customer still removes it from the right cart.
    */
+  /**
+   * «تراجع» after a line left the cart — put it back where it was.
+   *
+   * Same live-workspace read as undoQuickAdd, for the same reason: the toast
+   * outlives this render. If the rep has since added that product again, the
+   * quantities are added together instead of making a second line for it.
+   * `key` is the cart the line was removed FROM, captured at removal.
+   */
+  const restoreCartLine = (key: string, line: CartLine, index: number) => {
+    setWorkspace((current) => {
+      const live = current.drafts[key] ?? EMPTY_DRAFT
+      if (live.pending) return current
+      const existing = live.items.findIndex((l) => l.productId === line.productId && l.unit === line.unit)
+      const items = [...live.items]
+      if (existing >= 0) {
+        items[existing] = { ...items[existing], quantity: Math.min(100000, items[existing].quantity + line.quantity) }
+      } else {
+        items.splice(Math.min(index, items.length), 0, line)
+      }
+      const next = { ...current, drafts: { ...current.drafts, [key]: { ...live, items } } }
+      try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch { /* restored in memory */ }
+      return next
+    })
+  }
+  const offerLineRestore = (line: CartLine, index: number) => {
+    const key = activeKey
+    const name = productById.get(line.productId)?.name ?? "المادة"
+    toast({
+      title: `انشالت: ${name}`,
+      description: `${line.quantity} ${UNIT_LABEL[line.unit]}`,
+      action: (
+        <ToastAction altText="رجّع السطر" onClick={() => restoreCartLine(key, line, index)}>
+          تراجع
+        </ToastAction>
+      ),
+    })
+  }
+
   const undoQuickAdd = (key: string, productId: string, unit: Unit) => {
     setWorkspace((current) => {
       const live = current.drafts[key] ?? EMPTY_DRAFT
@@ -758,6 +800,17 @@ function SalesAgentWorkspace() {
             />
           )}
 
+          {screen === "today" && (
+            <TodayScreen
+              repName={user?.name ?? ""}
+              unresolvedCount={unresolvedCount}
+              onOpenPending={() => setScreen("pending")}
+              onSell={(id) => pickCustomer(id)}
+              onOpenStatement={(id) => { setDetailCustomerId(id); setScreen("customer-detail") }}
+              onGo={(next) => setScreen(next)}
+            />
+          )}
+
           {screen === "orders" && <OrdersScreen />}
           {screen === "issues" && <MyIssuesScreen />}
 
@@ -951,6 +1004,7 @@ function SalesAgentWorkspace() {
               onSubmit={sendOrder}
               submitting={submit.isPending || preview.isPending}
               specialPrice={specialPriceFor}
+              onRemoved={offerLineRestore}
             />
           </aside>
         )}
@@ -986,6 +1040,7 @@ function SalesAgentWorkspace() {
             onSubmit={sendOrder}
             submitting={submit.isPending || preview.isPending}
             specialPrice={specialPriceFor}
+            onRemoved={offerLineRestore}
           />
         </Dialog>
       )}

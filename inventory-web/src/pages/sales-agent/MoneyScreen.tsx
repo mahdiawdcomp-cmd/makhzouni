@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader2, Receipt, ShoppingCart, Users, Wallet } from "lucide-react"
+import { Loader2, Receipt, Send, ShoppingCart, Users, Wallet } from "lucide-react"
 import { api } from "../../api/client"
 import { Button } from "../../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
@@ -13,7 +13,7 @@ import { money, shortDate } from "./format"
 import { readAgentLocation } from "../../utils/agentLocation"
 import { type AgentToday, type CashOnHand, type AgentReceipt, type AgentHandoverRow, digitsOnly } from "./model"
 import { Field, StatusPill, Waiting } from "./ui"
-import { useOnce } from "./hooks"
+import { useOnce, useSendReceiptWhatsapp } from "./hooks"
 
 /**
  * «فلوسي» — everything about money in one screen.
@@ -41,6 +41,8 @@ export function MoneyScreen({
   const qc = useQueryClient()
   const [amount, setAmount] = useState("")
   const [notes, setNotes] = useState("")
+  const [lastSaved, setLastSaved] = useState<{ id: string; voucherNumber: string; amount: number; customerName: string } | null>(null)
+  const whatsapp = useSendReceiptWhatsapp()
   // A fresh key per saved receipt, so a retry after a timeout cannot bill twice.
   const requestId = useRef(crypto.randomUUID())
 
@@ -108,8 +110,19 @@ export function MoneyScreen({
       })
       return res.data
     },
-    onSuccess: () => {
+    onSuccess: (res: { data?: { id?: string; voucherNumber?: string } } | undefined) => {
       toast({ title: "انحفظ السند ✓" })
+      // Kept on screen with its «أرسله للزبون» button until the next receipt:
+      // the rep is standing with the shopkeeper who just paid, and that is the
+      // moment the customer wants the paper.
+      if (res?.data?.id) {
+        setLastSaved({
+          id: res.data.id,
+          voucherNumber: res.data.voucherNumber ?? "",
+          amount: Number(amount),
+          customerName: customerName ?? "",
+        })
+      }
       setAmount("")
       setNotes("")
       requestId.current = crypto.randomUUID()
@@ -233,6 +246,28 @@ export function MoneyScreen({
             {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {save.isPending ? "جاري الحفظ…" : "احفظ السند"}
           </Button>
+
+          {lastSaved && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-950/30">
+              <p className="min-w-0 flex-1 text-[13px] text-emerald-900 dark:text-emerald-200">
+                انحفظ السند <span className="font-semibold tabular-nums">{lastSaved.voucherNumber}</span> ·{" "}
+                <span className="tabular-nums">{money(lastSaved.amount)}</span>
+                {lastSaved.customerName && <> · {lastSaved.customerName}</>}
+              </p>
+              {whatsapp.sent[lastSaved.id] ? (
+                <span className="text-[13px] font-semibold text-emerald-700 dark:text-emerald-300">انرسل للزبون ✓</span>
+              ) : (
+                <Button
+                  className="h-11 bg-emerald-600 hover:bg-emerald-700"
+                  disabled={whatsapp.busy[lastSaved.id]}
+                  onClick={() => void whatsapp.send(lastSaved.id)}
+                >
+                  {whatsapp.busy[lastSaved.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  أرسله للزبون بالواتساب
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -258,6 +293,7 @@ export function MoneyScreen({
                   <TH>الزبون</TH>
                   <TH>المبلغ</TH>
                   <TH>التاريخ</TH>
+                  <TH>للزبون</TH>
                 </TR>
               </THead>
               <TBody>
@@ -269,6 +305,25 @@ export function MoneyScreen({
                     <TD className="tabular-nums">
                       {shortDate(r.date)}
                       {r.cancelled && <StatusPill tone="bad">ملغي</StatusPill>}
+                    </TD>
+                    <TD>
+                      {/* Resending later is normal — the customer lost it, or
+                          the rep was out of signal when it was taken. */}
+                      {!r.cancelled &&
+                        (whatsapp.sent[r.id] ? (
+                          <span className="text-[12px] text-emerald-700 dark:text-emerald-300">انرسل ✓</span>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            className="h-11"
+                            aria-label={`أرسل السند ${r.voucherNumber} للزبون بالواتساب`}
+                            disabled={whatsapp.busy[r.id]}
+                            onClick={() => void whatsapp.send(r.id)}
+                          >
+                            {whatsapp.busy[r.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            واتساب
+                          </Button>
+                        ))}
                     </TD>
                   </TR>
                 ))}

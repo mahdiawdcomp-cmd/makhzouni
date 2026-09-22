@@ -509,3 +509,14 @@ describe("«فواتيري وسنداتي» — a rep opening their own document
     }
   });
 });
+
+test("a rep's receipt goes to the customer in the shop's words, never the rep's", () => {
+  // The send leaves from the shop's official number. The text is built from the
+  // shop's own template on the server; the request body is not read at all.
+  const ctrl = code(read("controllers/sales-agent.controller.ts"));
+  assert.match(ctrl, /sendAgentReceiptWhatsapp\(repAgent\(req\.user\), String\(req\.params\.id\)\)/);
+  const docs = code(read("services/sales-agent-documents.service.ts"));
+  const fn = docs.slice(docs.indexOf("export async function sendAgentReceiptWhatsapp"), docs.indexOf("/* ── owner"));
+  assert.match(fn, /settings\.voucherTemplate/, "the message comes from the shop's receipt template");
+  assert.match(fn, /voucher\.salesAgentId !== agent\.id/, "only the rep's own receipts");
+});

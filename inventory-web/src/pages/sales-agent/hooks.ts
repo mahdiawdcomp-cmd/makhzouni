@@ -2,9 +2,11 @@
  * «المندوب» — data hooks and the one-tap guard shared by the rep's screens.
  */
 
-import { useCallback, useRef } from "react"
+import { useCallback, useRef, useState } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../../api/client"
+import { toast } from "../../components/ui/use-toast"
+import { apiErrorMessage } from "../../utils/apiError"
 import { useAuthStore } from "../../store/authStore"
 import { stableThumbnailBatches } from "../../utils/salesAgentCatalog"
 import type { AgentProduct, CustomerPage, CustomerHeader } from "./model"
@@ -109,4 +111,34 @@ export function useOnce(mutation: {
     busy.current = true
     mutation.mutate(undefined, { onSettled: () => (busy.current = false) })
   }, [mutation])
+}
+
+/**
+ * «أرسل السند للزبون» — the shop's own receipt template, sent from the shop's
+ * number by the server. The rep's device sends only WHICH receipt; the words
+ * are never the rep's.
+ *
+ * `sending` holds the ids in flight, so a second tap on the same receipt is
+ * ignored rather than reaching the server's one-minute cooldown as an error.
+ */
+export function useSendReceiptWhatsapp() {
+  const inFlight = useRef(new Set<string>())
+  const [sent, setSent] = useState<Record<string, boolean>>({})
+  const [busy, setBusy] = useState<Record<string, boolean>>({})
+  const send = useCallback(async (voucherId: string) => {
+    if (!voucherId || inFlight.current.has(voucherId)) return
+    inFlight.current.add(voucherId)
+    setBusy((b) => ({ ...b, [voucherId]: true }))
+    try {
+      const res = await api.post<{ data: { voucherNumber: string } }>(`/sales-agent/receipts/${voucherId}/send-whatsapp`)
+      setSent((s) => ({ ...s, [voucherId]: true }))
+      toast({ title: `انرسل السند ${res.data?.data?.voucherNumber ?? ""} للزبون ✓` })
+    } catch (err) {
+      toast({ title: "ما انرسل السند", description: apiErrorMessage(err), variant: "destructive" })
+    } finally {
+      inFlight.current.delete(voucherId)
+      setBusy((b) => ({ ...b, [voucherId]: false }))
+    }
+  }, [])
+  return { send, sent, busy }
 }

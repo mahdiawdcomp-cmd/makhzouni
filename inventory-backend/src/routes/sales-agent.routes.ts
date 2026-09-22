@@ -25,6 +25,7 @@ import {
   getAgentReceiptCtrl,
   postReceiptEditRequestCtrl,
   postReceiptCancelRequestCtrl,
+  postReceiptSendWhatsappCtrl,
   getCustomerOffers,
   getFrequentProducts,
   getIssueReasons,
@@ -98,6 +99,7 @@ router.post("/invoices/:id/cancel", postAgentInvoiceCancelCtrl);
 router.get("/receipts/:id", getAgentReceiptCtrl);
 router.post("/receipts/:id/edit-request", postReceiptEditRequestCtrl);
 router.post("/receipts/:id/cancel-request", postReceiptCancelRequestCtrl);
+router.post("/receipts/:id/send-whatsapp", postReceiptSendWhatsappCtrl);
 
 router.get("/issue-reasons", getIssueReasons);
 router.post("/issues", requireAgentCapability("ISSUE"), postAgentIssue);

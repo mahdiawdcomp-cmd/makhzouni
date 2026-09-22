@@ -672,6 +672,116 @@ export async function requestReceiptCancel(agent: RepAgent, voucherId: string, i
   return { status: "PENDING" as const, approvalId: approval.id };
 }
 
+/* ── «أرسل السند للزبون» ─────────────────────────────────────────────── */
+
+/**
+ * One send per receipt per minute.
+ *
+ * Stops the double tap that sends the customer the same receipt twice, and a
+ * rep leaning on the button from messaging a shopkeeper ten times from the
+ * shop's own number. Per process, which is per shop.
+ */
+const RECEIPT_SEND_COOLDOWN_MS = 60_000;
+const lastReceiptSend = new Map<string, number>();
+
+function fillTemplate(template: string, values: Record<string, string>) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? "");
+}
+
+/**
+ * Send the customer their receipt on WhatsApp, as the shop.
+ *
+ * The TEXT is built here, from the shop's own receipt template — never taken
+ * from the rep's device. This goes out from the shop's official number, and a
+ * rep who could put any words in it could say anything to any customer in the
+ * shop's name.
+ *
+ * Reuses exactly what the owner's «أرسل السند» button uses: the same PDF, the
+ * same balance snapshot, and the same approved-template-or-free-text fallback,
+ * so a customer cannot receive two different-looking receipts for one payment.
+ */
+export async function sendAgentReceiptWhatsapp(agent: RepAgent, voucherId: string) {
+  if (!UUID_RE.test(voucherId)) throw new AppError("السند غير صحيح", 400, "VOUCHER_ID_INVALID");
+  const voucher = await prisma.paymentVoucher.findFirst({
+    where: { id: voucherId, archivedAt: null },
+    select: { id: true, type: true, salesAgentId: true, cancelledAt: true, customerId: true },
+  });
+  if (!voucher || !voucher.customerId) throw new AppError("السند غير موجود", 404, "VOUCHER_NOT_FOUND");
+  await assertOwnCustomer(agent.id, voucher.customerId);
+  if (voucher.type !== "RECEIPT" || voucher.salesAgentId !== agent.id) {
+    throw new AppError("ترسل بس السندات الي انت قبضتها", 403, "VOUCHER_NOT_YOURS");
+  }
+  if (voucher.cancelledAt) throw new AppError("السند ملغي — ما ينرسل", 409, "VOUCHER_CANCELLED");
+
+  const last = lastReceiptSend.get(voucher.id) ?? 0;
+  if (Date.now() - last < RECEIPT_SEND_COOLDOWN_MS) {
+    throw new AppError("انرسل هذا السند قبل شوية", 429, "RECEIPT_SEND_TOO_SOON");
+  }
+
+  const { voucherContext, generateVoucherPdf, money: fmt } = await import("./voucher-export.service");
+  const { sendPdfWithTemplateFallback } = await import("./whatsapp.service");
+  const { getSettings } = await import("./settings.service");
+
+  const context = await voucherContext(voucher.id);
+  const phone = context.voucher.customer?.phone;
+  if (!phone) throw new AppError("الزبون ما عنده رقم هاتف", 400, "VOUCHER_PHONE_MISSING");
+
+  const settings = await getSettings();
+  const hasSnapshot = context.previous != null && context.final != null;
+  const UNKNOWN = "__UNKNOWN_BALANCE__";
+  const template =
+    (typeof settings.voucherTemplate === "string" && settings.voucherTemplate.trim()) ||
+    "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.";
+  const filled = fillTemplate(template, {
+    customerName: context.voucher.customer?.name ?? "",
+    voucherNumber: context.voucher.voucherNumber,
+    amount: fmt(context.voucher.amount),
+    date: String(context.voucher.date instanceof Date ? context.voucher.date.toISOString() : context.voucher.date).slice(0, 10),
+    actionVerb: "استلمنا منكم",
+    previousBalance: hasSnapshot ? fmt(context.previous ?? 0) : UNKNOWN,
+    currentBalance: fmt(hasSnapshot ? context.final ?? 0 : context.voucher.customer?.currentBalance ?? 0),
+    currency: context.currency,
+    storeName: context.storeName,
+  });
+  // A receipt from before balance snapshots existed has no honest «before»
+  // figure; its line is dropped rather than printed as a guess — the same rule
+  // the owner's send follows.
+  const message = hasSnapshot
+    ? filled
+    : filled.split(/\r?\n/).filter((line) => !line.includes(UNKNOWN)).join("\n").trim();
+
+  // Marked before the send, not after: two taps arriving together must not
+  // both get past the check while the first is still talking to WhatsApp.
+  lastReceiptSend.set(voucher.id, Date.now());
+  try {
+    const pdf = await generateVoucherPdf(voucher.id);
+    await sendPdfWithTemplateFallback(
+      phone,
+      settings.voucherTemplateName,
+      "ar",
+      message,
+      pdf,
+      `voucher-${context.voucher.voucherNumber}.pdf`,
+      [
+        context.voucher.customer?.name ?? "",
+        fmt(context.voucher.amount),
+        context.voucher.voucherNumber,
+        String(context.voucher.date instanceof Date ? context.voucher.date.toISOString() : context.voucher.date).slice(0, 10),
+        fmt(context.previous ?? 0),
+        fmt(context.final ?? context.voucher.customer?.currentBalance ?? 0),
+        context.storeName,
+      ],
+      undefined,
+    );
+  } catch (err) {
+    // A failed send may be retried straight away — the cooldown is for sends
+    // that went out, not for ones that did not.
+    lastReceiptSend.delete(voucher.id);
+    throw err;
+  }
+  return { sent: true, voucherNumber: context.voucher.voucherNumber };
+}
+
 /* ── owner: the rep's settings ───────────────────────────────────────── */
 
 /**

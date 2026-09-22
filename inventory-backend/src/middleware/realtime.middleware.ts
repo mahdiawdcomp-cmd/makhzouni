@@ -38,6 +38,8 @@ function resourceForPath(path: string): RealtimeResource | null {
     // receipt itself is untouched until the owner decides. Checked before the
     // plain «/receipts» rule below, which would call it a voucher change.
     if (/^\/receipts\/[^/]+\/(edit|cancel)-request$/.test(sub)) return "approvals";
+    // Sending a receipt to the customer changes nothing any screen shows.
+    if (/^\/receipts\/[^/]+\/send-whatsapp$/.test(sub)) return null;
     if (sub.startsWith("/receipts")) return "vouchers";
     // A rep's own invoice edit or cancel. Applied directly it moves stock and a
     // balance; queued it lands in approvals — the frontend maps «invoices» to

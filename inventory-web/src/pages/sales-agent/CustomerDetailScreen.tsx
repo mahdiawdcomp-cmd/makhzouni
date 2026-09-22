@@ -10,6 +10,7 @@ import { money, shortDate } from "./format"
 import { AgentInvoiceDialog, AgentReceiptDialog } from "./DocumentDialogs"
 import type { Unit, CustomerStatement } from "./model"
 import { StatusPill, Waiting } from "./ui"
+import { useCustomerHeader } from "./hooks"
 
 const TX_LABEL: Record<string, string> = {
   INVOICE: "فاتورة",
@@ -38,6 +39,9 @@ export function CustomerDetailScreen({
   // The row the rep tapped. An invoice row and its «دفعة على فاتورة» row share
   // an id, and both open the invoice.
   const [opened, setOpened] = useState<{ kind: "invoice" | "receipt"; id: string } | null>(null)
+  // The balance and last payment the summary opens with. The same query the
+  // page header uses, so the two can never show different numbers.
+  const header = useCustomerHeader(customerId)
   const statement = useQuery({
     queryKey: ["sales-agent", "customer-detail", customerId],
     queryFn: async () => {
@@ -56,6 +60,14 @@ export function CustomerDetailScreen({
   const rows = statement.data?.transactions ?? []
   const last = rows.length > 0 ? rows[rows.length - 1] : null
 
+  // «الملخص» — the three things a shopkeeper argues about, before any table:
+  // what he owes, when he last paid, and when he last bought.
+  const balance = header.data?.currentBalance ?? last?.runningBalance ?? null
+  const lastPayment = header.data?.lastPayment ?? null
+  const lastSale = [...rows]
+    .reverse()
+    .find((r) => r.type === "INVOICE" && r.status !== "CANCELLED" && r.invoiceType !== "SALES_RETURN" && r.invoiceType !== "PURCHASE")
+
   return (
     <Card>
       <CardHeader>
@@ -70,7 +82,28 @@ export function CustomerDetailScreen({
         </div>
         <Button variant="outline" onClick={onBack}>رجوع</Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <SummaryTile
+            title="الرصيد"
+            value={balance == null ? "…" : money(Math.abs(balance))}
+            // Positive is what the customer owes the shop, as everywhere else
+            // in this app; said in words so nobody has to remember the sign.
+            sub={balance == null ? undefined : balance > 0 ? "عليه" : balance < 0 ? "له" : "ماكو رصيد"}
+            tone={balance != null && balance > 0 ? "owes" : "plain"}
+          />
+          <SummaryTile
+            title="آخر دفعة"
+            value={lastPayment ? money(lastPayment.amount) : "ماكو"}
+            sub={lastPayment ? `${shortDate(lastPayment.date)} · ${daysAgo(lastPayment.date)}` : "ما دفع لحد الآن"}
+          />
+          <SummaryTile
+            title="آخر فاتورة"
+            value={lastSale ? money(lastSale.amount) : "ماكو"}
+            sub={lastSale ? `${shortDate(lastSale.date)} · ${daysAgo(lastSale.date)}` : "ما اشترى لحد الآن"}
+          />
+        </div>
+
         {statement.isPending ? (
           <Waiting q={statement} />
         ) : rows.length === 0 ? (
@@ -131,5 +164,43 @@ export function CustomerDetailScreen({
       )}
       {opened?.kind === "receipt" && <AgentReceiptDialog voucherId={opened.id} onClose={() => setOpened(null)} />}
     </Card>
+  )
+}
+
+/** «اليوم» / «أمس» / «قبل ١٢ يوم» — how long ago, read at a glance. */
+function daysAgo(value: string): string {
+  const then = new Date(value)
+  if (Number.isNaN(then.getTime())) return ""
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((start(new Date()) - start(then)) / 86_400_000)
+  if (days <= 0) return "اليوم"
+  if (days === 1) return "أمس"
+  return `قبل ${days} يوم`
+}
+
+function SummaryTile({
+  title,
+  value,
+  sub,
+  tone = "plain",
+}: {
+  title: string
+  value: string
+  sub?: string
+  tone?: "plain" | "owes"
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-3",
+        tone === "owes"
+          ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
+          : "border-[var(--theme-cardBorder)] bg-[var(--theme-cardBg)]",
+      )}
+    >
+      <p className="text-[12px] text-slate-500">{title}</p>
+      <p className="mt-0.5 text-lg font-bold tabular-nums">{value}</p>
+      {sub && <p className="mt-0.5 text-[12px] text-slate-500 tabular-nums">{sub}</p>}
+    </div>
   )
 }

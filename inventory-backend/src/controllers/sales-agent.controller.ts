@@ -15,6 +15,7 @@ import {
   getAgentReceipt,
   requestReceiptCancel,
   requestReceiptEdit,
+  sendAgentReceiptWhatsapp,
   statementFlags,
 } from "../services/sales-agent-documents.service";
 import prisma from "../config/database";
@@ -595,6 +596,15 @@ export const postReceiptEditRequestCtrl = asyncHandler(async (req, res) => {
     success: true,
     message: "انرسل طلب تعديل السند لصاحب المحل",
     data: await requestReceiptEdit(repAgent(req.user), String(req.params.id), req.body ?? {}),
+  });
+});
+
+/** «أرسل السند للزبون» — the shop's own template, from the shop's number. */
+export const postReceiptSendWhatsappCtrl = asyncHandler(async (req, res) => {
+  res.json({
+    success: true,
+    message: "انرسل السند للزبون",
+    data: await sendAgentReceiptWhatsapp(repAgent(req.user), String(req.params.id)),
   });
 });
 

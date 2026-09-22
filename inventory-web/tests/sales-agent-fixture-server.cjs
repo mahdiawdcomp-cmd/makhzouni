@@ -262,7 +262,16 @@ const server = http.createServer(async (req, res) => {
       const list = [CUSTOMER, CUSTOMER_2].filter((c) => !area || c.area === area);
       return send(res, { total: list.length, page: 1, limit: 200, hasMore: false, quietDays: 45, customers: list });
     }
-    if (/\/header$/.test(p)) return send(res, CUSTOMER);
+    if (/\/header$/.test(p)) return send(res, { ...CUSTOMER, lastPayment: { amount: 50000, date: "2026-09-10T00:00:00.000Z" } });
+    // «كشف الحساب»: one sale and one receipt, oldest first as the server sends it.
+    if (/\/customers\/[^/]+\/detail$/.test(p))
+      return send(res, {
+        customer: { id: CUSTOMER.id, name: CUSTOMER.name, openingBalance: 0 },
+        transactions: [
+          { id: "33333333-3333-4333-8333-333333333333", date: "2026-09-01T00:00:00.000Z", type: "INVOICE", invoiceType: "SALE", amount: 300000, referenceNumber: "INV-1", status: "ACTIVE", runningBalance: 300000, mine: true, pending: null },
+          { id: "44444444-4444-4444-8444-444444444444", date: "2026-09-10T00:00:00.000Z", type: "RECEIPT", invoiceType: null, amount: 50000, referenceNumber: "REC-1", status: "ACTIVE", runningBalance: 250000, mine: true, pending: null },
+        ],
+      });
     if (/\/usable-prices$/.test(p)) return send(res, []);
     if (/\/frequent-products$/.test(p)) return send(res, { priceMode: url.searchParams.get("priceMode") ?? "WHOLESALE", products: USUAL });
     if (/\/customers\/[^/]+\/offers$/.test(p)) return send(res, { total: 1, page: 1, limit: 50, hasMore: false, offers: OFFERS });

@@ -27,6 +27,7 @@ const PAGE_FILES = [
   "sales-agent/IssueScreens.tsx",
   "sales-agent/CustomerDetailScreen.tsx",
   "sales-agent/DocumentDialogs.tsx",
+  "sales-agent/TodayScreen.tsx",
 ]
 const src = PAGE_FILES.map((file) => readFileSync(join(here, file), "utf8")).join("\n")
 // The rep screen's shared primitives (dialog, pills, money) moved into their

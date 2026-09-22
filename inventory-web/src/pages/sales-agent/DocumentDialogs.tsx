@@ -10,7 +10,7 @@
  */
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader2, Minus, Plus, Trash2 } from "lucide-react"
+import { Loader2, Minus, Plus, Send, Trash2 } from "lucide-react"
 import { api } from "../../api/client"
 import { Button } from "../../components/ui/button"
 import { Input } from "../../components/ui/input"
@@ -19,7 +19,7 @@ import { apiErrorMessage } from "../../utils/apiError"
 import { cn } from "../../utils/cn"
 import { AgentDialog, AgentStatusPill } from "./shared"
 import { UNIT_LABEL, money, shortDate, type AgentUnit } from "./format"
-import { useOnce } from "./hooks"
+import { useOnce, useSendReceiptWhatsapp } from "./hooks"
 
 type Mode = "OFF" | "APPROVAL" | "DIRECT"
 
@@ -421,6 +421,7 @@ export function AgentReceiptDialog({ voucherId, onClose }: { voucherId: string; 
   })
 
   const requestOnce = useOnce(request)
+  const whatsapp = useSendReceiptWhatsapp()
   const data = receipt.data
   const allowed = data && data.can.edit !== "OFF"
 
@@ -439,6 +440,20 @@ export function AgentReceiptDialog({ voucherId, onClose }: { voucherId: string; 
           </div>
           <p className="text-2xl font-bold tabular-nums">{money(data.amount)}</p>
           {data.notes && <p className="text-[13px] text-slate-600 dark:text-slate-300">{data.notes}</p>}
+          {data.mine && !data.cancelled && (
+            whatsapp.sent[data.id] ? (
+              <p className="text-[13px] font-semibold text-emerald-700 dark:text-emerald-300">انرسل للزبون ✓</p>
+            ) : (
+              <Button
+                className="h-11 w-full bg-emerald-600 hover:bg-emerald-700"
+                disabled={whatsapp.busy[data.id]}
+                onClick={() => void whatsapp.send(data.id)}
+              >
+                {whatsapp.busy[data.id] ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                أرسل السند للزبون بالواتساب
+              </Button>
+            )
+          )}
           {data.pending && <PendingBanner pending={data.pending} />}
 
           {allowed && !action && (
