@@ -33,6 +33,10 @@ export type UserPermission =
   | "AGENT_NO_RECEIPT"
   | "AGENT_NO_PRICE_REQUEST"
   | "AGENT_NO_ISSUE"
+  // «عروض خاصة بالزبون» — an ALLOW permission, not a deny marker: deciding what
+  // a customer pays must never be something a rep has by default. ADMIN passes
+  // by role, as with every other permission.
+  | "MANAGE_CUSTOMER_OFFERS"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -128,7 +132,11 @@ export interface WarehouseStock {
   minStock?: number | null
 }
 
+export type PriceMode = "WHOLESALE" | "RETAIL" | "CARTON"
+
 export interface Product {
+  /** سعر القطعة لمن يشتري كارتون كامل — فارغ يعني سعر الجملة نفسه. */
+  cartonPiecePrice?: number | null
   id: string
   itemNumber: string
   name: string
@@ -419,6 +427,7 @@ export interface CycleCountSessionDetail extends Omit<CycleCountSessionSummary, 
 }
 
 export interface PublicCatalogProduct {
+  cartonPiecePrice?: number | null
   id: string
   itemNumber: string
   name: string
@@ -497,6 +506,8 @@ export interface CatalogOrderPayload {
 export type GuestCatalogOrderPayload = Omit<CatalogOrderPayload, "promoCode">
 
 export interface ProductPayload {
+  /** سعر القطعة لمن يشتري كارتون كامل — فارغ يعني سعر الجملة نفسه. */
+  cartonPiecePrice?: number | null
   // Only `name` is required; the server will auto-generate item number / QR codes if omitted.
   name: string
   itemNumber?: string

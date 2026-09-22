@@ -32,6 +32,7 @@ import {
   Bike,
   MapPinned,
   Store,
+  Tag,
   Users,
   Wallet,
   Zap,
@@ -39,7 +40,7 @@ import {
 import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "../../api/client"
-import { getApprovals } from "../../api/endpoints"
+import { getApprovals, getAiEscalationsOpenCount, getRequestedProductsOpenCount } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
 import { useTenantConfig } from "../../hooks/useTenantConfig"
@@ -63,6 +64,8 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/vouchers")) return "MANAGE_VOUCHERS"
   if (path.startsWith("/customers") || path.startsWith("/account")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/campaigns")) return "MANAGE_CUSTOMERS"
+  if (path.startsWith("/requested-products")) return "MANAGE_CUSTOMERS"
+  if (path.startsWith("/customer-offers")) return "MANAGE_CUSTOMER_OFFERS"
   if (path.startsWith("/catalog-management")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
@@ -157,12 +160,15 @@ const navItems: Item[] = [
   { to: "/losses", label: "التلف والخسائر", icon: AlertTriangle },
   { to: "/customers", label: "الزبائن", icon: Users },
   { to: "/customers/broadcast", label: "إرسال - زبائن الجملة", icon: Megaphone },
+  { to: "/customer-offers", label: "عروض الزبائن", icon: Tag },
   { to: "/campaigns", label: "الزبائن الجدد", icon: Send },
   { to: "/account", label: "كشف الحساب", icon: Search },
   { to: "/account/statement-export", label: "حفظ الكشف العام", icon: Download },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
   { to: "/instagram", label: "إدارة إنستغرام", icon: Instagram },
+  { to: "/wholesale-instagram", label: "إنستغرام الجملة", icon: Megaphone },
+  { to: "/requested-products", label: "تنبيهات الموظف الذكي", icon: Zap },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/reports/purchase-performance", label: "أداء المشتريات", icon: TrendingUp },
   { to: "/auctions", label: "المزادات", icon: Gavel },
@@ -185,6 +191,22 @@ const adminItems = [
 
 function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
   const location = useLocation()
+  // «تنبيهات الموظف الذكي» — escalations + product demand from the WhatsApp
+  // agent. One badge for both, so the count reads as "things waiting on you".
+  const isRequestedProducts = item.to === "/requested-products"
+  const aiAlertsQuery = useQuery({
+    queryKey: ["ai-alerts-open-count"],
+    queryFn: async () => {
+      const [escalations, products] = await Promise.all([
+        getAiEscalationsOpenCount(),
+        getRequestedProductsOpenCount(),
+      ])
+      return escalations + products
+    },
+    refetchInterval: 30_000,
+    enabled: isRequestedProducts,
+  })
+  const requestedCount = aiAlertsQuery.data ?? 0
   const isActive = (() => {
     const url = new URL(item.to, window.location.origin)
     return location.pathname === url.pathname && location.search === url.search
@@ -225,6 +247,11 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
           <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
         )}
         {item.label}
+        {isRequestedProducts && requestedCount > 0 && (
+          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
+            {requestedCount}
+          </span>
+        )}
       </NavLink>
     </motion.div>
   )

@@ -646,6 +646,7 @@ export function SettingsPage() {
                 { to: "/audit-logs", label: "سجل التدقيق",  desc: "مراجعة جميع العمليات والتغييرات",     Icon: ClipboardList },
                 { to: "/branches",   label: "الفروع",        desc: "إضافة وتعديل الفروع",                 Icon: Building2 },
                 { to: "/coupons",    label: "الكوبونات",     desc: "إنشاء وإدارة كوبونات الخصم",          Icon: BadgePercent },
+                { to: "/inventory/data-health", label: "فحص صحة البيانات", desc: "مواد بلا كلفة، ورصيد قديم لم يُنقل", Icon: AlertTriangle },
               ] as const).map(({ to, label, desc, Icon }) => (
                 <Link key={to} to={to}
                   className="flex items-center gap-3 rounded-xl border border-slate-200 p-4 transition hover:border-indigo-300 hover:bg-indigo-50 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20">

@@ -4135,3 +4135,255 @@ export async function submitCatalogProductReview(
   )
   return data
 }
+
+/* ── منقولة من الويب: سعر الكارتون، فحص صحة البيانات، تنبيهات الموظف الذكي ── */
+
+/** A product with a full carton in stock and no carton price yet. */
+export interface MissingCartonPriceProduct extends Product {
+  fullCartons: number
+}
+
+export async function getProductsMissingCartonPrice() {
+  const { data } = await api.get<{ success: boolean; count: number; data: MissingCartonPriceProduct[] }>(
+    "/products/missing-carton-price",
+  )
+  return { count: data.count ?? 0, data: data.data ?? [] }
+}
+
+/**
+ * Partial product update — the carton price alone. Goes through the normal
+ * product update so the "must not exceed wholesale" rule stays in one place.
+ */
+export async function setCartonPiecePrice(id: string, cartonPiecePrice: number | null) {
+  const { data } = await api.put<ApiEnvelope<Product>>(`/products/${id}`, { cartonPiecePrice })
+  return data
+}
+
+export interface DataHealthReport {
+  checkedProducts: number
+  unmigratedStock: Array<{ id: string; name: string; itemNumber: string; legacyPieces: number; pcsPerCarton: number }>
+  costIssues: Array<{
+    id: string; name: string; itemNumber: string; currentStock: number
+    costPrice: number; purchasePrice: number; salePrice: number
+    issue: "MISSING_COST" | "COST_ABOVE_SALE"
+  }>
+}
+
+export async function getProductDataHealth() {
+  const { data } = await api.get<DataHealthReport & { success: boolean }>("/products/data-health")
+  return { checkedProducts: data.checkedProducts ?? 0, unmigratedStock: data.unmigratedStock ?? [], costIssues: data.costIssues ?? [] }
+}
+
+
+// ── «المنتجات المطلوبة» — demand collected by the WhatsApp AI agent ─────────
+
+export interface RequestedProduct {
+  id: string
+  productName: string
+  normalizedName: string
+  requestCount: number
+  lastPhone: string
+  lastCustomerId?: string | null
+  lastNote?: string | null
+  status: "OPEN" | "HANDLED"
+  handledAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getRequestedProducts(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
+  const { data } = await api.get<ApiEnvelope<RequestedProduct[]>>("/requested-products", { params: { status } })
+  return data.data ?? []
+}
+
+export async function getRequestedProductsOpenCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/open-count")
+  return data.data?.count ?? 0
+}
+
+export async function markRequestedProductHandled(id: string) {
+  await api.post(`/requested-products/${id}/handled`)
+}
+
+export async function reopenRequestedProduct(id: string) {
+  await api.post(`/requested-products/${id}/reopen`)
+}
+
+export async function deleteRequestedProduct(id: string) {
+  await api.delete(`/requested-products/${id}`)
+}
+
+// ── تنبيهات الموظف الذكي — anything the agent handed to a human ─────────────
+
+export interface AiEscalation {
+  id: string
+  phone: string
+  customerId?: string | null
+  customerName?: string | null
+  summary: string
+  customerText: string
+  status: "OPEN" | "HANDLED"
+  /** UPSET = an angry customer; the owner's phone was texted the moment it happened. */
+  kind?: "GENERAL" | "UPSET"
+  alertedAt?: string | null
+  handledAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getAiEscalations(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
+  const { data } = await api.get<ApiEnvelope<AiEscalation[]>>("/requested-products/escalations", { params: { status } })
+  return data.data ?? []
+}
+
+export async function getAiEscalationsOpenCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/escalations/open-count")
+  return data.data?.count ?? 0
+}
+
+export async function markAiEscalationHandled(id: string) {
+  await api.post(`/requested-products/escalations/${id}/handled`)
+}
+
+export async function reopenAiEscalation(id: string) {
+  await api.post(`/requested-products/escalations/${id}/reopen`)
+}
+
+export async function deleteAiEscalation(id: string) {
+  await api.delete(`/requested-products/escalations/${id}`)
+}
+
+
+/* ── منقولة من الويب: إنستغرام الجملة ── */
+
+export interface WholesaleInstagramMedia {
+  id: string
+  source: "product_image" | "uploaded"
+  url: string
+  mime: string
+}
+
+export interface WholesaleInstagramPost {
+  id: string
+  productId?: string | null
+  productTitle: string
+  accountId: string
+  postType: "IMAGE" | "CAROUSEL"
+  status: "DRAFT" | "SCHEDULED" | "PUBLISHING" | "PUBLISHED" | "FAILED" | "SKIPPED_OUT_OF_STOCK"
+  caption: string
+  notes?: string | null
+  scheduledAt?: string | null
+  permalink?: string | null
+  errorMessage?: string | null
+  skipReason?: string | null
+  attemptCount: number
+  publishedAt?: string | null
+  stockAlertAt?: string | null
+  createdAt: string
+  updatedAt: string
+  media: WholesaleInstagramMedia[]
+  account: { id: string; username: string; profilePictureUrl?: string | null }
+}
+
+export async function getWholesaleInstagramAccounts() {
+  const { data } = await api.get<ApiEnvelope<InstagramAccount[]>>("/wholesale-instagram/accounts")
+  return data.data ?? []
+}
+
+export async function getWholesaleInstagramQuota(accountId: string) {
+  const { data } = await api.get<ApiEnvelope<{ used: number; total: number }>>(`/wholesale-instagram/accounts/${accountId}/quota`)
+  return data.data!
+}
+
+export async function getWholesaleInstagramSuggestedTimes() {
+  const { data } = await api.get<ApiEnvelope<{ times: string[] }>>("/wholesale-instagram/suggested-times")
+  return data.data?.times ?? []
+}
+
+export async function saveWholesaleInstagramSuggestedTimes(times: string[]) {
+  const { data } = await api.put<ApiEnvelope<{ times: string[] }>>("/wholesale-instagram/suggested-times", { times })
+  return data.data?.times ?? []
+}
+
+export async function getWholesaleProductGallery(productId: string) {
+  const { data } = await api.get<ApiEnvelope<{ images: string[] }>>(`/wholesale-instagram/products/${productId}/gallery`)
+  return data.data?.images ?? []
+}
+
+export async function createWholesaleInstagramPost(payload: { productId: string; accountId: string; caption?: string; notes?: string }) {
+  const { data } = await api.post<ApiEnvelope<WholesaleInstagramPost>>("/wholesale-instagram/posts", payload)
+  return data.data!
+}
+
+export async function getWholesaleInstagramPosts(params?: { status?: string; productId?: string }) {
+  const { data } = await api.get<ApiEnvelope<WholesaleInstagramPost[]>>("/wholesale-instagram/posts", { params })
+  return data.data ?? []
+}
+
+export async function getWholesaleInstagramPost(id: string) {
+  const { data } = await api.get<ApiEnvelope<WholesaleInstagramPost>>(`/wholesale-instagram/posts/${id}`)
+  return data.data!
+}
+
+export async function updateWholesaleInstagramPost(id: string, payload: { accountId?: string; caption?: string; notes?: string | null }) {
+  const { data } = await api.put<ApiEnvelope<WholesaleInstagramPost>>(`/wholesale-instagram/posts/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteWholesaleInstagramPost(id: string) {
+  await api.delete(`/wholesale-instagram/posts/${id}`)
+}
+
+export async function addWholesaleInstagramMediaFromProduct(postId: string, dataUrl: string) {
+  const { data } = await api.post<ApiEnvelope<WholesaleInstagramMedia>>(`/wholesale-instagram/posts/${postId}/media/from-product`, { dataUrl })
+  return data.data!
+}
+
+export async function uploadWholesaleInstagramMedia(postId: string, file: File) {
+  const form = new FormData()
+  form.append("image", file)
+  const { data } = await api.post<ApiEnvelope<WholesaleInstagramMedia>>(
+    `/wholesale-instagram/posts/${postId}/media/upload`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 }
+  )
+  return data.data!
+}
+
+export async function removeWholesaleInstagramMedia(postId: string, mediaId: string) {
+  await api.delete(`/wholesale-instagram/posts/${postId}/media/${mediaId}`)
+}
+
+export async function reorderWholesaleInstagramMedia(postId: string, order: string[]) {
+  await api.put(`/wholesale-instagram/posts/${postId}/media/reorder`, { order })
+}
+
+export async function scheduleWholesaleInstagramPost(id: string, scheduledAtIso: string) {
+  const { data } = await api.post<ApiEnvelope<{ warning?: string }>>(`/wholesale-instagram/posts/${id}/schedule`, { scheduledAt: scheduledAtIso })
+  return data.data ?? {}
+}
+
+export async function cancelWholesaleInstagramSchedule(id: string) {
+  await api.post(`/wholesale-instagram/posts/${id}/cancel-schedule`)
+}
+
+export async function rescheduleWholesaleInstagramPost(id: string, scheduledAtIso: string) {
+  const { data } = await api.post<ApiEnvelope<{ warning?: string }>>(`/wholesale-instagram/posts/${id}/reschedule`, { scheduledAt: scheduledAtIso })
+  return data.data ?? {}
+}
+
+export async function publishWholesaleInstagramPostNow(id: string) {
+  await api.post(`/wholesale-instagram/posts/${id}/publish-now`)
+}
+
+// Persistent "product ran out after the post already went live" alert — Meta
+// gives no way to delete a live post from this OAuth flow, so this stays
+// visible until an admin explicitly dismisses it (never auto-clears).
+export async function getWholesaleInstagramStockAlerts() {
+  const { data } = await api.get<ApiEnvelope<WholesaleInstagramPost[]>>("/wholesale-instagram/posts/stock-alerts")
+  return data.data ?? []
+}
+
+export async function dismissWholesaleInstagramStockAlert(id: string) {
+  await api.post(`/wholesale-instagram/posts/${id}/dismiss-stock-alert`)
+}

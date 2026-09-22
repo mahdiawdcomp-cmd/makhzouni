@@ -45,6 +45,11 @@ const PurchasePerformancePage = lazyPage(() => import("./pages/PurchasePerforman
 const AuctionsPage = lazyPage(() => import("./pages/AuctionsPage"), "AuctionsPage")
 const PublicAuctionPage = lazyPage(() => import("./pages/PublicAuctionPage"), "PublicAuctionPage")
 const KioskPage = lazyPage(() => import("./pages/KioskPage"), "KioskPage")
+const DataHealthPage = lazyPage(() => import("./pages/DataHealthPage"), "DataHealthPage")
+const RequestedProductsPage = lazyPage(() => import("./pages/RequestedProductsPage"), "RequestedProductsPage")
+const CustomerOffersPage = lazyPage(() => import("./pages/CustomerOffersPage"), "CustomerOffersPage")
+const MissingCartonPricePage = lazyPage(() => import("./pages/MissingCartonPricePage"), "MissingCartonPricePage")
+const WholesaleInstagramPage = lazyPage(() => import("./pages/WholesaleInstagramPage"), "WholesaleInstagramPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage")
 const AreasPage = lazyPage(() => import("./pages/AreasPage"), "AreasPage")
@@ -126,6 +131,8 @@ const router = createBrowserRouter([
           { path: "inventory/transfers", element: f("transfers", "التحويلات بين المخازن", <TransfersPage />) },
           { path: "inventory/variety", element: s(<VarietyConvertPage />) },
           { path: "inventory/stale", element: s(<StaleProductsPage />) },
+          { path: "inventory/missing-carton-price", element: s(<MissingCartonPricePage />) },
+          { path: "inventory/data-health", element: s(<DataHealthPage />) },
           { path: "inventory/negative-stock", element: s(<NegativeStockPage />) },
           { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
           { path: "inventory/cycle-count", element: s(<CycleCountPage />) },
@@ -150,6 +157,8 @@ const router = createBrowserRouter([
           { path: "retail-catalog", element: f("retailShop", "متجر المفرد", <RetailCatalogPage />) },
           { path: "instagram", element: f("retailShop", "إدارة إنستغرام", <InstagramPage />) },
           { path: "whatsapp", element: f("whatsappCampaigns", "محادثات واتساب", <WhatsappChatPage />) },
+          { path: "wholesale-instagram", element: s(<WholesaleInstagramPage />) },
+          { path: "requested-products", element: s(<RequestedProductsPage />) },
           { path: "reports", element: s(<ReportsPage />) },
           { path: "reports/purchase-performance", element: s(<PurchasePerformancePage />) },
           { path: "auctions", element: s(<AuctionsPage />) },
@@ -165,6 +174,14 @@ const router = createBrowserRouter([
               { path: "areas", element: s(<AreasPage />) },
               { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
             ],
+          },
+          // «عروض خاصة بالزبون» — deciding what a customer pays. Behind an
+          // explicit permission (ADMIN passes by role) so it is never something
+          // a rep has by default, and the URL enforces the same rule the
+          // sidebar shows.
+          {
+            element: <PermissionRoute permission="MANAGE_CUSTOMER_OFFERS" />,
+            children: [{ path: "customer-offers", element: s(<CustomerOffersPage />) }],
           },
           {
             element: <AdminRoute />,

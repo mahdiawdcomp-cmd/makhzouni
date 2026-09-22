@@ -28,6 +28,9 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   { id: "MANAGE_VOUCHERS",     label: "السندات",            hint: "سندات القبض والدفع والمصاريف" },
   { id: "VIEW_REPORTS",        label: "التقارير",           hint: "عرض تقارير المبيعات والأرباح" },
   { id: "MANAGE_SETTINGS",     label: "الإعدادات",          hint: "إعدادات النظام والرسائل" },
+  // ALLOW, not a rep deny-marker: the power to decide what a customer pays must
+  // never be something an account has by default.
+  { id: "MANAGE_CUSTOMER_OFFERS", label: "عروض الزبائن",    hint: "يحدد سعراً خاصاً لزبون معيّن لفترة محددة" },
   // Granular sell-floor permissions
   { id: "VIEW_WITHOUT_PRICES", label: "عرض بدون أسعار",    hint: "يرى المواد لكن بدون أسعار البيع والشراء", group: "sell" },
   { id: "SELL_WITH_DISCOUNT",  label: "السماح بالخصم",     hint: "يمكنه تطبيق خصومات عند إنشاء الفواتير", group: "sell" },

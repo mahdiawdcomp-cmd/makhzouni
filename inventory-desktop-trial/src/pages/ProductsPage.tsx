@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { ArchiveX, ArrowLeftRight, Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, RefreshCw, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
+import { ArchiveX, PackageOpen, ArrowLeftRight, Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, RefreshCw, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productCartonSheetPdfUrl, productPieceLabelPngObjectUrl, productPieceLabelPngUrl } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -79,6 +79,7 @@ const emptyForm: ProductFormState = {
   purchasePrice: 0,
   salePrice: 0,
   retailPrice: 0,
+  cartonPiecePrice: null,
   minStock: 5,
   branchId: "",
   storageLocation: "",
@@ -403,7 +404,7 @@ export function ProductsPage() {
   const [lowOnly, setLowOnly] = useState(false)
   // "خلصت من المحل بس موجودة بالمخزن" — the restock worklist.
   const [depotOnlyFilter, setDepotOnlyFilter] = useState(false)
-  const [missingFilter, setMissingFilter] = useState<"all" | "any" | "purchasePrice" | "salePrice" | "stock" | "category">("all")
+  const [missingFilter, setMissingFilter] = useState<"all" | "any" | "purchasePrice" | "salePrice" | "cartonPiecePrice" | "stock" | "category">("all")
   const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
@@ -463,9 +464,12 @@ export function ProductsPage() {
 
   function getMissing(product: Product): string[] {
     const missing: string[] = []
-    if (canViewPurchasePrice && (!product.purchasePrice || product.purchasePrice === 0)) missing.push("purchasePrice")
-    if (!product.salePrice || product.salePrice === 0) missing.push("salePrice")
-    if (!product.category) missing.push("category")
+    // Prices arrive as strings (Prisma Decimal over JSON) — coerce before
+    // comparing, otherwise "0"/"0.00" never counts as missing.
+    if (canViewPurchasePrice && Number(product.purchasePrice) === 0) missing.push("purchasePrice")
+    if (Number(product.salePrice) === 0) missing.push("salePrice")
+    if (product.cartonPiecePrice == null) missing.push("cartonPiecePrice")
+    if (!product.category || String(product.category).trim() === "") missing.push("category")
     if (stockOf(product) <= 0 && product.openingBalancePcs === 0 && product.cartonsAvailable === 0) missing.push("stock")
     return missing
   }
@@ -633,6 +637,7 @@ export function ProductsPage() {
       hiddenUnits: product.hiddenUnits ?? [],
       purchasePrice: product.purchasePrice,
       salePrice: product.salePrice,
+      cartonPiecePrice: product.cartonPiecePrice ?? null,
       minStock: product.minStock,
       branchId: product.branchId ?? "",
       storageLocation: product.storageLocation ?? "",
@@ -650,6 +655,12 @@ export function ProductsPage() {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!form.name) return
+    // The server refuses a carton price above the wholesale piece price; say
+    // so here instead of letting the save come back as a bare 400.
+    if (form.cartonPiecePrice != null && (form.cartonPiecePrice <= 0 || form.cartonPiecePrice > Number(form.salePrice ?? 0))) {
+      alert("سعر القطعة بالكارتون يجب أن يكون أكبر من صفر ولا يتجاوز سعر الجملة")
+      return
+    }
     // Strip empty optional strings so the backend generates / clears them properly.
     const payload: ProductPayload = {
       ...form,
@@ -758,6 +769,11 @@ export function ProductsPage() {
             </Link>
           </Button>
           <Button variant="outline" asChild>
+            <Link to="/inventory/missing-carton-price">
+              <PackageOpen className="h-4 w-4" /> بدون سعر كارتون
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link to="/inventory/negative-stock">
               <ArrowLeftRight className="h-4 w-4" /> تعديل المخزون
             </Link>
@@ -830,6 +846,7 @@ export function ProductsPage() {
               <option value="any">⚠️ ناقصة معلومات (الكل)</option>
               {canViewPurchasePrice && <option value="purchasePrice">⚠️ ناقص سعر الشراء</option>}
               <option value="salePrice">⚠️ ناقص سعر البيع</option>
+              <option value="cartonPiecePrice">مواد بدون سعر كارتون</option>
               <option value="stock">⚠️ ناقص الكمية</option>
               <option value="category">⚠️ ناقص الفئة</option>
             </select>
@@ -1077,7 +1094,7 @@ export function ProductsPage() {
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {getMissing(p).map((m) => (
                                   <span key={m} className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                                    {m === "purchasePrice" ? "بلا سعر شراء" : m === "salePrice" ? "بلا سعر بيع" : m === "stock" ? "بلا كمية" : "بلا فئة"}
+                                    {m === "purchasePrice" ? "بلا سعر شراء" : m === "cartonPiecePrice" ? "بدون سعر كارتون" : m === "salePrice" ? "بلا سعر بيع" : m === "stock" ? "بلا كمية" : "بلا فئة"}
                                   </span>
                                 ))}
                               </div>
@@ -1501,6 +1518,14 @@ export function ProductsPage() {
             </Field>
             <Field label="سعر المفرد (تجزئة — اختياري)">
               <Input type="number" value={form.retailPrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, retailPrice: Number(event.target.value) })} />
+            </Field>
+            <Field label="سعر القطعة بالكارتون (اختياري)">
+              <Input type="number" min="0.01" step="0.01" max={Number(form.salePrice ?? 0)} value={form.cartonPiecePrice ?? ""} placeholder="فارغ = سعر الجملة" onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, cartonPiecePrice: event.target.value === "" ? null : Number(event.target.value) })} />
+              <p className="mt-1 text-xs text-slate-500">
+                سعر الكارتون: {(Number(form.cartonPiecePrice ?? form.salePrice ?? 0) * Math.max(1, Number(form.pcsPerCarton))).toLocaleString("en-US")} د.ع
+                {form.cartonPiecePrice != null && Number(form.salePrice) > 0 && ` · خصم ${Math.round((1 - form.cartonPiecePrice / Number(form.salePrice)) * 10000) / 100}% من سعر الجملة`}
+              </p>
+              {form.cartonPiecePrice != null && (form.cartonPiecePrice <= 0 || form.cartonPiecePrice > Number(form.salePrice ?? 0)) && <p role="alert" className="text-xs text-red-600">سعر الكارتون يجب أن يكون أكبر من صفر ولا يتجاوز سعر الجملة للقطعة</p>}
             </Field>
           </div>
 
