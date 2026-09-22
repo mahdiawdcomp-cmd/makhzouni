@@ -5,7 +5,35 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
 const here = dirname(fileURLToPath(import.meta.url))
-const src = readFileSync(join(here, "SalesAgentPage.tsx"), "utf8")
+/**
+ * The rep's page, as ONE text — however many files it is split across.
+ *
+ * SalesAgentPage.tsx was split into modules under sales-agent/ once it passed
+ * 3000 lines. These guards are about the page's behaviour, not about which file
+ * a function happens to live in, so they read every file the page is made of.
+ * A new module the page is split into belongs in this list, or the guards stop
+ * looking at the code they exist to watch.
+ */
+const PAGE_FILES = [
+  "SalesAgentPage.tsx",
+  "sales-agent/model.ts",
+  "sales-agent/ui.tsx",
+  "sales-agent/hooks.ts",
+  "sales-agent/CatalogScreen.tsx",
+  "sales-agent/CartPanel.tsx",
+  "sales-agent/CustomersScreen.tsx",
+  "sales-agent/OrdersScreen.tsx",
+  "sales-agent/MoneyScreen.tsx",
+  "sales-agent/IssueScreens.tsx",
+  "sales-agent/CustomerDetailScreen.tsx",
+  "sales-agent/DocumentDialogs.tsx",
+  "sales-agent/TodayScreen.tsx",
+]
+const src = PAGE_FILES.map((file) => readFileSync(join(here, file), "utf8")).join("\n")
+// The rep screen's shared primitives (dialog, pills, money) moved into their
+// own module when the new screens — pending orders, follow-up, visits — needed
+// the same ones. Guards that are about those primitives read them there.
+const shared = readFileSync(join(here, "sales-agent", "shared.tsx"), "utf8")
 
 /**
  * `isLoading` is `isPending && isFetching`. A query that is pending but not
@@ -63,8 +91,8 @@ test("money tiles do not print zero from a failed or unfinished read", () => {
  * the rep backing out of the note also lost the quantity they had set.
  */
 test("Escape closes the top dialog only", () => {
-  assert.match(src, /dialogStack/)
-  assert.match(src, /dialogStack\[dialogStack\.length - 1\] !== token/)
+  assert.match(shared, /dialogStack/)
+  assert.match(shared, /dialogStack\[dialogStack\.length - 1\] !== token/)
 })
 
 /**
@@ -89,4 +117,76 @@ test("quantities are whole units and Arabic digits count", () => {
     false,
     "stripping non-digits turns «1.5» into 15",
   )
+})
+
+/**
+ * A from-scratch copy of the BOX conversion once lived on this page and
+ * rounded DOWN for an odd carton size instead of up — pcsPerCarton=5 showed a
+ * box as 5 pieces (a full carton) here while the server billed it at 3. The
+ * rep read a wrong preview price, and the picker's max-quantity was wrong off
+ * the same broken number. Every other order-taking page already shares one
+ * implementation in utils/units.ts; this page must too.
+ */
+test("box-size math comes from the shared unit util, not a local copy", () => {
+  // `(\.\.\/)+` because the conversion now lives one folder deeper, in model.ts.
+  assert.match(src, /from "(\.\.\/)+utils\/units"/, "must import the shared conversion, not reimplement it")
+  assert.equal(
+    /function effectiveBoxPieces\(/.test(src),
+    false,
+    "a local effectiveBoxPieces is exactly the copy that drifted from the server before",
+  )
+})
+
+/* ── the new screens ─────────────────────────────────────────────────── */
+
+const pendingSrc = readFileSync(join(here, "sales-agent", "PendingOrdersScreen.tsx"), "utf8")
+const visitsSrc = readFileSync(join(here, "sales-agent", "VisitsScreen.tsx"), "utf8")
+const insightsSrc = readFileSync(join(here, "sales-agent", "CustomerInsights.tsx"), "utf8")
+const reviewSrc = readFileSync(join(here, "sales-agent", "OrderReviewDialog.tsx"), "utf8")
+
+/**
+ * One lost answer must never become three real orders. Nothing in the pending
+ * queue may send by itself: the rep taps, with the ORIGINAL key, and the server
+ * decides whether that key already produced an order.
+ */
+test("the pending queue never sends anything on its own", () => {
+  for (const forbidden of [/setInterval/, /setTimeout\s*\(/, /useEffect\([^)]*=>\s*\{[^}]*mutate/]) {
+    assert.equal(forbidden.test(pendingSrc), false, `background sending: ${forbidden}`)
+  }
+  // Editing an unresolved attempt is what would change goods under a key the
+  // shop may already hold.
+  assert.match(pendingSrc, /disabled=\{!settled\}/)
+})
+
+/**
+ * The rep's own position is asked for on a tap and used for one request. A
+ * watcher, or a request on mount, would be exactly the background tracking this
+ * feature promises not to do.
+ */
+test("the visits screen never tracks the rep in the background", () => {
+  assert.equal(/watchPosition/.test(visitsSrc), false, "no position watcher anywhere")
+  assert.match(visitsSrc, /function askPosition/)
+  assert.equal(
+    /useEffect\([^)]*askPosition/.test(visitsSrc),
+    false,
+    "a position must be a deliberate tap, never something that happens on open",
+  )
+  // The only coordinates ever written belong to the customer's shop.
+  assert.match(visitsSrc, /customers\/\$\{payload\.customerId\}\/location/)
+})
+
+/**
+ * The historical price is evidence of what the customer paid, not an offer to
+ * sell at it again. Today's price — offer, approved price or catalog — comes
+ * from the server on every read.
+ */
+test("no screen sells at a historical price or computes the final price itself", () => {
+  for (const [name, text] of [["insights", insightsSrc], ["review", reviewSrc]] as const) {
+    assert.match(text, /currentPrice|unitPrice/, name)
+    assert.equal(/previousPrice\s*\*/.test(text), false, `${name} must not price anything off the old number`)
+  }
+  // The order that gets sent carries the token the SERVER produced, so a price
+  // or stock change after the review refuses the send instead of repricing it.
+  assert.match(src, /reviewToken: review!\.reviewToken/)
+  assert.match(src, /orders\/preview/)
 })
