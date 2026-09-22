@@ -19,6 +19,7 @@ import { apiErrorMessage } from "../../utils/apiError"
 import { cn } from "../../utils/cn"
 import { AgentDialog, AgentStatusPill } from "./shared"
 import { UNIT_LABEL, money, shortDate, type AgentUnit } from "./format"
+import { useOnce } from "./hooks"
 
 type Mode = "OFF" | "APPROVAL" | "DIRECT"
 
@@ -193,6 +194,12 @@ export function AgentInvoiceDialog({
     onError: (err) => toast({ title: "ما انلغت", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
+  // Two taps in one tick both pass a `disabled` that has not re-rendered yet.
+  // The server refuses the twin, but the rep would still see an error toast
+  // for a save that worked — the page's own one-tap guard stops it here.
+  const saveOnce = useOnce(save)
+  const cancelOnce = useOnce(cancel)
+
   const editMode: Mode = data?.can.edit ?? "OFF"
   const cancelMode: Mode = data?.can.cancel ?? "OFF"
   const editable = editMode !== "OFF"
@@ -223,7 +230,7 @@ export function AgentInvoiceDialog({
                 <Button
                   className="h-12 w-full"
                   disabled={!draft.changed || busy || allRemoved}
-                  onClick={() => save.mutate()}
+                  onClick={saveOnce}
                 >
                   {save.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
                   {editMode === "APPROVAL" || draft.flagged.size > 0 ? "أرسل التعديل للموافقة" : "احفظ التعديل"} · {money(draft.total)}
@@ -249,7 +256,7 @@ export function AgentInvoiceDialog({
                   <Button
                     className="h-11 flex-1 bg-red-600 hover:bg-red-700"
                     disabled={!cancelReason.trim() || busy}
-                    onClick={() => cancel.mutate()}
+                    onClick={cancelOnce}
                   >
                     {cancel.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
                     تأكيد
@@ -413,6 +420,7 @@ export function AgentReceiptDialog({ voucherId, onClose }: { voucherId: string; 
     onError: (err) => toast({ title: "ما انرسل", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
+  const requestOnce = useOnce(request)
   const data = receipt.data
   const allowed = data && data.can.edit !== "OFF"
 
@@ -472,7 +480,7 @@ export function AgentReceiptDialog({ voucherId, onClose }: { voucherId: string; 
                 <Button
                   className="h-11 flex-1"
                   disabled={!reason.trim() || request.isPending || (action === "edit" && !(Number(amount) > 0))}
-                  onClick={() => request.mutate()}
+                  onClick={requestOnce}
                 >
                   {request.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
                   أرسل للموافقة

@@ -5,7 +5,30 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
 const here = dirname(fileURLToPath(import.meta.url))
-const src = readFileSync(join(here, "SalesAgentPage.tsx"), "utf8")
+/**
+ * The rep's page, as ONE text — however many files it is split across.
+ *
+ * SalesAgentPage.tsx was split into modules under sales-agent/ once it passed
+ * 3000 lines. These guards are about the page's behaviour, not about which file
+ * a function happens to live in, so they read every file the page is made of.
+ * A new module the page is split into belongs in this list, or the guards stop
+ * looking at the code they exist to watch.
+ */
+const PAGE_FILES = [
+  "SalesAgentPage.tsx",
+  "sales-agent/model.ts",
+  "sales-agent/ui.tsx",
+  "sales-agent/hooks.ts",
+  "sales-agent/CatalogScreen.tsx",
+  "sales-agent/CartPanel.tsx",
+  "sales-agent/CustomersScreen.tsx",
+  "sales-agent/OrdersScreen.tsx",
+  "sales-agent/MoneyScreen.tsx",
+  "sales-agent/IssueScreens.tsx",
+  "sales-agent/CustomerDetailScreen.tsx",
+  "sales-agent/DocumentDialogs.tsx",
+]
+const src = PAGE_FILES.map((file) => readFileSync(join(here, file), "utf8")).join("\n")
 // The rep screen's shared primitives (dialog, pills, money) moved into their
 // own module when the new screens — pending orders, follow-up, visits — needed
 // the same ones. Guards that are about those primitives read them there.
@@ -104,7 +127,8 @@ test("quantities are whole units and Arabic digits count", () => {
  * implementation in utils/units.ts; this page must too.
  */
 test("box-size math comes from the shared unit util, not a local copy", () => {
-  assert.match(src, /from "\.\.\/utils\/units"/, "must import the shared conversion, not reimplement it")
+  // `(\.\.\/)+` because the conversion now lives one folder deeper, in model.ts.
+  assert.match(src, /from "(\.\.\/)+utils\/units"/, "must import the shared conversion, not reimplement it")
   assert.equal(
     /function effectiveBoxPieces\(/.test(src),
     false,
