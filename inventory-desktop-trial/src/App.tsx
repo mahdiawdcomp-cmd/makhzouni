@@ -44,6 +44,7 @@ const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage")
 const PurchasePerformancePage = lazyPage(() => import("./pages/PurchasePerformancePage"), "PurchasePerformancePage")
 const AuctionsPage = lazyPage(() => import("./pages/AuctionsPage"), "AuctionsPage")
 const PublicAuctionPage = lazyPage(() => import("./pages/PublicAuctionPage"), "PublicAuctionPage")
+const KioskPage = lazyPage(() => import("./pages/KioskPage"), "KioskPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage")
 const AreasPage = lazyPage(() => import("./pages/AreasPage"), "AreasPage")
@@ -107,6 +108,8 @@ const router = createBrowserRouter([
   // «جرد الفاتورة» — worker/customer counting link (no login; the token is the credential)
   { path: "/invoice-count/:token", element: s(<PublicInvoiceCountPage />) },
   { path: "/auction/:token", element: s(<PublicAuctionPage />) },
+  // «الكشك» — the screen standing in the shop. The token is the credential.
+  { path: "/kiosk/:token", element: s(<KioskPage />) },
 
   // ── Protected routes ──
   {

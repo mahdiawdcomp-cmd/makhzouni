@@ -71,6 +71,9 @@ describe("updateSettingsSchema keeps every setting a screen can send", () => {
     catalogPricesVisibleByDefault: true,
     catalogFullCartonOnly: false,
     catalogSections: [{ key: "offers", enabled: false }],
+    kioskEnabled: true,
+    kioskPriceMode: "CARTON",
+    kioskTitle: "اختر بضاعتك",
   };
 
   for (const [key, value] of Object.entries(settings)) {
@@ -86,5 +89,12 @@ describe("updateSettingsSchema keeps every setting a screen can send", () => {
   test("an unknown field is dropped, which is why the ones above must be named", () => {
     const parsed = updateSettingsSchema.parse({ body: { catalogHideNoImage: true, notARealSetting: 1 } });
     assert.equal("notARealSetting" in (parsed.body as object), false);
+  });
+
+  test("the kiosk link itself is NOT settable from a settings save", () => {
+    // The token is the screen's only credential. It is written by the rotate
+    // endpoint alone, so nobody can point a copied link at a token they chose.
+    const parsed = updateSettingsSchema.parse({ body: { kioskEnabled: true, kioskToken: "chosen-by-the-client" } });
+    assert.equal("kioskToken" in (parsed.body as object), false);
   });
 });

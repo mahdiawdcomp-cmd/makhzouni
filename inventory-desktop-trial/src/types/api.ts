@@ -1036,6 +1036,11 @@ export interface AppSettings {
   catalogStudioOfferDot?: boolean
   /** Storefront login: close anonymous browsing entirely. */
   catalogRequireLogin?: boolean
+  /** «الكشك» — the in-shop screen. The token is its only credential. */
+  kioskEnabled?: boolean
+  kioskToken?: string
+  kioskPriceMode?: "WHOLESALE" | "CARTON"
+  kioskTitle?: string
   /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */
   catalogPricesVisibleByDefault?: boolean
   catalogGuestPricesVisible?: boolean

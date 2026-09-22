@@ -253,6 +253,48 @@ export const createGuestCatalogOrderSchema = z.object({
   }),
 });
 
+/* ── «الكشك» — the in-shop screen ─────────────────────────────────────
+ * The tablet standing in the shop. Its link carries a token the shop
+ * generates once; the token IS the credential, so every kiosk route
+ * validates it the same way and nothing here depends on a login.
+ */
+
+export const kioskTokenSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(80),
+  }),
+});
+
+export const kioskImageSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(80),
+  }),
+  query: z.object({
+    id: z.string().uuid(),
+  }),
+});
+
+export const kioskThumbnailsSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(80),
+  }),
+  body: z.object({
+    ids: z.array(z.string().uuid()).max(120),
+  }),
+});
+
+export const kioskOrderSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(80),
+  }),
+  body: z.object({
+    customerName: z.string().trim().min(2).max(120),
+    phone: z.string().trim().min(5).max(40),
+    notes: z.string().trim().max(500).optional(),
+    items: z.array(catalogOrderItemSchema).min(1).max(200),
+  }),
+});
+
 export const trackCatalogViewSchema = z.object({
   body: z.object({
     productId: z.string().uuid(),
@@ -1393,6 +1435,12 @@ export const updateSettingsSchema = z.object({
       catalogPricesVisibleByDefault: nullAsUndefined(z.boolean()),
       catalogGuestPricesVisible: nullAsUndefined(z.boolean()),
       catalogRequireLogin: nullAsUndefined(z.boolean()),
+      // «الكشك» — the in-shop screen. Its link is the credential, so the
+      // token is never accepted from the client here: only the shop's own
+      // rotate endpoint writes it.
+      kioskEnabled: nullAsUndefined(z.boolean()),
+      kioskPriceMode: nullAsUndefined(z.enum(["WHOLESALE", "CARTON"])),
+      kioskTitle: nullAsUndefined(z.string().trim().max(80)),
       storefrontCredentialsTemplate: nullAsUndefined(z.string().max(2000)),
       catalogAccessApprovedTemplate: nullAsUndefined(z.string().max(2000)),
       marketingStopKeywords: nullAsUndefined(z.array(z.string().trim().max(40)).max(20)),

@@ -309,6 +309,14 @@ export interface AppSettings {
   catalogGuestPricesVisible?: boolean;
   // When true the catalog cannot be browsed without signing in at all.
   catalogRequireLogin?: boolean;
+  // «الكشك» — the screen standing in the shop. Off until the shop turns it
+  // on, and the link only works while it is on, so unplugging the tablet is
+  // one switch. The token is written by the rotate endpoint only — never by
+  // a settings save, so a copied link cannot be re-pointed from the client.
+  kioskEnabled?: boolean;
+  kioskToken?: string;
+  kioskPriceMode?: "WHOLESALE" | "CARTON";
+  kioskTitle?: string;
   // WhatsApp text sent to a customer with their storefront username + code.
   // Placeholders: customerName, storeName, username, code, link.
   storefrontCredentialsTemplate?: string;
@@ -556,6 +564,10 @@ export const defaultSettings: AppSettings = {
   catalogRequireOtp: true,
   catalogFullCartonOnly: false,
   catalogGuestPricesVisible: false,
+  kioskEnabled: false,
+  kioskToken: "",
+  kioskPriceMode: "WHOLESALE",
+  kioskTitle: "",
   catalogHideNoImage: false,
   catalogNewArrivalDays: 10,
   catalogQuickTags: [],

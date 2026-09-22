@@ -1253,12 +1253,21 @@ export type GuestCatalogOrderInput = {
   items: Array<{ productId: string; unit: Unit; quantity: number; isSample?: boolean }>;
 };
 
-export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { visitorToken?: string }) {
+export async function submitGuestCatalogOrder(
+  input: GuestCatalogOrderInput & { visitorToken?: string; kiosk?: boolean },
+) {
   assertCatalogUnits(input.items, input.priceMode);
   // A signed-in visitor ordering is the whole point of letting them browse
   // without prices — refusing it because anonymous browsing is off left them
   // with a cart they could fill and never send.
-  await assertOpenOrVisitor(input.visitorToken);
+  //
+  // `kiosk` is set by kiosk.service AFTER it has checked the kiosk token, and
+  // is stripped from anything a client sends by the route's zod schema. The
+  // shop's own in-shop screen is not anonymous browsing, so it must keep
+  // working when that switch is off.
+  if (!input.kiosk) {
+    await assertOpenOrVisitor(input.visitorToken);
+  }
 
   const customerName = input.customerName.trim();
   const phone = normalizePhone(input.phone);
@@ -1357,7 +1366,9 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
   const approval = await createPendingApproval(
     approvalRequestTypes.CATALOG_ORDER,
     {
-      source: "PUBLIC_CATALOG_GUEST",
+      // The shop reads this on the approval card, so «الكشك» has to be
+      // distinguishable from someone ordering off the public link at home.
+      source: input.kiosk ? "KIOSK" : "PUBLIC_CATALOG_GUEST",
       customerName,
       phone,
       address: input.address,

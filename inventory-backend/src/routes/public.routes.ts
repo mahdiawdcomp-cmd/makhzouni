@@ -52,7 +52,14 @@ import {
   previewPublicCoupon,
 } from "../controllers/retail-public.controller";
 import { validate } from "../middleware/validate";
-import { otpLimiter, catalogLimiter, auctionReadLimiter, auctionBidLimiter } from "../middleware/rate-limit.middleware";
+import { otpLimiter, catalogLimiter, auctionReadLimiter, auctionBidLimiter, kioskReadLimiter, kioskOrderLimiter } from "../middleware/rate-limit.middleware";
+import {
+  getKioskConfigCtrl,
+  getKioskProductsCtrl,
+  getKioskProductImageCtrl,
+  postKioskThumbnailsCtrl,
+  postKioskOrderCtrl,
+} from "../controllers/kiosk.controller";
 import { publicAuctionHandler, publicAuctionImageHandler, publicBidHandler } from "../controllers/auctions.controller";
 import { auctionTokenSchema, placeAuctionBidSchema } from "../utils/schemas";
 import {
@@ -92,6 +99,10 @@ import {
   catalogProductIdSchema,
   catalogGalleryImageSchema,
   catalogThumbnailsSchema,
+  kioskTokenSchema,
+  kioskImageSchema,
+  kioskThumbnailsSchema,
+  kioskOrderSchema,
   submitProductReviewSchema,
   customerLoginSchema,
   visitorDetailsSchema,
@@ -415,6 +426,17 @@ router.post("/catalog/visitor-heartbeat", catalogLimiter, validate(visitorHeartb
 router.get("/catalog/guest-products", catalogLimiter, getGuestCatalogProducts);
 router.get("/catalog/guest-product-image", catalogLimiter, validate(guestCatalogProductImageSchema), getGuestCatalogProductImageCtrl);
 router.post("/catalog/guest-orders", catalogLimiter, validate(createGuestCatalogOrderSchema), createGuestCatalogOrder);
+
+// «الكشك» — the screen standing in the shop. The token in the path is the
+// credential and the service checks it on every call, so the shop kills every
+// kiosk link at once by switching the kiosk off. Own limits: a whole room
+// shares one IP here and the grid asks for thumbnails in batches, so the
+// catalog's 60/min locked the screen out of its own pictures.
+router.get("/kiosk/:token", kioskReadLimiter, validate(kioskTokenSchema), getKioskConfigCtrl);
+router.get("/kiosk/:token/products", kioskReadLimiter, validate(kioskTokenSchema), getKioskProductsCtrl);
+router.get("/kiosk/:token/product-image", kioskReadLimiter, validate(kioskImageSchema), getKioskProductImageCtrl);
+router.post("/kiosk/:token/thumbnails", kioskReadLimiter, validate(kioskThumbnailsSchema), postKioskThumbnailsCtrl);
+router.post("/kiosk/:token/orders", kioskOrderLimiter, validate(kioskOrderSchema), postKioskOrderCtrl);
 
 // Retail storefront (كتلوك المفرد) — fully public, no login
 router.get("/retail/store-info", catalogLimiter, getPublicStoreInfo);

@@ -28,6 +28,13 @@ describe("resourceForPath", () => {
     assert.equal(resourceForPath("/api/public/catalog/orders"), "order-preparations");
     assert.equal(resourceForPath("/api/public/catalog/guest-orders"), "order-preparations");
     assert.equal(resourceForPath("/api/public/catalog/access/request"), "approvals");
+    // «الكشك» — an order from the in-shop screen is a real order and the
+    // owner's approvals screen has to see it arrive.
+    assert.equal(resourceForPath("/api/public/kiosk/abc123/orders"), "order-preparations");
+    // Everything else the screen does is a read. The grid asks for its
+    // thumbnails in batches while someone browses; publishing those is the
+    // unfiltered-refetch loop that locked the shop out with 429s before.
+    assert.equal(resourceForPath("/api/public/kiosk/abc123/thumbnails"), null);
   });
 
   test("a rep's document edits map to what they change, never «all»", () => {

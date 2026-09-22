@@ -11,6 +11,7 @@ import {
   mergeWarehousesHandler,
   getDangerInfo,
 } from "../controllers/settings.controller";
+import { postKioskRotateCtrl } from "../controllers/kiosk.controller";
 import { adminOnly } from "../middleware/admin-only.middleware";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
@@ -42,6 +43,11 @@ router.put("/", adminOnly, validate(updateSettingsSchema), updateAppSettings);
 router.post("/backup/run", adminOnly, triggerManualBackup);
 router.post("/backup/telegram", adminOnly, backupLimiter, sendTelegramBackup);
 router.post("/daily-summary/run", adminOnly, triggerDailySummary);
+
+// «الكشك» — generate a fresh link and switch the screen on. Admin only, and
+// deliberately not part of the settings save: the token is never accepted
+// from the client, so a copied link can't be re-pointed at anything.
+router.post("/kiosk/rotate", adminOnly, postKioskRotateCtrl);
 
 // ── Danger zone (admin only) ────────────────────────────────────────────────
 router.get("/danger/info", adminOnly, getDangerInfo);

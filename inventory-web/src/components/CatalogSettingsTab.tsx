@@ -9,6 +9,7 @@ import { toast } from "./ui/use-toast"
 import { StorefrontInviteCard } from "./StorefrontInviteCard"
 import { UnsavedNotice } from "./ui/unsaved-notice"
 import { MarketingOptOutCard } from "./MarketingOptOutCard"
+import { KioskSettingsCard } from "./KioskSettingsCard"
 import { cn } from "../utils/cn"
 import { IRAQI_GOVERNORATES, DEFAULT_NORTH_GOVERNORATES } from "../utils/governorates"
 
@@ -657,6 +658,8 @@ export function CatalogSettingsTab() {
       </div>
     </CardContent>
   </Card>
+
+      <KioskSettingsCard />
 
       <StorefrontInviteCard />
 

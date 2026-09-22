@@ -512,6 +512,73 @@ export async function placeAuctionBid(token: string, body: { name: string; phone
   return data.data!
 }
 
+/* ── «الكشك» — the screen standing in the shop ───────────────────────
+ * The token in the path is the screen's only credential, so every call
+ * carries it. Nothing here needs a login, and nothing here is cached
+ * between customers.
+ */
+
+export type KioskConfig = {
+  storeName: string
+  title: string
+  priceMode: "WHOLESALE" | "CARTON"
+}
+
+export type KioskProduct = {
+  id: string
+  itemNumber: string
+  name: string
+  category: string | null
+  hasImage: boolean
+  salePrice: number | null
+  cartonPiecePrice: number | null
+  pcsPerCarton: number
+  boxPieces: number | null
+  currentStock: number
+  isOffer: boolean
+  isNewArrival: boolean
+}
+
+export async function getKioskConfig(token: string) {
+  const { data } = await publicApi.get<ApiEnvelope<KioskConfig>>(`/public/kiosk/${token}`)
+  return data.data!
+}
+
+export async function getKioskProducts(token: string) {
+  const { data } = await publicApi.get<ApiEnvelope<KioskProduct[]>>(`/public/kiosk/${token}/products`)
+  return data.data ?? []
+}
+
+export async function getKioskThumbnails(token: string, ids: string[]) {
+  const { data } = await publicApi.post<ApiEnvelope<Record<string, string | null>>>(
+    `/public/kiosk/${token}/thumbnails`,
+    { ids },
+  )
+  return data.data ?? {}
+}
+
+export async function submitKioskOrder(
+  token: string,
+  body: {
+    customerName: string
+    phone: string
+    notes?: string
+    items: Array<{ productId: string; unit: string; quantity: number }>
+  },
+) {
+  const { data } = await publicApi.post<ApiEnvelope<{ approvalId: string }>>(
+    `/public/kiosk/${token}/orders`,
+    body,
+  )
+  return data.data!
+}
+
+/** Admin: a fresh kiosk link (and the kiosk switched on). */
+export async function rotateKioskToken() {
+  const { data } = await api.post<ApiEnvelope<{ token: string }>>("/settings/kiosk/rotate")
+  return data.data!.token
+}
+
 export type PurchaseSource = "CHINA" | "REGULAR"
 export type PerformanceLevel = "HIGH" | "MEDIUM" | "LOW"
 export type PerformanceCategory =

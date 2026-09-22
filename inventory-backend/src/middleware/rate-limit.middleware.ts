@@ -76,6 +76,28 @@ export const auctionReadLimiter = rateLimit({
   message: { success: false, message: "طلبات كثيرة — انتظر شوي", code: "AUCTION_RATE_LIMITED" },
 });
 
+// «الكشك» — the shop's own screen. Every device in the shop shares one IP
+// (the tablet, the PC, the owner's phone on the same Wi-Fi), and one open
+// grid asks for its thumbnails in batches, so the catalog's 60/min locked the
+// screen out of its own pictures. Reads only; ordering has its own limit.
+export const kioskReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "طلبات كثيرة — انتظر شوي", code: "KIOSK_RATE_LIMITED" },
+});
+
+// A customer standing at the screen finishes an order every few minutes at
+// most. This number only stops a script pointed at a leaked link.
+export const kioskOrderLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "طلبات كثيرة بوقت قصير — انتظر دقيقة", code: "KIOSK_ORDER_RATE_LIMITED" },
+});
+
 // A person presses «زايد» a few times a minute at most; this only stops scripts.
 export const auctionBidLimiter = rateLimit({
   windowMs: 60 * 1000,
