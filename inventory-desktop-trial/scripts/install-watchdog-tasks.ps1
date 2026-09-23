@@ -101,6 +101,30 @@ Register-WatchdogTask `
   -Description 'Weekly domain expiry check; warns 90 and 30 days out.' `
   -LimitMinutes 5
 
+# ── ٣. فحص صحة النسخ الاحتياطية (أسبوعي) ──────────────────────────────────
+$healthScript = Join-Path $PSScriptRoot 'verify-backup-health.ps1'
+if (Test-Path $healthScript) {
+  Register-WatchdogTask `
+    -TaskName 'Makhzouni Backup Health' `
+    -Arguments ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -AppDataDir "{1}"' -f $healthScript, $AppDataDir) `
+    -Trigger (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At '10:00') `
+    -Description 'Weekly check that backups are recent, readable and complete.' `
+    -LimitMinutes 10
+}
+
+# ── ٤. النسخة الكاملة من القاعدة (شهرياً) ─────────────────────────────────
+# محفّز يومي والسكربت يخرج بصمت إلا بأول الشهر: المجدّول ما يدعم «شهري»
+# مباشرة من PowerShell 5.1.
+$fullScript = Join-Path $PSScriptRoot 'backup-full-db.ps1'
+if (Test-Path $fullScript) {
+  Register-WatchdogTask `
+    -TaskName 'Makhzouni Full DB Backup' `
+    -Arguments ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -OnlyOnDayOfMonth 1' -f $fullScript) `
+    -Trigger (New-ScheduledTaskTrigger -Daily -At '04:00') `
+    -Description 'Monthly full pg_dump of the production database (runs on the 1st).' `
+    -LimitMinutes 120
+}
+
 Write-Host ""
 Write-Host "خلصت. جرّبهن هسه:" -ForegroundColor Cyan
 Write-Host "  Start-ScheduledTask -TaskName 'Makhzouni Server Monitor'"
