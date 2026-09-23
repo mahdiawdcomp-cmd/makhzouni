@@ -83,8 +83,10 @@ test("BY_CARTON allocates extra cost proportionally to carton count", async () =
   assert.equal(items[1].landedCostPerCarton, roundTo2(items[1].landedCostPerUnit * (10 / 3)));
 });
 
+// الكلفة بالدينار الصحيح مثل بقية النظام. كان هنا تقريب لخانتين — نسخة محلية
+// من سياسة قديمة، فتبقى تفشل مع أن الخدمة صحيحة.
 function roundTo2(n: number) {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
+  return Math.round(n + Number.EPSILON);
 }
 
 test("a row with its own per-row extra-cost columns is costed directly, not from the pool", async () => {

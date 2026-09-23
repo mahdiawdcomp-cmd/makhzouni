@@ -806,17 +806,27 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
     assert.equal(updateInvoiceCalls[0].input.discount, 24000);
   });
 
-  it("the price per piece survives a broken carton to the dinar", async () => {
-    // 100,000 a carton of 240 => 416.67 a piece. 210 pieces => 87,500.70.
+  it("the price per piece on a broken carton is a whole dinar", async () => {
+    // 100,000 a carton of 240 => 416.67 a piece, which becomes 417.
+    //
+    // Money is whole dinars everywhere, so the per-piece price of a partial
+    // carton is too. That costs up to half a dinar per piece against the exact
+    // share — 70 dinars on this 87,500 line — and buys the thing that matters
+    // on a printed invoice: unit price × quantity is exactly the line total,
+    // with no fraction anywhere for the customer to argue about.
     resetInvoice({ items: [makeItem({ unitPrice: 100000, totalPrice: 100000 })], totalAmount: 100000, paidAmount: 0 });
     const link = await mintLink("WORKER");
     await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
 
     const item = updateInvoiceCalls[0].input.items[0];
-    assert.equal(item.unitPrice, 416.67, "rounded to the money scale, not to a whole dinar");
+    assert.equal(item.unitPrice, 417);
+    assert.equal(item.unitPrice, Math.round(item.unitPrice), "no fils on an invoice line");
     const exact = (100000 / 240) * 210;
     const charged = item.unitPrice * item.quantity;
-    assert.ok(Math.abs(charged - exact) < 1, `drift must stay under a dinar (was ${Math.abs(charged - exact)})`);
+    assert.ok(
+      Math.abs(charged - exact) <= item.quantity / 2,
+      `drift must stay under half a dinar per piece (was ${Math.abs(charged - exact)})`,
+    );
   });
 
   it("what is owed back is read off the invoice, not off a guess", async () => {

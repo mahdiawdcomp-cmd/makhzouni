@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from "react"
+import { useState, type ComponentType, type ReactNode } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -20,6 +20,8 @@ import {
   MapPinned,
   Home,
   KeyRound,
+  LayoutList,
+  List,
   Megaphone,
   Plus,
   Receipt,
@@ -51,6 +53,41 @@ import { GenerateFullStatementDialog } from "../GenerateFullStatementDialog"
 type Leaf = { to: string; label: string; icon: ComponentType<{ className?: string }>; dotColor?: string }
 type Group = { id: string; label: string; icon: ComponentType<{ className?: string }>; basePath: string; children: Leaf[] }
 type Item = Leaf | Group
+
+type BadgeTone = "red" | "amber" | "sky"
+type NavBadge = { count: number; tone: BadgeTone; title?: string }
+type BadgeMap = Record<string, NavBadge | undefined>
+
+const BADGE_TONE_CLASS: Record<BadgeTone, string> = {
+  red: "bg-red-500",
+  amber: "bg-amber-500",
+  sky: "bg-sky-500",
+}
+const BADGE_TONE_RANK: Record<BadgeTone, number> = { red: 3, amber: 2, sky: 1 }
+
+/** Sum of the children's badges, coloured by the most urgent one. */
+function combineBadges(badges: Array<NavBadge | undefined>): NavBadge | undefined {
+  const present = badges.filter((b): b is NavBadge => !!b && b.count > 0)
+  if (present.length === 0) return undefined
+  const tone = present.reduce<BadgeTone>((t, b) => (BADGE_TONE_RANK[b.tone] > BADGE_TONE_RANK[t] ? b.tone : t), "sky")
+  return { count: present.reduce((sum, b) => sum + b.count, 0), tone }
+}
+
+function BadgePill({ badge, className }: { badge?: NavBadge; className?: string }) {
+  if (!badge || badge.count <= 0) return null
+  return (
+    <span
+      className={cn(
+        "flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white",
+        BADGE_TONE_CLASS[badge.tone],
+        className,
+      )}
+      title={badge.title}
+    >
+      {badge.count > 99 ? "99+" : badge.count}
+    </span>
+  )
+}
 
 function isGroup(item: Item): item is Group {
   return "children" in item
@@ -197,49 +234,52 @@ const adminItems = [
   ...(isSaasOwner ? [{ to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound }] : []),
 ]
 
-function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
+function isLeafActive(to: string, location: { pathname: string; search: string }): boolean {
+  const url = new URL(to, window.location.origin)
+  return location.pathname === url.pathname && location.search === url.search
+}
+
+function SideLeaf({
+  item,
+  index = 0,
+  badge,
+  onActivate,
+}: {
+  item: Leaf
+  index?: number
+  badge?: NavBadge
+  /** Set for leaves that open a window/dialog instead of navigating. */
+  onActivate?: () => void
+}) {
   const location = useLocation()
-  const isActive = (() => {
-    const url = new URL(item.to, window.location.origin)
-    return location.pathname === url.pathname && location.search === url.search
-  })()
+  const isActive = !onActivate && isLeafActive(item.to, location)
   const Icon = item.icon
-  const isCampaigns = item.to === "/campaigns"
-  const inboxQuery = useQuery({
-    queryKey: ["inbound-messages-unread-count"],
-    queryFn: () => getInboundMessages({ status: "UNREAD" }),
-    refetchInterval: 20_000,
-    enabled: isCampaigns,
-  })
-  const unreadCount = inboxQuery.data?.unreadCount ?? 0
-
-  // Persistent "product ran out after the post went live" alert — surfaced
-  // here too so it's visible from anywhere, not just on the page itself.
-  const isWholesaleInstagram = item.to === "/wholesale-instagram"
-  const stockAlertsQuery = useQuery({
-    queryKey: ["wig-stock-alerts"],
-    queryFn: getWholesaleInstagramStockAlerts,
-    refetchInterval: 30_000,
-    enabled: isWholesaleInstagram,
-  })
-  const stockAlertCount = stockAlertsQuery.data?.length ?? 0
-
-  // «تنبيهات الموظف الذكي» — escalations + product demand from the WhatsApp
-  // agent. One badge for both, so the count is "things waiting on you".
-  const isRequestedProducts = item.to === "/requested-products"
-  const aiAlertsQuery = useQuery({
-    queryKey: ["ai-alerts-open-count"],
-    queryFn: async () => {
-      const [escalations, products] = await Promise.all([
-        getAiEscalationsOpenCount(),
-        getRequestedProductsOpenCount(),
-      ])
-      return escalations + products
-    },
-    refetchInterval: 30_000,
-    enabled: isRequestedProducts,
-  })
-  const requestedCount = aiAlertsQuery.data ?? 0
+  const className = cn(
+    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-150 relative",
+    isActive
+      ? "text-white"
+      : "text-[var(--theme-sidebarText)] hover:bg-white/8 hover:text-[var(--theme-sidebarTextHover)]",
+  )
+  const content = (
+    <>
+      {isActive && (
+        <span
+          className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-l-full"
+          style={{ background: "linear-gradient(180deg, #818CF8, #6366F1)", boxShadow: "0 0 8px rgba(99,102,241,0.6)" }}
+        />
+      )}
+      {item.dotColor ? (
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm"
+          style={{ backgroundColor: item.dotColor, boxShadow: isActive ? `0 0 6px ${item.dotColor}` : undefined }}
+        />
+      ) : (
+        <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      )}
+      {item.label}
+      <BadgePill badge={badge} className="mr-auto" />
+    </>
+  )
 
   return (
     <motion.div
@@ -247,64 +287,94 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.04, duration: 0.2 }}
     >
-      <NavLink
-        to={item.to}
-        className={cn(
-          "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-150 relative",
-          isActive
-            ? "text-white"
-            : "text-[var(--theme-sidebarText)] hover:bg-white/8 hover:text-[var(--theme-sidebarTextHover)]",
-        )}
-        style={isActive ? {
-          background: "linear-gradient(135deg, rgba(99,102,241,0.30) 0%, rgba(139,92,246,0.20) 100%)",
-          boxShadow: "inset 0 0 0 1px rgba(99,102,241,0.25)"
-        } : {}}
-      >
-        {isActive && (
-          <span
-            className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-l-full"
-            style={{ background: "linear-gradient(180deg, #818CF8, #6366F1)", boxShadow: "0 0 8px rgba(99,102,241,0.6)" }}
-          />
-        )}
-        {item.dotColor ? (
-          <span
-            className="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm"
-            style={{ backgroundColor: item.dotColor, boxShadow: isActive ? `0 0 6px ${item.dotColor}` : undefined }}
-          />
-        ) : (
-          <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
-        )}
-        {item.label}
-        {isCampaigns && unreadCount > 0 && (
-          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
-            {unreadCount}
-          </span>
-        )}
-        {isWholesaleInstagram && stockAlertCount > 0 && (
-          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
-            {stockAlertCount}
-          </span>
-        )}
-        {isRequestedProducts && requestedCount > 0 && (
-          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
-            {requestedCount}
-          </span>
-        )}
-      </NavLink>
+      {onActivate ? (
+        <button type="button" onClick={onActivate} className={className}>
+          {content}
+        </button>
+      ) : (
+        <NavLink
+          to={item.to}
+          className={className}
+          style={isActive ? {
+            background: "linear-gradient(135deg, rgba(99,102,241,0.30) 0%, rgba(139,92,246,0.20) 100%)",
+            boxShadow: "inset 0 0 0 1px rgba(99,102,241,0.25)"
+          } : {}}
+        >
+          {content}
+        </NavLink>
+      )}
     </motion.div>
   )
 }
 
-function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; onToggle: (id: string) => void }) {
+type QuickTone = "emerald" | "amber" | "teal" | "orange"
+const QUICK_TONE_CLASS: Record<QuickTone, string> = {
+  emerald: "border-emerald-500/25 bg-emerald-500/8 text-emerald-400 hover:border-emerald-400/50 hover:bg-emerald-500/15 hover:text-emerald-300",
+  amber: "border-amber-500/25 bg-amber-500/8 text-amber-400 hover:border-amber-400/50 hover:bg-amber-500/15 hover:text-amber-300",
+  teal: "border-teal-500/25 bg-teal-500/8 text-teal-400 hover:border-teal-400/50 hover:bg-teal-500/15 hover:text-teal-300",
+  orange: "border-orange-500/25 bg-orange-500/8 text-orange-400 hover:border-orange-400/50 hover:bg-orange-500/15 hover:text-orange-300",
+}
+type QuickAction = { label: string; to: string; tone: QuickTone }
+
+function QuickActions({ actions, onOpen }: { actions: QuickAction[]; onOpen: (path: string) => void }) {
+  if (actions.length === 0) return null
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 0.15 }}
+      className="flex gap-1.5 pt-1.5 pb-0.5"
+    >
+      {actions.map((action) => (
+        <button
+          key={action.to}
+          type="button"
+          onClick={() => onOpen(action.to)}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition active:scale-95",
+            QUICK_TONE_CLASS[action.tone],
+          )}
+        >
+          <Plus className="h-3 w-3" />
+          {action.label}
+        </button>
+      ))}
+    </motion.div>
+  )
+}
+
+const QUICK_SALE: QuickAction = { label: "بيع", to: "/invoices/new?type=SALE", tone: "emerald" }
+const QUICK_PURCHASE: QuickAction = { label: "شراء", to: "/invoices/new?type=PURCHASE", tone: "amber" }
+const QUICK_RECEIPT: QuickAction = { label: "قبض", to: "/vouchers?action=RECEIPT", tone: "teal" }
+const QUICK_PAYMENT: QuickAction = { label: "دفع", to: "/vouchers?action=PAYMENT", tone: "orange" }
+
+/** Opening a page from the invoice editor must not throw the draft away. */
+function useOpenDestination() {
   const location = useLocation()
   const navigate = useNavigate()
-  const inGroup = location.pathname.startsWith(item.basePath)
-  const open = isOpen
-  const Icon = item.icon
-  const openDestination = (path: string) => {
+  return (path: string) => {
     if (location.pathname === "/invoices/new") window.open(path, "_blank", "noopener,noreferrer")
     else navigate(path)
   }
+}
+
+function SideGroup({
+  item,
+  isOpen,
+  onToggle,
+  badges,
+}: {
+  item: Group
+  isOpen: boolean
+  onToggle: (id: string) => void
+  badges: BadgeMap
+}) {
+  const location = useLocation()
+  const inGroup = location.pathname.startsWith(item.basePath)
+  const open = isOpen
+  const Icon = item.icon
+  const openDestination = useOpenDestination()
+  const groupBadge = combineBadges(item.children.map((c) => badges[c.to]))
 
   return (
     <div>
@@ -331,6 +401,7 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
             <Icon className="h-4 w-4" />
           </span>
           {item.label}
+          {!open && <BadgePill badge={groupBadge} className="mr-auto" />}
         </button>
         <button
           type="button"
@@ -354,62 +425,11 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
           >
             <div className="mr-4 mt-0.5 mb-1 space-y-0.5 border-r border-white/8 pr-2 pl-1">
               {item.children.map((child, i) => (
-                <SideLeaf key={child.to} item={child} index={i} />
+                <SideLeaf key={child.to} item={child} index={i} badge={badges[child.to]} />
               ))}
 
-              {/* Quick-create buttons for invoice group */}
-              {item.id === "invoices" && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.15 }}
-                  className="flex gap-1.5 pt-1.5 pb-0.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => openDestination("/invoices/new?type=SALE")}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/8 px-2 py-1.5 text-[11px] font-semibold text-emerald-400 transition hover:border-emerald-400/50 hover:bg-emerald-500/15 hover:text-emerald-300 active:scale-95"
-                  >
-                    <Plus className="h-3 w-3" />
-                    بيع
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openDestination("/invoices/new?type=PURCHASE")}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/8 px-2 py-1.5 text-[11px] font-semibold text-amber-400 transition hover:border-amber-400/50 hover:bg-amber-500/15 hover:text-amber-300 active:scale-95"
-                  >
-                    <Plus className="h-3 w-3" />
-                    شراء
-                  </button>
-                </motion.div>
-              )}
-
-              {/* Quick-create buttons for voucher group */}
-              {item.id === "vouchers" && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.15 }}
-                  className="flex gap-1.5 pt-1.5 pb-0.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => openDestination("/vouchers?action=RECEIPT")}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-teal-500/25 bg-teal-500/8 px-2 py-1.5 text-[11px] font-semibold text-teal-400 transition hover:border-teal-400/50 hover:bg-teal-500/15 hover:text-teal-300 active:scale-95"
-                  >
-                    <Plus className="h-3 w-3" />
-                    قبض
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openDestination("/vouchers?action=PAYMENT")}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-orange-500/25 bg-orange-500/8 px-2 py-1.5 text-[11px] font-semibold text-orange-400 transition hover:border-orange-400/50 hover:bg-orange-500/15 hover:text-orange-300 active:scale-95"
-                  >
-                    <Plus className="h-3 w-3" />
-                    دفع
-                  </button>
-                </motion.div>
-              )}
+              {item.id === "invoices" && <QuickActions actions={[QUICK_SALE, QUICK_PURCHASE]} onOpen={openDestination} />}
+              {item.id === "vouchers" && <QuickActions actions={[QUICK_RECEIPT, QUICK_PAYMENT]} onOpen={openDestination} />}
             </div>
           </motion.div>
         )}
@@ -418,14 +438,184 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
   )
 }
 
+type NavSectionDef = {
+  id: string
+  label: string
+  icon: ComponentType<{ className?: string }>
+  /** Leaf paths, looked up in navItems + adminItems; hidden ones drop out. */
+  paths: string[]
+  quick?: QuickAction[]
+}
+
+/**
+ * «مجمّع» layout — the same pages as the classic list, folded into a handful of
+ * sections. Only regroups: every path here already exists in navItems/adminItems
+ * and keeps its own permission/feature gate.
+ */
+const groupedNav: Array<{ leaf: string } | NavSectionDef> = [
+  { leaf: "/" },
+  { leaf: "/worker" },
+  {
+    id: "sales",
+    label: "المبيعات",
+    icon: Receipt,
+    paths: ["/invoices?type=SALE", "/invoices?type=SALES_RETURN", "/invoices/returns", "/quotations", "/pos"],
+    quick: [QUICK_SALE],
+  },
+  {
+    id: "stock",
+    label: "المخزن والمشتريات",
+    icon: Boxes,
+    paths: [
+      "/inventory",
+      "/invoices?type=PURCHASE",
+      "/inventory/transfers",
+      "/inventory/landed-cost",
+      "/inventory/cycle-count",
+      "/losses",
+      "/reports/purchase-performance",
+    ],
+    quick: [QUICK_PURCHASE],
+  },
+  {
+    id: "accounts",
+    label: "الحسابات",
+    icon: Wallet,
+    paths: [
+      "/vouchers?type=RECEIPT",
+      "/vouchers?type=PAYMENT",
+      "/vouchers?type=EXPENSE",
+      "/account",
+      "/account/statement-export",
+      "/personal-debts",
+    ],
+    quick: [QUICK_RECEIPT, QUICK_PAYMENT],
+  },
+  {
+    id: "customers",
+    label: "الزبائن والمندوبين",
+    icon: Users,
+    paths: ["/customers", "/customer-offers", "/sales-agents", "/areas"],
+  },
+  {
+    id: "marketing",
+    label: "التسويق والقنوات",
+    icon: Megaphone,
+    paths: [
+      "/customers/broadcast",
+      "/campaigns",
+      "/catalog-management",
+      "/retail-catalog",
+      "/instagram",
+      "/wholesale-instagram",
+      "/requested-products",
+      "/auctions",
+    ],
+  },
+  { leaf: "/reports" },
+  {
+    id: "admin",
+    label: "الإدارة",
+    icon: ShieldCheck,
+    paths: ["/approvals", "/error-logs", "/invoice-designer", "/settings", "/super-admin"],
+  },
+]
+
+function NavSection({
+  section,
+  leaves,
+  isOpen,
+  onToggle,
+  badges,
+  renderLeaf,
+}: {
+  section: NavSectionDef
+  leaves: Leaf[]
+  isOpen: boolean
+  onToggle: (id: string) => void
+  badges: BadgeMap
+  renderLeaf: (leaf: Leaf, index: number) => ReactNode
+}) {
+  const location = useLocation()
+  const openDestination = useOpenDestination()
+  const Icon = section.icon
+  const inSection = leaves.some((c) => isLeafActive(c.to, location))
+  const sectionBadge = combineBadges(leaves.map((c) => badges[c.to]))
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => onToggle(section.id)}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-all duration-150",
+          inSection
+            ? "text-white bg-white/10"
+            : "text-[var(--theme-sidebarText)] hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]",
+        )}
+      >
+        <span
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all",
+            inSection ? "bg-[var(--theme-accent)]" : "bg-white/8",
+          )}
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+        {section.label}
+        <span className="mr-auto flex items-center gap-1.5">
+          {!isOpen && <BadgePill badge={sectionBadge} />}
+          <motion.span
+            className="text-white/30"
+            animate={{ rotate: isOpen ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </motion.span>
+        </span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            style={{ overflow: "hidden" }}
+          >
+            <div className="mr-4 mt-0.5 mb-1 space-y-0.5 border-r border-white/8 pr-2 pl-1">
+              {leaves.map((leaf, i) => renderLeaf(leaf, i))}
+              <QuickActions actions={section.quick ?? []} onOpen={openDestination} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+type SidebarLayout = "grouped" | "classic"
+const SIDEBAR_LAYOUT_KEY = "sidebar-layout"
+
+function readSidebarLayout(): SidebarLayout {
+  try {
+    return localStorage.getItem(SIDEBAR_LAYOUT_KEY) === "classic" ? "classic" : "grouped"
+  } catch {
+    return "grouped"
+  }
+}
+
 function SideLink({
   to,
   label,
   Icon,
+  badge,
 }: {
   to: string
   label: string
   Icon: ComponentType<{ className?: string }>
+  badge?: NavBadge
 }) {
   return (
     <NavLink
@@ -443,8 +633,31 @@ function SideLink({
         <Icon className="h-4 w-4" />
       </span>
       {label}
+      <BadgePill badge={badge} className="mr-auto" />
     </NavLink>
   )
+}
+
+const adminPaths = new Set(adminItems.map((a) => a.to))
+
+/** Every navigable page by path — the grouped layout picks from here. */
+const leafByPath = (() => {
+  const map = new Map<string, Leaf>()
+  for (const item of navItems) {
+    if (isGroup(item)) item.children.forEach((c) => map.set(c.to, c))
+    else map.set(item.to, item)
+  }
+  for (const a of adminItems) map.set(a.to, { to: a.to, label: a.label, icon: a.Icon })
+  return map
+})()
+
+/** The grouped section holding the current page, so it starts open. */
+function sectionForLocation(location: { pathname: string; search: string }): string | null {
+  const sections = groupedNav.filter((e): e is NavSectionDef => !("leaf" in e))
+  const exact = sections.find((s) => s.paths.some((p) => isLeafActive(p, location)))
+  if (exact) return exact.id
+  const loose = sections.find((s) => s.paths.some((p) => new URL(p, window.location.origin).pathname === location.pathname))
+  return loose?.id ?? null
 }
 
 export function Sidebar() {
@@ -457,36 +670,38 @@ export function Sidebar() {
   const tenantQuery = useTenantConfig()
   const tenantMode = tenantQuery.data?.mode
   const tenantFeatures = tenantQuery.data?.entitlementFeatures
+  // Warehouse worker: only his two pages appear — عامل المخزن + التلف والخسائر.
+  const isWorkerOnly = useAuthStore((s) => s.isWorkerOnly())
+
+  // «مجمّع» / «كلاسيكي» — a per-browser choice, flipped from the button at the
+  // bottom. The worker's two-item list has nothing to group, so it stays classic.
+  const [layoutChoice, setLayoutChoice] = useState<SidebarLayout>(readSidebarLayout)
+  const layout: SidebarLayout = isWorkerOnly ? "classic" : layoutChoice
+  function toggleLayout() {
+    const next: SidebarLayout = layoutChoice === "grouped" ? "classic" : "grouped"
+    setLayoutChoice(next)
+    try {
+      localStorage.setItem(SIDEBAR_LAYOUT_KEY, next)
+    } catch {
+      // Storage blocked — the choice still holds for this session.
+    }
+  }
 
   // Track which group is open — only one at a time
   const defaultOpen = navItems.find(
     (item) => isGroup(item) && location.pathname.startsWith(item.basePath)
   ) as Group | undefined
   const [openGroupId, setOpenGroupId] = useState<string | null>(defaultOpen?.id ?? null)
+  const [openSectionId, setOpenSectionId] = useState<string | null>(() => sectionForLocation(location))
   const [statementExportOpen, setStatementExportOpen] = useState(false)
 
   function toggleGroup(id: string) {
     setOpenGroupId((prev) => (prev === id ? null : id))
   }
 
-  const approvalsQuery = useQuery({
-    queryKey: ["approvals-pending-count"],
-    queryFn: () => getApprovals(),
-    refetchInterval: 30_000,
-    enabled: isAdmin,
-  })
-  const pendingCount = approvalsQuery.data?.length ?? 0
-
-  // «إشعارات المندوبين» — the server's own COUNT, so every device agrees.
-  const repActivityQuery = useQuery({
-    queryKey: ["sales-agent-admin", "activity-counts"],
-    queryFn: async () =>
-      (await api.get<{ data: { unread: number; importantUnread: number } }>("/sales-agent-admin/activity/counts")).data.data,
-    refetchInterval: 60_000,
-    enabled: isAdmin,
-  })
-  const repUnread = repActivityQuery.data?.unread ?? 0
-  const repImportant = repActivityQuery.data?.importantUnread ?? 0
+  function toggleSection(id: string) {
+    setOpenSectionId((prev) => (prev === id ? null : id))
+  }
 
   function hasPermission(item: Item): boolean {
     if (isAdmin) return true
@@ -516,12 +731,203 @@ export function Sidebar() {
     return isFeatureAllowed(item, tenantMode, tenantFeatures)
   }
 
-  // Warehouse worker: only his two pages appear — عامل المخزن + التلف والخسائر.
-  const isWorkerOnly = useAuthStore((s) => s.isWorkerOnly())
+  /** One gate for a single page, whichever layout shows it. */
+  function canSeePath(path: string): boolean {
+    const leaf = leafByPath.get(path)
+    if (!leaf) return false
+    if (isWorkerOnly) return path === "/worker" || path === "/losses"
+    if (adminPaths.has(path)) return isAdmin
+    return hasPermission(leaf) && hasFeature(leaf)
+  }
+
+  // ── Badges ── one place for every count, so both layouts (and a collapsed
+  // section's header) show the same numbers. Each query only runs for a user
+  // who can see its page.
+  const inboxQuery = useQuery({
+    queryKey: ["inbound-messages-unread-count"],
+    queryFn: () => getInboundMessages({ status: "UNREAD" }),
+    refetchInterval: 20_000,
+    enabled: canSeePath("/campaigns"),
+  })
+
+  // Persistent "product ran out after the post went live" alert — surfaced
+  // here too so it's visible from anywhere, not just on the page itself.
+  const stockAlertsQuery = useQuery({
+    queryKey: ["wig-stock-alerts"],
+    queryFn: getWholesaleInstagramStockAlerts,
+    refetchInterval: 30_000,
+    enabled: canSeePath("/wholesale-instagram"),
+  })
+
+  // «تنبيهات الموظف الذكي» — escalations + product demand from the WhatsApp
+  // agent. One badge for both, so the count is "things waiting on you".
+  const aiAlertsQuery = useQuery({
+    queryKey: ["ai-alerts-open-count"],
+    queryFn: async () => {
+      const [escalations, products] = await Promise.all([
+        getAiEscalationsOpenCount(),
+        getRequestedProductsOpenCount(),
+      ])
+      return escalations + products
+    },
+    refetchInterval: 30_000,
+    enabled: canSeePath("/requested-products"),
+  })
+
+  const approvalsQuery = useQuery({
+    queryKey: ["approvals-pending-count"],
+    queryFn: () => getApprovals(),
+    refetchInterval: 30_000,
+    enabled: isAdmin,
+  })
+
+  // «إشعارات المندوبين» — the server's own COUNT, so every device agrees.
+  const repActivityQuery = useQuery({
+    queryKey: ["sales-agent-admin", "activity-counts"],
+    queryFn: async () =>
+      (await api.get<{ data: { unread: number; importantUnread: number } }>("/sales-agent-admin/activity/counts")).data.data,
+    refetchInterval: 60_000,
+    enabled: isAdmin,
+  })
+  const repUnread = repActivityQuery.data?.unread ?? 0
+  const repImportant = repActivityQuery.data?.importantUnread ?? 0
+
+  const badges: BadgeMap = {
+    "/campaigns": { count: inboxQuery.data?.unreadCount ?? 0, tone: "red", title: "رسائل غير مقروءة" },
+    "/wholesale-instagram": { count: stockAlertsQuery.data?.length ?? 0, tone: "red", title: "منتج نفد بعد النشر" },
+    "/requested-products": { count: aiAlertsQuery.data ?? 0, tone: "amber", title: "بانتظارك" },
+    "/approvals": { count: approvalsQuery.data?.length ?? 0, tone: "red", title: "موافقات معلّقة" },
+    // Red when something needs a decision, otherwise the plain unread count —
+    // the colour says which, the number says how many.
+    "/sales-agents": repImportant > 0
+      ? { count: repImportant, tone: "red", title: `${repImportant} يحتاج انتباهك` }
+      : { count: repUnread, tone: "sky", title: `${repUnread} غير مقروء` },
+  }
+
+  /** Leaves that open a window/dialog instead of a route. */
+  function leafAction(to: string): (() => void) | undefined {
+    if (to === "/pos") return () => window.open("/pos", "_blank", "width=1024,height=768")
+    if (to === "/account/statement-export") return () => setStatementExportOpen(true)
+    return undefined
+  }
+
   const visibleItems = navItems.filter((item) => {
     if (isWorkerOnly) return "to" in item && (item.to === "/worker" || item.to === "/losses")
     return hasPermission(item) && hasFeature(item)
   })
+
+  const quickGate: Record<string, string> = {
+    [QUICK_SALE.to]: "/invoices?type=SALE",
+    [QUICK_PURCHASE.to]: "/invoices?type=PURCHASE",
+    [QUICK_RECEIPT.to]: "/vouchers?type=RECEIPT",
+    [QUICK_PAYMENT.to]: "/vouchers?type=PAYMENT",
+  }
+
+  const groupedList = groupedNav.map((entry) => {
+    if ("leaf" in entry) {
+      const leaf = leafByPath.get(entry.leaf)
+      if (!leaf || !canSeePath(entry.leaf)) return null
+      return <SideLink key={leaf.to} to={leaf.to} label={leaf.label} Icon={leaf.icon} badge={badges[leaf.to]} />
+    }
+    const leaves = entry.paths
+      .filter(canSeePath)
+      .map((p) => leafByPath.get(p))
+      .filter((l): l is Leaf => !!l)
+    if (leaves.length === 0) return null
+    return (
+      <NavSection
+        key={entry.id}
+        section={{ ...entry, quick: entry.quick?.filter((q) => canSeePath(quickGate[q.to])) }}
+        leaves={leaves}
+        isOpen={openSectionId === entry.id}
+        onToggle={toggleSection}
+        badges={badges}
+        renderLeaf={(leaf, i) => (
+          <SideLeaf key={leaf.to} item={leaf} index={i} badge={badges[leaf.to]} onActivate={leafAction(leaf.to)} />
+        )}
+      />
+    )
+  })
+
+  const classicList = (
+    <>
+      {visibleItems.map((item) =>
+        isGroup(item) ? (
+          <SideGroup
+            key={item.id}
+            item={{
+              ...item,
+              // Batch 4: feature filter applies to every group's children;
+              // permission filter keeps its original scope (inventory only).
+              children: item.children.filter(
+                (c) => hasFeature(c) && (item.id !== "inventory" || hasPermission(c))
+              ),
+            }}
+            isOpen={openGroupId === item.id}
+            onToggle={toggleGroup}
+            badges={badges}
+          />
+        ) : "to" in item && item.to === "/pos" ? (
+          <button
+            key="/pos"
+            type="button"
+            onClick={() => window.open("/pos", "_blank", "width=1024,height=768")}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-[var(--theme-sidebarText)] transition-all duration-150 hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
+              <ScanBarcode className="h-4 w-4" />
+            </span>
+            كاشير سريع
+          </button>
+        ) : "to" in item && item.to === "/account/statement-export" ? (
+          <button
+            key="/account/statement-export"
+            type="button"
+            onClick={() => setStatementExportOpen(true)}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-[var(--theme-sidebarText)] transition-all duration-150 hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
+              <Download className="h-4 w-4" />
+            </span>
+            حفظ الكشف العام
+          </button>
+        ) : (
+          <SideLink key={item.to} to={item.to} label={item.label} Icon={item.icon} badge={badges[item.to]} />
+        ),
+      )}
+
+      {/* Admin section */}
+      {isAdmin && (
+        <div className="mt-3 pt-3 border-t border-white/6">
+          <div className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-white/20">
+            الإدارة
+          </div>
+          {adminItems.map((adminItem) => (
+            <NavLink
+              key={adminItem.to}
+              to={adminItem.to}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-all duration-150",
+                  isActive
+                    ? "text-white bg-white/10"
+                    : "text-[var(--theme-sidebarText)] hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]",
+                )
+              }
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
+                  <adminItem.Icon className="h-4 w-4" />
+                </span>
+                {adminItem.label}
+              </div>
+              <BadgePill badge={badges[adminItem.to]} />
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </>
+  )
 
   return (
     <aside
@@ -548,104 +954,25 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
-        {visibleItems.map((item) =>
-          isGroup(item) ? (
-            <SideGroup
-              key={item.id}
-              item={{
-                ...item,
-                // Batch 4: feature filter applies to every group's children;
-                // permission filter keeps its original scope (inventory only).
-                children: item.children.filter(
-                  (c) => hasFeature(c) && (item.id !== "inventory" || hasPermission(c))
-                ),
-              }}
-              isOpen={openGroupId === item.id}
-              onToggle={toggleGroup}
-            />
-          ) : "to" in item && item.to === "/pos" ? (
-            <button
-              key="/pos"
-              type="button"
-              onClick={() => window.open("/pos", "_blank", "width=1024,height=768")}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-[var(--theme-sidebarText)] transition-all duration-150 hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
-            >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
-                <ScanBarcode className="h-4 w-4" />
-              </span>
-              كاشير سريع
-            </button>
-          ) : "to" in item && item.to === "/account/statement-export" ? (
-            <button
-              key="/account/statement-export"
-              type="button"
-              onClick={() => setStatementExportOpen(true)}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-[var(--theme-sidebarText)] transition-all duration-150 hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
-            >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
-                <Download className="h-4 w-4" />
-              </span>
-              حفظ الكشف العام
-            </button>
-          ) : (
-            <SideLink key={item.to} to={item.to} label={item.label} Icon={item.icon} />
-          ),
-        )}
-
-        {/* Admin section */}
-        {isAdmin && (
-          <div className="mt-3 pt-3 border-t border-white/6">
-            <div className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-white/20">
-              الإدارة
-            </div>
-            {adminItems.map((adminItem) => (
-              <NavLink
-                key={adminItem.to}
-                to={adminItem.to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-all duration-150",
-                    isActive
-                      ? "text-white bg-white/10"
-                      : "text-[var(--theme-sidebarText)] hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]",
-                  )
-                }
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
-                    <adminItem.Icon className="h-4 w-4" />
-                  </span>
-                  {adminItem.label}
-                </div>
-                {adminItem.to === "/approvals" && pendingCount > 0 && (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
-                    {pendingCount}
-                  </span>
-                )}
-                {/* Red when something needs a decision, otherwise the plain
-                    unread count — the colour says which, the number says how many. */}
-                {adminItem.to === "/sales-agents" && repUnread > 0 && (
-                  <span
-                    className={cn(
-                      "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white",
-                      repImportant > 0 ? "bg-red-500" : "bg-sky-500",
-                    )}
-                    title={repImportant > 0 ? `${repImportant} يحتاج انتباهك` : `${repUnread} غير مقروء`}
-                  >
-                    {repImportant > 0 ? repImportant : repUnread > 99 ? "99+" : repUnread}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </div>
-        )}
+        {layout === "grouped" ? groupedList : classicList}
       </nav>
 
       {/* Bottom gradient fade */}
       <div className="h-4 shrink-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
 
-      {/* Display screen shortcut */}
-      <div className="shrink-0 border-t border-white/6 px-2.5 py-2">
+      {/* Display screen shortcut + layout switch */}
+      <div className="shrink-0 border-t border-white/6 px-2.5 py-2 space-y-0.5">
+        {!isWorkerOnly && (
+          <button
+            type="button"
+            onClick={toggleLayout}
+            title="التبديل بين القائمة المجمّعة والكلاسيكية"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--theme-sidebarText)] transition-all hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
+          >
+            {layout === "grouped" ? <List className="h-3.5 w-3.5" /> : <LayoutList className="h-3.5 w-3.5" />}
+            {layout === "grouped" ? "عرض القائمة الكلاسيكية" : "عرض القائمة المجمّعة"}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => window.open("/display", "_blank", "noopener,noreferrer")}

@@ -552,8 +552,12 @@ async function applyStockMovement(
     invoiceType === InvoiceType.PURCHASE && (rawUnitPrice == null || rawUnitPrice <= 0)
       ? undefined
       : rawUnitPrice;
-  const unitPrice =
-    effectiveRawUnitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton, product.boxPieces);
+  // دينار صحيح دائماً: السعر الي يوصل من الشاشة ممكن يكون ٩٩٩٩٫٩٦ (٨٣٣٫٣٣
+  // للقطعة × ١٢)، والمطلوب ١٠٬٠٠٠. التقريب هنا يخلي السعر المخزون والمجموع
+  // متفقين — تقريب المجموع وحده كان يطبع سعر وحدة مكسور بالفاتورة.
+  const unitPrice = roundMoney(
+    effectiveRawUnitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton, product.boxPieces),
+  );
 
   // Hard guard: a PURCHASE line must carry a positive price. If neither the request nor the
   // product's own purchase price yields one, reject the save with a clear message instead of

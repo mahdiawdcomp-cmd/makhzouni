@@ -53,9 +53,18 @@ export function cartonBreakdown(pieces: number, pcsPerCarton: number): CartonBre
   return { cartons, looseP, label }
 }
 
-// Unit price is always derived: piece price × pieces in the unit.
+/**
+ * Unit price is always derived: piece price × pieces in the unit — and it is a
+ * WHOLE DINAR. Nothing in this market is priced in fils, and a voucher cannot
+ * even accept a fraction, so a fraction here only ever becomes a balance
+ * nobody can settle.
+ *
+ * The rounding lands on the finished unit price, never on the piece price: a
+ * piece at 833.33 has to sell by the carton at exactly 10,000, and rounding
+ * the piece first would make that 833 × 12 = 9,996.
+ */
 export function unitPriceFrom(basePiecePrice: number, unit: InvoiceUnit, product: UnitProduct): number {
-  return basePiecePrice * piecesPerUnit(unit, product)
+  return Math.round(basePiecePrice * piecesPerUnit(unit, product))
 }
 
 // Units offered on NEW invoice lines: PIECE always; others unless soft-hidden.

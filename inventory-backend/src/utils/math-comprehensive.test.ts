@@ -17,20 +17,21 @@ import {
 // 1. roundMoney — تدوير المبالغ
 // ═══════════════════════════════════════════════════════════════
 
-test("[roundMoney] مبالغ عادية", () => {
-  assert.equal(roundMoney(0.1 + 0.2), 0.3);
-  assert.equal(roundMoney(12.345), 12.35);
-  assert.equal(roundMoney(999.994), 999.99);
-  assert.equal(roundMoney(999.995), 1000);
-  assert.equal(roundMoney(0.005), 0.01);
-  assert.equal(roundMoney(0.004), 0);
+test("[roundMoney] مبالغ عادية — دنانير صحيحة", () => {
+  assert.equal(roundMoney(0.1 + 0.2), 0);
+  assert.equal(roundMoney(12.345), 12);
+  assert.equal(roundMoney(999.4), 999);
+  assert.equal(roundMoney(999.994), 1000);
+  assert.equal(roundMoney(999.5), 1000);
+  // الحالة الي وجدت السياسة لأجلها: ٨٣٣٫٣٣ للقطعة × ١٢ بالكارتون.
+  assert.equal(roundMoney(833.33 * 12), 10_000);
 });
 
 test("[roundMoney] أرقام سالبة", () => {
-  assert.equal(roundMoney(-12.345), -12.34);
-  assert.ok(roundMoney(-0.004) === 0); // -0 === 0 في JS
+  assert.equal(roundMoney(-12.345), -12);
+  assert.ok(roundMoney(-0.4) === 0); // -0 === 0 في JS
   // الأرقام السالبة تُدوَّر نحو الصفر (round half toward zero) لأن EPSILON موجب
-  assert.equal(roundMoney(-1000.995), -1000.99);
+  assert.equal(roundMoney(-1000.5), -1000);
 });
 
 test("[roundMoney] قيم غير محدودة وNaN", () => {
@@ -40,10 +41,10 @@ test("[roundMoney] قيم غير محدودة وNaN", () => {
 });
 
 test("[roundMoney] مبالغ IQD كبيرة بدون انزلاق float", () => {
-  assert.equal(roundMoney(1_000_000.005), 1_000_000.01);
+  assert.equal(roundMoney(1_000_000.4), 1_000_000);
   assert.equal(roundMoney(50_000_000), 50_000_000);
-  assert.equal(roundMoney(123456.785), 123456.79);
-  assert.equal(roundMoney(999999.995), 1_000_000);
+  assert.equal(roundMoney(123456.785), 123457);
+  assert.equal(roundMoney(999999.5), 1_000_000);
 });
 
 // ═══════════════════════════════════════════════════════════════

@@ -1,7 +1,14 @@
 export type FinancialInvoiceType = "SALE" | "PURCHASE" | "SALES_RETURN";
 export type FinancialPaymentType = "CASH" | "CREDIT" | "PARTIAL";
 
-const MONEY_SCALE = 100;
+/**
+ * كل المبالغ دنانير صحيحة — ما أكو فلوس أصغر من دينار بالسوق.
+ *
+ * كان التقريب لخانتين، فسعر القطعة ٨٣٣٫٣٣ يطلع بالكارتون ٩٩٩٩٫٩٦ بدل
+ * ١٠٬٠٠٠، وأرصدة مثل ٠٫٦ دينار تبقى معلّقة بالكشف لأن السندات أصلاً ما تقبل
+ * كسوراً فما تنحل. الآن الكسر يختفي من المصدر.
+ */
+const MONEY_SCALE = 1;
 
 export function roundMoney(value: number): number {
   if (!Number.isFinite(value)) return 0;

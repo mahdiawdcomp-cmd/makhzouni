@@ -101,7 +101,10 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 # ٣٤٥ ميغا وتوصل كاملة؛ معهما القناة تنقطع بالنص وتطلع نسخة ناقصة — وهذا
 # أسوأ من نسخة أصغر، لأنها تبدو موجودة وهي ما تنفع.
 Write-Log 'Dumping inside the database container…'
-$remoteDump = "pg_dump -U postgres -d railway -Fc -Z 9 --no-owner --no-acl " +
+# ‏-h /var/run/postgresql: الاتصال عبر مقبس محلي بلا كلمة سر. الاتصال بالشبكة
+# يعتمد على PGPASSWORD المخزونة بالحاوية، وهذي تصير قديمة بلحظة تغيير كلمة
+# السر — فالنسخة الشهرية تفشل بصمت لحد أول الشهر الجاي.
+$remoteDump = "pg_dump -h /var/run/postgresql -U postgres -d railway -Fc -Z 9 --no-owner --no-acl " +
   "--exclude-table-data='public.audit_logs' --exclude-table-data='public.whatsapp_messages' " +
   "-f $remoteFile && stat -c '%s' $remoteFile && md5sum $remoteFile | cut -d' ' -f1"
 $info = Invoke-Remote -Command $remoteDump

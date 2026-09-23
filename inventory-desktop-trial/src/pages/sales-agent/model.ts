@@ -191,7 +191,8 @@ function piecesPerUnit(product: AgentProduct, unit: Unit) {
 }
 
 export function unitPrice(product: AgentProduct, unit: Unit, mode: AgentMode = "WHOLESALE") {
-  return (mode === "CARTON" ? Number(product.cartonPiecePrice ?? 0) : product.salePrice) * piecesPerUnit(product, unit)
+  // دينار صحيح، مثل بقية الشاشات: الكسر هنا يطلع بالطلب وبالفاتورة بعدين.
+  return Math.round((mode === "CARTON" ? Number(product.cartonPiecePrice ?? 0) : product.salePrice) * piecesPerUnit(product, unit))
 }
 
 export function maxQty(product: AgentProduct, unit: Unit) {

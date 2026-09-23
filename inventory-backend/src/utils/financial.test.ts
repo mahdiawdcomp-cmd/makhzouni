@@ -11,15 +11,22 @@ import {
 
 // ── roundMoney ──────────────────────────────────────────────────────────────
 
-test("rounds monetary values consistently", () => {
-  assert.equal(roundMoney(0.1 + 0.2), 0.3);
-  assert.equal(roundMoney(12.345), 12.35);
+// Money is whole dinars: nothing in this market is priced in fils, vouchers
+// cannot even accept a fraction, and a 0.6 balance can therefore never be
+// settled — it just sits on the statement forever.
+test("money is whole dinars", () => {
+  assert.equal(roundMoney(0.1 + 0.2), 0);
+  assert.equal(roundMoney(12.345), 12);
+  // The case this policy exists for: 833.33 a piece, twelve to a carton.
+  assert.equal(roundMoney(833.33 * 12), 10000);
+  assert.equal(roundMoney(0.6), 1);
+  assert.equal(roundMoney(0.4), 0);
 });
 
 test("roundMoney handles zero and negative", () => {
   assert.equal(roundMoney(0), 0);
-  assert.ok(roundMoney(-0.005) === 0); // EPSILON pushes positive halves up; negative -0.005 rounds toward 0 (-0 === 0)
-  assert.equal(roundMoney(-1234.567), -1234.57);
+  assert.ok(roundMoney(-0.4) === 0); // EPSILON pushes positive halves up; negative -0.4 rounds toward 0 (-0 === 0)
+  assert.equal(roundMoney(-1234.567), -1235);
 });
 
 test("roundMoney handles non-finite inputs gracefully", () => {
@@ -30,7 +37,7 @@ test("roundMoney handles non-finite inputs gracefully", () => {
 
 test("roundMoney handles large IQD amounts without floating-point drift", () => {
   assert.equal(roundMoney(999999.995), 1_000_000);
-  assert.equal(roundMoney(123456.785), 123456.79);
+  assert.equal(roundMoney(123456.785), 123457);
 });
 
 // ── calculateInvoiceFinancials ─────────────────────────────────────────────

@@ -348,7 +348,8 @@ describe("finalConfirmBatch — real createProduct/createInvoice against a fake 
   it("China-priced item: H (IQD unit cost) flows into the purchase invoice line and no stock moves before confirm", async () => {
     // Worked example: 10¥ × 72 pcs, 7.2 CNY/USD, 3% office, 0.2 CBM × 170$,
     // usdToIqd 1400 → A=137$, H=(137/72)×1400 ≈ 2663.89 IQD per piece.
-    const H = Math.round(((137 / 72) * 1400 + Number.EPSILON) * 100) / 100;
+    // بالدينار الصحيح مثل كل مبلغ بالنظام: ٢٦٦٣٫٨٩ تصير ٢٦٦٤.
+    const H = Math.round((137 / 72) * 1400 + Number.EPSILON);
     const before = stockOf(existingProduct.id, SHOP);
     const batch = makeBatch({
       items: [baseItem({

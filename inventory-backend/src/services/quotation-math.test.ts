@@ -50,13 +50,15 @@ test("toNumber coerces Prisma Decimal strings to numbers", () => {
 
 // ── unitPriceFor ─────────────────────────────────────────────────────────────
 
-test("PIECE unit returns the sale price rounded", () => {
-  assert.equal(unitPriceFor({ salePrice: "500.333", pcsPerCarton: 12 }, "PIECE"), 500.33);
+test("PIECE unit returns the sale price as a whole dinar", () => {
+  assert.equal(unitPriceFor({ salePrice: "500.333", pcsPerCarton: 12 }, "PIECE"), 500);
 });
 
 test("CARTON unit multiplies by pcsPerCarton and rounds", () => {
   assert.equal(unitPriceFor({ salePrice: "500", pcsPerCarton: 24 }, "CARTON"), 12_000);
-  assert.equal(unitPriceFor({ salePrice: "333.33", pcsPerCarton: 12 }, "CARTON"), 3999.96);
+  // الكسر يختفي بسعر الوحدة، مو بسعر القطعة — هذي حالة «٩٩٩٩٫٩٦ المفروض ١٠٬٠٠٠».
+  assert.equal(unitPriceFor({ salePrice: "333.33", pcsPerCarton: 12 }, "CARTON"), 4000);
+  assert.equal(unitPriceFor({ salePrice: "833.33", pcsPerCarton: 12 }, "CARTON"), 10_000);
 });
 
 test("BOX unit multiplies by effectiveBoxPieces (override, else half carton rounded up)", () => {
@@ -91,9 +93,10 @@ test("multi-item subtotal accumulates without floating-point drift", () => {
     { quantity: 10, unit: "PIECE", product: { salePrice: "0.20", pcsPerCarton: 1 } },
     { quantity:  5, unit: "PIECE", product: { salePrice: "0.30", pcsPerCarton: 1 } },
   ]);
-  // 10*0.10 + 10*0.20 + 5*0.30 = 1.00 + 2.00 + 1.50 = 4.50
-  assert.equal(q.subtotal, 4.50);
-  assert.equal(q.totalAmount, 4.50);
+  // كل سعر وحدة ينقرّب لدينار صحيح أولاً، فهذي الأسعار الكسرية تصير أصفاراً:
+  // ٠٫١٠ و٠٫٢٠ و٠٫٣٠ ما إلها وجود بسوق يتعامل بالدينار.
+  assert.equal(q.subtotal, 0);
+  assert.equal(q.totalAmount, 0);
 });
 
 test("discount is subtracted from subtotal", () => {
@@ -140,6 +143,7 @@ test("large IQD amounts stay exact", () => {
   const q = buildQuotation([
     { quantity: 100, unit: "PIECE", product: { salePrice: "999999.99", pcsPerCarton: 1 } },
   ]);
-  assert.equal(q.lines[0].totalPrice, 99_999_999);
-  assert.equal(q.subtotal, 99_999_999);
+  // ٩٩٩٬٩٩٩٫٩٩ للقطعة ينقرّب لـ١٬٠٠٠٬٠٠٠ قبل الضرب بالكمية.
+  assert.equal(q.lines[0].totalPrice, 100_000_000);
+  assert.equal(q.subtotal, 100_000_000);
 });

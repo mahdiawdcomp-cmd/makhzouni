@@ -13,7 +13,7 @@
  * for, so the catalog's own behaviour is what got extracted here instead.
  */
 import { Unit } from "@prisma/client";
-import { effectiveBoxPieces } from "./financial";
+import { effectiveBoxPieces, roundMoney } from "./financial";
 
 /** Carton size, floored at 1 so a mis-entered 0 cannot collapse a line to nothing. */
 function cartonSize(pcsPerCarton: number) {
@@ -34,7 +34,13 @@ export function piecesForUnit(
   return quantity; // PIECE
 }
 
-/** The price of ONE `unit`, given the per-piece sale price. */
+/**
+ * The price of ONE `unit`, given the per-piece sale price — as a whole dinar.
+ *
+ * The rounding happens on the finished unit price, never on the per-piece
+ * price: a piece at 833.33 must sell by the carton at exactly 10,000, and
+ * rounding the piece first would make it 833 × 12 = 9,996.
+ */
 export function priceForUnit(
   unit: Unit,
   salePricePerPiece: unknown,
@@ -43,8 +49,8 @@ export function priceForUnit(
 ): number {
   const price = salePricePerPiece == null ? 0 : Number(salePricePerPiece);
   const n = cartonSize(pcsPerCarton);
-  if (unit === Unit.CARTON) return price * n;
-  if (unit === Unit.BOX) return price * effectiveBoxPieces(n, boxPieces);
-  if (unit === Unit.DOZEN) return price * 12;
-  return price; // PIECE
+  if (unit === Unit.CARTON) return roundMoney(price * n);
+  if (unit === Unit.BOX) return roundMoney(price * effectiveBoxPieces(n, boxPieces));
+  if (unit === Unit.DOZEN) return roundMoney(price * 12);
+  return roundMoney(price); // PIECE
 }
