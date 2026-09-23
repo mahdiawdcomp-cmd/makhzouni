@@ -52,3 +52,8 @@ inventory-android/.gradle/
 inventory-android/.idea/caches/
 __pycache__/
 inventory-android/local.properties
+
+# مخلفات أدوات الاختبار والتشغيل المحلي — تتولد لحالها ولا تخص أحداً غير الجهاز
+.playwright-cli/
+**/.playwright-cli/
+output/

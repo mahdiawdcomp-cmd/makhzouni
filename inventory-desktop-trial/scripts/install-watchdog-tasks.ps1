@@ -57,13 +57,11 @@ function Register-WatchdogTask {
     -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit (New-TimeSpan -Minutes $LimitMinutes) `
     -MultipleInstances IgnoreNew
-  if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-    Write-Host "  Task exists -> updating: $TaskName" -ForegroundColor Yellow
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-  }
+  # ‏-Force يكتب فوق المهمة الموجودة. الحذف ثم التسجيل كان يفشل بـ«رُفض الوصول»
+  # بلا صلاحية مدير، وبعدين يطبع «تم» — يعني يبقي التعريف القديم بصمت.
   Register-ScheduledTask -TaskName $TaskName `
     -Action $action -Trigger $Trigger -Settings $settings -Principal $principal `
-    -Description $Description -ErrorAction SilentlyContinue | Out-Null
+    -Description $Description -Force -ErrorAction SilentlyContinue | Out-Null
   # يُفحص بعد التسجيل لا قبله: Register-ScheduledTask يرجّع خطأ غير موقف،
   # فطباعة «تم» بلا فحص كانت تكذب عند رفض الصلاحية.
   if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
@@ -123,6 +121,19 @@ if (Test-Path $fullScript) {
     -Trigger (New-ScheduledTaskTrigger -Daily -At '04:00') `
     -Description 'Monthly full pg_dump of the production database (runs on the 1st).' `
     -LimitMinutes 120
+}
+
+# ── ٥. تجربة استرجاع فعلية (شهرياً، منتصف الشهر) ──────────────────────────
+# بمنتصف الشهر لا بأوله: النسخة الكاملة تشتغل بأول الشهر، وتشغيلهما بنفس
+# اليوم يخلي الجهاز ثقيلاً بلا سبب.
+$restoreScript = Join-Path $PSScriptRoot 'verify-restore.ps1'
+if (Test-Path $restoreScript) {
+  Register-WatchdogTask `
+    -TaskName 'Makhzouni Restore Test' `
+    -Arguments ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -AppDataDir "{1}" -OnlyOnDayOfMonth 15' -f $restoreScript, $AppDataDir) `
+    -Trigger (New-ScheduledTaskTrigger -Daily -At '05:00') `
+    -Description 'Monthly real restore of the latest backup into a scratch database (runs on the 15th).' `
+    -LimitMinutes 90
 }
 
 Write-Host ""
