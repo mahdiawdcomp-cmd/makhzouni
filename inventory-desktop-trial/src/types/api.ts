@@ -428,6 +428,8 @@ export interface CycleCountSessionDetail extends Omit<CycleCountSessionSummary, 
 
 export interface PublicCatalogProduct {
   cartonPiecePrice?: number | null
+  purchaseMode?: "WHOLESALE" | "CARTON"
+  wholesalePiecePrice?: number | null
   id: string
   itemNumber: string
   name: string
@@ -488,6 +490,7 @@ export interface CatalogSession {
 }
 
 export interface CatalogOrderPayload {
+  priceMode?: "WHOLESALE" | "CARTON"
   customerName: string
   phone: string
   address?: string
@@ -1010,12 +1013,42 @@ export interface PreparationWorker {
 }
 
 export interface AppSettings {
-  personalDebtReminderWhatsappNumber?: string
-  reportsProfitStartDate?: string
-  loyaltyPointValue?: number
-  loyaltyExpiryDays?: number
+  storeName: string
+  storeLogo: string
+  storePhone: string
+  storeAddress: string
+  currency: string
+  debtReminderDays: number
+  inactiveCustomerDays: number
+  autoSendDebtReminder: boolean
+  autoSendInactiveMessage: boolean
+  invoiceTemplate?: string
+  voucherTemplate?: string
+  statementTemplate?: string
+  invoiceDesign?: string   // visual invoice designer layout (JSON) — separate from WhatsApp text templates above
+  // Meta-approved Cloud API template names — empty means not configured yet,
+  // sends fall back to the free-text templates above. invoiceTemplateName is
+  // reused for both the regular PDF invoice and the customer-safe "فاتورة
+  // بالصور" send — both go out as a document (PDF) now.
+  invoiceTemplateName?: string
+  voucherTemplateName?: string
+  statementTemplateName?: string
+  portalLinkTemplateName?: string
+  statementPdfTemplateName?: string
+  otpTemplateName?: string
+  catalogAccessRequestedTemplateName?: string
+  catalogAccessApprovedTemplateName?: string
+  orderSubmittedTemplateName?: string
+  productArrivalTemplateName?: string
+  debtReminderTemplateName?: string
+  inactiveCustomerTemplateName?: string
+  countLinkTemplateName?: string
+  storefrontCredentialsTemplateName?: string
+  storefrontLoginCodeTemplateName?: string
+  storefrontInviteTemplateName?: string
   storefrontInviteMessage?: string
   storefrontInviteKeywords?: string[]
+  storefrontInviteTemplateParams?: string[]
   catalogAnnouncementEnabled?: boolean
   catalogAnnouncementText?: string
   catalogSections?: Array<{ key: string; enabled: boolean }>
@@ -1033,6 +1066,26 @@ export interface AppSettings {
   catalogAutoUnlockForCustomers?: boolean
   catalogGuestPhoneGate?: boolean
   catalogTierNudgeEnabled?: boolean
+  catalogTierNudgePercent?: number
+  catalogTierNudgeMessage?: string
+  catalogTierNudgeTemplateName?: string
+  catalogAccessApprovedV2TemplateName?: string
+  couponExpiryReminderTemplateName?: string
+  followUpNoReplyTemplateName?: string
+  followUpNoOrderTemplateName?: string
+  followUpInactiveTemplateName?: string
+  themePreset?: ThemePreset
+  backupWhatsappNumber?: string
+  personalDebtReminderWhatsappNumber?: string
+  reportsProfitStartDate?: string
+  /** إقفال الفترة المحاسبية — YYYY-MM-DD، وفارغ يعني لا يوجد إقفال. */
+  accountingCloseDate?: string
+  shopWarehouseId?: string
+  catalogPublicUrl?: string
+  catalogAdminWhatsappNumber?: string
+  aiAgentName?: string
+  aiAgentMuteMinutes?: number
+  aiUpsetAlertPhone?: string
   catalogRequireOtp?: boolean
   catalogFullCartonOnly?: boolean
   catalogHideNoImage?: boolean
@@ -1045,6 +1098,8 @@ export interface AppSettings {
   catalogStudioOfferAlbum?: boolean
   catalogStudioNewAlbum?: boolean
   catalogStudioOfferDot?: boolean
+  loyaltyPointValue?: number
+  loyaltyExpiryDays?: number
   /** Storefront login: close anonymous browsing entirely. */
   catalogRequireLogin?: boolean
   /** «الكشك» — the in-shop screen. The token is its only credential. */
@@ -1061,6 +1116,8 @@ export interface AppSettings {
   catalogAccessApprovedTemplate?: string
   /** Words that opt a number out of marketing. Empty = built-in defaults. */
   marketingStopKeywords?: string[]
+  marketingStopConfirmation?: string
+  catalogShuffleMode?: "hourly" | "daily" | "off"
   /** بند ٤ — محافظات "الشمال" (توصيل حسب البضاعة)؛ الباقي وسط/جنوب/غرب. */
   catalogNorthGovernorates?: string[]
   /** بند ٤ — حد الشحن المجاني بالدينار لمحافظات وسط/جنوب/غرب. */
@@ -1085,43 +1142,16 @@ export interface AppSettings {
   whatsappLastPhoneStatus?: string
   whatsappQualityCheckedAt?: string
   campaignGlobalDailyCap?: number
-  storeName: string
-  storeLogo: string
-  storePhone: string
-  storeAddress: string
-  currency: string
-  debtReminderDays: number
-  inactiveCustomerDays: number
-  autoSendDebtReminder: boolean
-  autoSendInactiveMessage: boolean
-  invoiceTemplate?: string
-  voucherTemplate?: string
-  statementTemplate?: string
-  invoiceDesign?: string   // visual invoice designer layout (JSON) — separate from WhatsApp text templates above
-  // Meta-approved Cloud API template names — empty means not configured yet,
-  // sends fall back to the free-text templates above.
-  invoiceTemplateName?: string
-  voucherTemplateName?: string
-  statementTemplateName?: string
-  portalLinkTemplateName?: string
-  statementPdfTemplateName?: string
-  otpTemplateName?: string
-  catalogAccessRequestedTemplateName?: string
-  catalogAccessApprovedTemplateName?: string
-  orderSubmittedTemplateName?: string
-  productArrivalTemplateName?: string
-  debtReminderTemplateName?: string
-  inactiveCustomerTemplateName?: string
-  countLinkTemplateName?: string
-  themePreset?: ThemePreset
-  backupWhatsappNumber?: string
-  shopWarehouseId?: string
-  catalogPublicUrl?: string
-  catalogAdminWhatsappNumber?: string
-  catalogShuffleMode?: "hourly" | "daily" | "off"
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
   purchaseInvoiceNotifyWhatsappNumber?: string
+  salesAgentWhatsappNumber?: string
+  salesAgentNotifyNewOrder?: boolean
+  salesAgentNotifyNewCustomer?: boolean
+  salesAgentNotifyReceipt?: boolean
+  salesAgentNotifyPriceRequest?: boolean
+  salesAgentNotifyInvoiceChanged?: boolean
+  salesAgentAreas?: string[]
   autoSendDailySummary?: boolean
   dailySummaryWhatsappNumber?: string
   dailySummaryHour?: number
@@ -1171,9 +1201,11 @@ export interface AppSettings {
   prospectAutoReplyEnabled?: boolean
   // WhatsApp customer-service bot — owner-editable list of rules
   whatsappBotEnabled?: boolean
+  // «الموظف الذكي» — AI agent answers first; the rules above stay as fallback.
+  whatsappAiAgentEnabled?: boolean
   botUnknownMessage?: string
   botRules?: BotRule[]
-  // Barcode label sizes and designer
+  // Barcode label sizes (mm)
   labelPieceWidthMm?: number
   labelPieceHeightMm?: number
   labelCartonWidthMm?: number

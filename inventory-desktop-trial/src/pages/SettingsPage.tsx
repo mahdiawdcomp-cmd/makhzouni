@@ -9,17 +9,20 @@ import {
   BellRing,
   Building2,
   CheckCircle2,
+  CheckCircle,
+  Server,
   ChevronDown,
   ClipboardList,
   Copy,
-  Link2,
-  MessageSquare,
   Download,
+  Eye,
+  EyeOff,
+  Link2,
   FileJson,
   HardDrive,
   ImagePlus,
-  KeyRound,
   Keyboard,
+  KeyRound,
   Loader2,
   MessageCircle,
   Palette,
@@ -34,13 +37,10 @@ import {
   Upload,
   Users,
   Warehouse,
-  WifiOff,
   XCircle,
-  Server,
-  Eye,
-  EyeOff,
-  CheckCircle,
 } from "lucide-react"
+import { useAuthStore } from "../store/authStore"
+import { Instagram as InstagramIcon } from "../components/instagram/InstagramIcon"
 import {
   getCustomers,
   getBranches,
@@ -78,6 +78,8 @@ import {
   wipeOperationalData,
   mergeWarehouses,
 } from "../api/endpoints"
+import type { WhatsAppStatus } from "../api/endpoints"
+import type { AppSettings, MessageTemplate, PreparationWorker } from "../types/api"
 import {
   DEFAULT_SHORTCUTS,
   loadShortcutOverrides,
@@ -85,17 +87,13 @@ import {
   resolveShortcuts,
   type ShortcutOverride,
 } from "../hooks/useGlobalShortcuts"
-import type { WhatsAppStatus, WhatsAppProvider } from "../api/endpoints"
-import type { AppSettings, MessageTemplate, PreparationWorker } from "../types/api"
+import { InstagramSettings } from "../components/settings/InstagramSettings"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { useTheme } from "../theme/ThemeProvider"
-import { useAuthStore } from "../store/authStore"
 import { cn } from "../utils/cn"
 import { ChangePasswordForm } from "../components/settings/ChangePasswordForm"
-import { InstagramSettings } from "../components/settings/InstagramSettings"
-import { Instagram as InstagramIcon } from "../components/instagram/InstagramIcon"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 
 interface SeasonalAlert {
@@ -153,6 +151,16 @@ const fallbackSettings: AppSettings = {
   debtReminderTemplateName: "",
   countLinkTemplateName: "",
   inactiveCustomerTemplateName: "",
+  storefrontCredentialsTemplateName: "",
+  storefrontLoginCodeTemplateName: "",
+  storefrontInviteTemplateName: "",
+  storefrontInviteMessage: "",
+  storefrontInviteKeywords: [] as string[],
+  catalogAccessApprovedV2TemplateName: "",
+  couponExpiryReminderTemplateName: "",
+  followUpNoReplyTemplateName: "",
+  followUpNoOrderTemplateName: "",
+  followUpInactiveTemplateName: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",
@@ -197,6 +205,7 @@ function toCsv<T extends object>(rows: T[]) {
 type SettingsTab = "server" | "store" | "theme" | "whatsapp" | "instagram" | "telegram" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
+  // ربط السيرفر — تبويب خاص بالدسكتوب، ما موجود بالويب.
   { id: "server",    label: "ربط السيرفر",       icon: Server },
   { id: "store",     label: "المتجر",           icon: Building2 },
   { id: "theme",     label: "المظهر",           icon: Palette },
@@ -241,6 +250,7 @@ export function SettingsPage() {
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const customersQuery = useQuery({ queryKey: ["customers", "backup"], queryFn: () => getCustomers() })
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState("")
   const [backupMsg, setBackupMsg] = useState("")
   const [summaryMsg, setSummaryMsg] = useState("")
   const [downloadMsg, setDownloadMsg] = useState("")
@@ -261,12 +271,19 @@ export function SettingsPage() {
       }
       return updateSettings(payload)
     },
+    onMutate: () => setSaveError(""),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] })
-      // Refresh the active WhatsApp provider immediately after saving.
+      // Refresh the active WhatsApp provider immediately after saving so the
+      // "you are using…" line reflects the newly-saved provider right away.
       queryClient.invalidateQueries({ queryKey: ["whatsapp-status"] })
       setSaved(true)
+      setSaveError("")
       setTimeout(() => setSaved(false), 2000)
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setSaveError(msg || "✗ فشل حفظ الإعدادات")
     },
   })
 
@@ -406,6 +423,11 @@ export function SettingsPage() {
     setSettings((s) => ({ ...s, [key]: value }))
   }
 
+  function updNum<K extends keyof AppSettings>(key: K, raw: string) {
+    const v = Number(raw)
+    if (Number.isFinite(v)) upd(key, v as AppSettings[K])
+  }
+
   function uploadLogo(file: File | undefined) {
     if (!file) return
     const reader = new FileReader()
@@ -430,12 +452,7 @@ export function SettingsPage() {
   }
 
   return (
-    // isSuccess alone stays true through a background refetch — e.g. right
-    // after another open tab (Catalog Management) PATCHes a setting and
-    // invalidates this same ["settings"] query. Save buttons must stay
-    // blocked until that refetch actually lands, or a click in that window
-    // PUTs the pre-refetch snapshot and silently reverts the other tab's edit.
-    <SettingsLoadedContext.Provider value={settingsQuery.isSuccess && !settingsQuery.isFetching}>
+    <SettingsLoadedContext.Provider value={settingsQuery.isSuccess}>
     <div className="space-y-4 max-w-3xl mx-auto">
       {/* Header */}
       {settingsQuery.isError ? (
@@ -473,6 +490,8 @@ export function SettingsPage() {
       </div>
 
       {/* ── STORE ──────────────────────────────────────────── */}
+      {activeTab === "server" && <ServerConnectionPanel />}
+
       {activeTab === "store" && (
         <Card>
           <CardContent className="p-5 space-y-4">
@@ -514,19 +533,21 @@ export function SettingsPage() {
                 {settings.storeLogo ? <img src={settings.storeLogo} alt="logo" className="h-14 w-14 rounded-lg object-cover border border-slate-200" /> : null}
               </div>
             </Field>
+
             <SectionTitle>قياس ملصقات الباركود (ملم)</SectionTitle>
+            <p className="text-xs text-slate-500">قياس الملصق بطابعة الباركود. غيّره حسب حجم الملصق عندك ثم اطبع بخيار «الحجم الفعلي / 100%».</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="عرض ملصق القطعة (ملم)">
-                <Input type="number" value={settings.labelPieceWidthMm ?? 50} onChange={(e) => upd("labelPieceWidthMm", Number(e.target.value))} />
+                <Input type="number" value={settings.labelPieceWidthMm ?? 50} onChange={(e) => updNum("labelPieceWidthMm", e.target.value)} />
               </Field>
               <Field label="ارتفاع ملصق القطعة (ملم)">
-                <Input type="number" value={settings.labelPieceHeightMm ?? 25} onChange={(e) => upd("labelPieceHeightMm", Number(e.target.value))} />
+                <Input type="number" value={settings.labelPieceHeightMm ?? 25} onChange={(e) => updNum("labelPieceHeightMm", e.target.value)} />
               </Field>
-              <Field label="عرض ملصق الكارتون (ملم)">
-                <Input type="number" value={settings.labelCartonWidthMm ?? 100} onChange={(e) => upd("labelCartonWidthMm", Number(e.target.value))} />
+              <Field label="عرض ملصق الكرتون (ملم)">
+                <Input type="number" value={settings.labelCartonWidthMm ?? 100} onChange={(e) => updNum("labelCartonWidthMm", e.target.value)} />
               </Field>
-              <Field label="ارتفاع ملصق الكارتون (ملم)">
-                <Input type="number" value={settings.labelCartonHeightMm ?? 100} onChange={(e) => upd("labelCartonHeightMm", Number(e.target.value))} />
+              <Field label="ارتفاع ملصق الكرتون (ملم)">
+                <Input type="number" value={settings.labelCartonHeightMm ?? 100} onChange={(e) => updNum("labelCartonHeightMm", e.target.value)} />
               </Field>
             </div>
 
@@ -548,13 +569,13 @@ export function SettingsPage() {
                     </select>
                   </Field>
                   <Field label="حجم خط اسم المادة">
-                    <Input type="number" value={settings.pieceLabelNameFontSize ?? 14} onChange={(e) => upd("pieceLabelNameFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.pieceLabelNameFontSize ?? 14} onChange={(e) => updNum("pieceLabelNameFontSize", e.target.value)} />
                   </Field>
                   <Field label="حجم خط التفاصيل">
-                    <Input type="number" value={settings.pieceLabelMetaFontSize ?? 10} onChange={(e) => upd("pieceLabelMetaFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.pieceLabelMetaFontSize ?? 10} onChange={(e) => updNum("pieceLabelMetaFontSize", e.target.value)} />
                   </Field>
                   <Field label="الحاشية الداخلية (ملم)">
-                    <Input type="number" value={settings.pieceLabelPaddingMm ?? 2} onChange={(e) => upd("pieceLabelPaddingMm", Number(e.target.value))} />
+                    <Input type="number" value={settings.pieceLabelPaddingMm ?? 2} onChange={(e) => updNum("pieceLabelPaddingMm", e.target.value)} />
                   </Field>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-3">
@@ -593,13 +614,13 @@ export function SettingsPage() {
                     </select>
                   </Field>
                   <Field label="حجم خط اسم المادة">
-                    <Input type="number" value={settings.cartonLabelNameFontSize ?? 20} onChange={(e) => upd("cartonLabelNameFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.cartonLabelNameFontSize ?? 20} onChange={(e) => updNum("cartonLabelNameFontSize", e.target.value)} />
                   </Field>
                   <Field label="حجم خط التفاصيل">
-                    <Input type="number" value={settings.cartonLabelMetaFontSize ?? 14} onChange={(e) => upd("cartonLabelMetaFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.cartonLabelMetaFontSize ?? 14} onChange={(e) => updNum("cartonLabelMetaFontSize", e.target.value)} />
                   </Field>
                   <Field label="الحاشية الداخلية (ملم)">
-                    <Input type="number" value={settings.cartonLabelPaddingMm ?? 5} onChange={(e) => upd("cartonLabelPaddingMm", Number(e.target.value))} />
+                    <Input type="number" value={settings.cartonLabelPaddingMm ?? 5} onChange={(e) => updNum("cartonLabelPaddingMm", e.target.value)} />
                   </Field>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-3">
@@ -620,7 +641,7 @@ export function SettingsPage() {
               <CartonLabelPreview settings={settings} />
             </div>
 
-            <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+            <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
           </CardContent>
         </Card>
       )}
@@ -662,228 +683,53 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
-        </>
-      )}
 
-      {/* ── WHATSAPP ───────────────────────────────────────── */}
-      {activeTab === "whatsapp" && (
-        <>
-        <WhatsAppProviderSettings
-          settings={settings}
-          upd={upd}
-          saveSettings={saveSettings}
-          saved={saved}
-          status={waQuery.data ?? null}
-          onRestart={() => waRestartMutation.mutate()}
-          restarting={waRestartMutation.isPending}
-        />
-        <WorkersEditor settings={settings} upd={upd} saveSettings={saveSettings} saved={saved} />
         <Card>
-          <CardContent className="p-5 space-y-4">
-            <SectionTitle>تنبيهات الكتالوج وتجهيز الطلبات</SectionTitle>
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="رقمك الخاص لاستقبال طلبات الكتالوج">
-                <Input
-                  value={settings.catalogAdminWhatsappNumber ?? ""}
-                  onChange={(e) => upd("catalogAdminWhatsappNumber", e.target.value)}
-                  placeholder="9647xxxxxxxx"
-                  dir="ltr"
-                />
-              </Field>
-              <Field label="رابط الكتالوج العام">
-                <Input
-                  value={settings.catalogPublicUrl ?? ""}
-                  onChange={(e) => upd("catalogPublicUrl", e.target.value)}
-                  placeholder="https://inventory-web-six-kohl.vercel.app/catalog"
-                  dir="ltr"
-                />
-              </Field>
-              <div className="md:col-span-2">
-                <Field label="أرقام موظفين التجهيز">
-                  <textarea
-                    className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
-                    value={settings.orderPreparationWhatsappNumbers ?? ""}
-                    onChange={(e) => upd("orderPreparationWhatsappNumbers", e.target.value)}
-                    placeholder={"9647xxxxxxxx\n9647xxxxxxxx"}
-                    dir="ltr"
-                  />
-                </Field>
-                <p className="mt-1 text-xs text-slate-500">
-                  اكتب كل رقم بسطر، أو افصل الأرقام بفارزة. إذا تركت رقمك الخاص فارغ يستخدم رقم النسخ الاحتياطي كبديل.
-                </p>
-              </div>
-              <div className="md:col-span-2">
-                <Field label="رقم موافقات المدير (واتساب)">
-                  <Input
-                    value={settings.adminApprovalWhatsappNumber ?? ""}
-                    onChange={(e) => upd("adminApprovalWhatsappNumber", e.target.value)}
-                    placeholder="9647xxxxxxxx"
-                    dir="ltr"
-                  />
-                </Field>
-                <p className="mt-1 text-xs text-slate-500">
-                  يصله إشعار واتساب بكل طلب حذف/تعطيل من الموظفين (اسم الموظف، العملية، السجل، الوقت). إذا تركته فارغ يُرسل لرقم المتجر.
-                </p>
-              </div>
-              <div className="md:col-span-2">
-                <Field label="رقم إشعار فواتير الشراء (واتساب)">
-                  <Input
-                    value={settings.purchaseInvoiceNotifyWhatsappNumber ?? ""}
-                    onChange={(e) => upd("purchaseInvoiceNotifyWhatsappNumber", e.target.value)}
-                    placeholder="9647xxxxxxxx"
-                    dir="ltr"
-                  />
-                </Field>
-                <p className="mt-1 text-xs text-slate-500">
-                  عند حفظ فاتورة شراء عادية (منك أو من موظف) يوصله صورة كل مادة بالفاتورة مع الكود والسعر وعدد القطع بالكرتون. اتركه فارغ لإيقاف الإشعار. لا ينطبق على أوردر الصين ولا على فواتير الموافقة المعلّقة.
-                </p>
-              </div>
-            </div>
-            <SaveRow
-              onSave={() => saveSettings.mutate({
-                catalogAdminWhatsappNumber: settings.catalogAdminWhatsappNumber,
-                catalogPublicUrl: settings.catalogPublicUrl,
-                orderPreparationWhatsappNumbers: settings.orderPreparationWhatsappNumbers,
-                adminApprovalWhatsappNumber: settings.adminApprovalWhatsappNumber,
-                purchaseInvoiceNotifyWhatsappNumber: settings.purchaseInvoiceNotifyWhatsappNumber,
-              })}
-              isPending={saveSettings.isPending}
-              saved={saved}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <details className="group space-y-4">
-            <summary className="flex cursor-pointer list-none items-center justify-between">
-              <SectionTitle>قوالب رسائل واتساب</SectionTitle>
-              <ChevronDown className="h-5 w-5 text-slate-400 transition group-open:rotate-180" />
-            </summary>
-            <div className="flex flex-wrap gap-1.5 pt-2">
-              {WA_PLACEHOLDERS.map((v) => (
-                <span key={v} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-mono text-slate-600 dark:bg-slate-800 dark:text-slate-300">{v}</span>
-              ))}
-            </div>
-            <div className="space-y-3">
-              <TemplateField
-                label="قالب الفاتورة 🧾"
-                value={settings.invoiceTemplate ?? ""}
-                onChange={(v) => upd("invoiceTemplate", v)}
-              />
-              <TemplateField
-                label="قالب السند 🧾"
-                value={settings.voucherTemplate ?? ""}
-                onChange={(v) => upd("voucherTemplate", v)}
-              />
-              <TemplateField
-                label="قالب كشف الحساب 📊"
-                value={settings.statementTemplate ?? ""}
-                onChange={(v) => upd("statementTemplate", v)}
-              />
-            </div>
-            <SaveRow
-              onSave={() => saveSettings.mutate({
-                invoiceTemplate: settings.invoiceTemplate,
-                voucherTemplate: settings.voucherTemplate,
-                statementTemplate: settings.statementTemplate,
-              })}
-              isPending={saveSettings.isPending}
-              saved={saved}
-            />
-
-            <hr className="border-slate-200 dark:border-slate-700" />
-            <SectionTitle>أسماء قوالب واتساب المعتمدة من ميتا</SectionTitle>
-            <p className="text-xs text-slate-500">
-              واتساب يرفض إرسال نص حر للزبون بعد مرور 24 ساعة على آخر رسالة منه — القوالب فوق تفشل بصمت بهذه الحالة.
-              لو أنشأت قالباً بنفس الغرض ووافقت عليه ميتا من Business Manager، اكتب اسمه بالضبط هنا وراح يترسل هو أول
-              (وإذا فشل أو ما كان موجود، يرجع تلقائياً للنص الحر فوق — بدون أي تغيير بالسلوك الحالي).
+          <CardContent className="p-5 space-y-3">
+            <SectionTitle>إقفال الفترة المحاسبية</SectionTitle>
+            <p className="text-sm text-slate-500">
+              بعد ما تقفل حتى تاريخ معيّن، ما يبقى ممكن إضافة أو تعديل أو إلغاء أو حذف أي فاتورة أو سند مؤرّخ بذلك التاريخ أو قبله — لا للموظف ولا للمدير.
+              أرباح الشهر المقفول تثبت ولا تتغيّر وراك. التاريخ يتغيّر من هنا فقط، والتغيير يُسجّل بسجل التدقيق.
             </p>
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="قالب الفاتورة">
-                <Input value={settings.invoiceTemplateName ?? ""} onChange={(e) => upd("invoiceTemplateName", e.target.value)} placeholder="invoice_notification" dir="ltr" />
-              </Field>
-              <Field label="قالب السند">
-                <Input value={settings.voucherTemplateName ?? ""} onChange={(e) => upd("voucherTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب كشف الحساب">
-                <Input value={settings.statementTemplateName ?? ""} onChange={(e) => upd("statementTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب رابط العميل الإلكتروني">
-                <Input value={settings.portalLinkTemplateName ?? ""} onChange={(e) => upd("portalLinkTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب كشف الحساب PDF (مستند)">
-                <Input value={settings.statementPdfTemplateName ?? ""} onChange={(e) => upd("statementPdfTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب رمز التحقق OTP">
-                <Input value={settings.otpTemplateName ?? ""} onChange={(e) => upd("otpTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب طلب الوصول للكتلوك">
-                <Input value={settings.catalogAccessRequestedTemplateName ?? ""} onChange={(e) => upd("catalogAccessRequestedTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب الموافقة على الوصول للكتلوك">
-                <Input value={settings.catalogAccessApprovedTemplateName ?? ""} onChange={(e) => upd("catalogAccessApprovedTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب تثبيت طلب الكتلوك">
-                <Input value={settings.orderSubmittedTemplateName ?? ""} onChange={(e) => upd("orderSubmittedTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب وصول المنتج المطلوب">
-                <Input value={settings.productArrivalTemplateName ?? ""} onChange={(e) => upd("productArrivalTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب تذكير الديون (إرسال يدوي)">
-                <Input value={settings.debtReminderTemplateName ?? ""} onChange={(e) => upd("debtReminderTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
-              <Field label="قالب رابط جرد الفاتورة">
-                <Input
-                  value={settings.countLinkTemplateName ?? ""}
-                  onChange={(e) => upd("countLinkTemplateName", e.target.value)}
-                  placeholder="اسم القالب بالضبط من ميتا"
-                  dir="ltr"
+            <p className="text-sm text-slate-500">
+              ما ينحذف ولا ينخفي شي: كل الفواتير والسندات القديمة تظل معروضة وكل التقارير تشملها. اتركه فارغاً إذا ما تريد إقفال.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">مقفل حتى تاريخ (شامل)</span>
+                <input
+                  type="date"
+                  value={settings.accountingCloseDate ?? ""}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, accountingCloseDate: e.target.value }))}
+                  className="h-11 rounded-lg border px-3 dark:bg-slate-900"
                 />
-              </Field>
-              <Field label="قالب تذكير الزبائن غير النشطين (إرسال يدوي)">
-                <Input value={settings.inactiveCustomerTemplateName ?? ""} onChange={(e) => upd("inactiveCustomerTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
-              </Field>
+              </label>
+              <Button
+                onClick={() => saveSettings.mutate({ accountingCloseDate: settings.accountingCloseDate ?? "" })}
+                disabled={saveSettings.isPending || !settingsQuery.isSuccess}
+                className="h-11"
+              >
+                حفظ تاريخ الإقفال
+              </Button>
+              {settings.accountingCloseDate ? (
+                <Button
+                  variant="outline"
+                  className="h-11"
+                  onClick={() => {
+                    setSettings((prev) => ({ ...prev, accountingCloseDate: "" }))
+                    saveSettings.mutate({ accountingCloseDate: "" })
+                  }}
+                  disabled={saveSettings.isPending}
+                >
+                  إلغاء الإقفال
+                </Button>
+              ) : null}
             </div>
-            <SaveRow
-              onSave={() => saveSettings.mutate({
-                invoiceTemplateName: settings.invoiceTemplateName,
-                voucherTemplateName: settings.voucherTemplateName,
-                statementTemplateName: settings.statementTemplateName,
-                portalLinkTemplateName: settings.portalLinkTemplateName,
-                statementPdfTemplateName: settings.statementPdfTemplateName,
-                otpTemplateName: settings.otpTemplateName,
-                catalogAccessRequestedTemplateName: settings.catalogAccessRequestedTemplateName,
-                catalogAccessApprovedTemplateName: settings.catalogAccessApprovedTemplateName,
-                orderSubmittedTemplateName: settings.orderSubmittedTemplateName,
-                productArrivalTemplateName: settings.productArrivalTemplateName,
-                debtReminderTemplateName: settings.debtReminderTemplateName,
-                inactiveCustomerTemplateName: settings.inactiveCustomerTemplateName,
-              })}
-              isPending={saveSettings.isPending}
-              saved={saved}
-            />
-
-            {/* Legacy message templates */}
-            {templates.length > 0 ? (
-              <>
-                <hr className="border-slate-200 dark:border-slate-700" />
-                <SectionTitle>قوالب قديمة</SectionTitle>
-                {templates.map((t) => (
-                  <div key={t.id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-sm font-medium">{t.name}</span>
-                      <Button size="sm" variant="outline" onClick={() => saveTemplate.mutate(t)} disabled={saveTemplate.isPending}>حفظ</Button>
-                    </div>
-                    <textarea
-                      className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
-                      value={t.body}
-                      onChange={(e) => setTemplates((prev) => prev.map((x) => x.id === t.id ? { ...x, body: e.target.value } : x))}
-                    />
-                  </div>
-                ))}
-              </>
-            ) : null}
-            </details>
+            <p className="text-sm font-semibold">
+              {settings.accountingCloseDate
+                ? <span className="text-amber-600">الوضع الحالي: مقفل حتى {settings.accountingCloseDate}</span>
+                : <span className="text-slate-400">الوضع الحالي: لا يوجد إقفال — كل الفترات مفتوحة للتعديل.</span>}
+            </p>
           </CardContent>
         </Card>
         </>
@@ -894,7 +740,6 @@ export function SettingsPage() {
         <Card><CardContent className="p-4"><InstagramSettings /></CardContent></Card>
       )}
 
-      {/* ── ALERTS ─────────────────────────────────────────── */}
       {/* ── TELEGRAM CHANNEL (wholesale-catalog mirror) ─────── */}
       {activeTab === "telegram" && (
         <div className="space-y-4">
@@ -984,7 +829,7 @@ export function SettingsPage() {
               <p className="text-xs text-amber-600">
                 ⚠️ القناة عامة والأسعار ظاهرة بالمنشورات — اختبر الربط ثم احفظ قبل التفعيل. لا تستخدم توكن بوت النسخ الاحتياطي هنا.
               </p>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -1083,7 +928,7 @@ export function SettingsPage() {
                   placeholder="123456789"
                 />
               </Field>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -1248,6 +1093,449 @@ export function SettingsPage() {
         </div>
       )}
 
+      {/* ── WHATSAPP ───────────────────────────────────────── */}
+      {activeTab === "whatsapp" && (
+        <>
+        <WhatsAppProviderSettings
+          settings={settings}
+          upd={upd}
+          saveSettings={saveSettings}
+          saved={saved}
+          status={waQuery.data ?? null}
+          onRestart={() => waRestartMutation.mutate()}
+          restarting={waRestartMutation.isPending}
+        />
+        <WorkersEditor settings={settings} upd={upd} saveSettings={saveSettings} saved={saved} />
+        <Card>
+          <CardContent className="p-5 space-y-4">
+            <SectionTitle>تنبيهات الكتالوج وتجهيز الطلبات</SectionTitle>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="رقمك الخاص لاستقبال طلبات الكتالوج">
+                <Input
+                  value={settings.catalogAdminWhatsappNumber ?? ""}
+                  onChange={(e) => upd("catalogAdminWhatsappNumber", e.target.value)}
+                  placeholder="9647xxxxxxxx"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="رابط الكتالوج العام">
+                <Input
+                  value={settings.catalogPublicUrl ?? ""}
+                  onChange={(e) => upd("catalogPublicUrl", e.target.value)}
+                  placeholder="https://inventory-web-six-kohl.vercel.app/catalog"
+                  dir="ltr"
+                />
+              </Field>
+              <div className="md:col-span-2">
+                <Field label="أرقام موظفين التجهيز">
+                  <textarea
+                    className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                    value={settings.orderPreparationWhatsappNumbers ?? ""}
+                    onChange={(e) => upd("orderPreparationWhatsappNumbers", e.target.value)}
+                    placeholder={"9647xxxxxxxx\n9647xxxxxxxx"}
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  اكتب كل رقم بسطر، أو افصل الأرقام بفارزة. إذا تركت رقمك الخاص فارغ يستخدم رقم النسخ الاحتياطي كبديل.
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <Field label="رقم موافقات المدير (واتساب)">
+                  <Input
+                    value={settings.adminApprovalWhatsappNumber ?? ""}
+                    onChange={(e) => upd("adminApprovalWhatsappNumber", e.target.value)}
+                    placeholder="9647xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  يصله إشعار واتساب بكل طلب حذف/تعطيل من الموظفين (اسم الموظف، العملية، السجل، الوقت). إذا تركته فارغ يُرسل لرقم المتجر.
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <Field label="رقم إشعار فواتير الشراء (واتساب)">
+                  <Input
+                    value={settings.purchaseInvoiceNotifyWhatsappNumber ?? ""}
+                    onChange={(e) => upd("purchaseInvoiceNotifyWhatsappNumber", e.target.value)}
+                    placeholder="9647xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  عند حفظ فاتورة شراء عادية (منك أو من موظف) يوصله صورة كل مادة بالفاتورة مع الكود والسعر وعدد القطع بالكرتون. اتركه فارغ لإيقاف الإشعار. لا ينطبق على أوردر الصين ولا على فواتير الموافقة المعلّقة.
+                </p>
+              </div>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                catalogAdminWhatsappNumber: settings.catalogAdminWhatsappNumber,
+                catalogPublicUrl: settings.catalogPublicUrl,
+                orderPreparationWhatsappNumbers: settings.orderPreparationWhatsappNumbers,
+                adminApprovalWhatsappNumber: settings.adminApprovalWhatsappNumber,
+                purchaseInvoiceNotifyWhatsappNumber: settings.purchaseInvoiceNotifyWhatsappNumber,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+          </CardContent>
+        </Card>
+
+        {/* «إشعارات المندوب» — the fourth notification box. Deliberately its own
+            card and its own save button: it is a separate destination with a
+            separate on/off switch per event, and folding it into the block above
+            would make muting one rep alert look like muting catalog orders. */}
+        <Card>
+          <CardContent className="space-y-4 p-5">
+            <SectionTitle>إشعارات المندوب</SectionTitle>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <Field label="رقم إشعارات المندوب (واتساب)">
+                  <Input
+                    value={settings.salesAgentWhatsappNumber ?? ""}
+                    onChange={(e) => upd("salesAgentWhatsappNumber", e.target.value)}
+                    placeholder="9647xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  كل حركة يسويها المندوب توصل لهذا الرقم. إذا تركته فارغ يُرسل لرقم الكتلوك ثم رقم المتجر.
+                </p>
+              </div>
+
+              <Toggle
+                label="فاتورة جديدة من مندوب"
+                checked={settings.salesAgentNotifyNewOrder !== false}
+                onChange={(v) => upd("salesAgentNotifyNewOrder", v)}
+              />
+              <Toggle
+                label="زبون جديد أنشأه مندوب"
+                checked={settings.salesAgentNotifyNewCustomer !== false}
+                onChange={(v) => upd("salesAgentNotifyNewCustomer", v)}
+              />
+              <Toggle
+                label="سند قبض سجّله مندوب"
+                checked={settings.salesAgentNotifyReceipt !== false}
+                onChange={(v) => upd("salesAgentNotifyReceipt", v)}
+              />
+              <Toggle
+                label="طلب تغيير سعر"
+                checked={settings.salesAgentNotifyPriceRequest !== false}
+                onChange={(v) => upd("salesAgentNotifyPriceRequest", v)}
+              />
+              <Toggle
+                label="تعديل أو حذف فاتورة تخص مندوباً"
+                checked={settings.salesAgentNotifyInvoiceChanged !== false}
+                onChange={(v) => upd("salesAgentNotifyInvoiceChanged", v)}
+              />
+
+              <div className="md:col-span-2">
+                <Field label="مناطق المندوب">
+                  <textarea
+                    className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                    value={(settings.salesAgentAreas ?? []).join("\n")}
+                    onChange={(e) =>
+                      upd(
+                        "salesAgentAreas",
+                        e.target.value
+                          .split(/\r?\n/)
+                          .map((a) => a.trim())
+                          .filter(Boolean),
+                      )
+                    }
+                    placeholder={"اسم المنطقة\nاسم المنطقة"}
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  اكتب كل منطقة بسطر. المندوب يختار منها عند تسجيل زبون جديد — قائمة محددة حتى ما تتكرر نفس المنطقة بعدة كتابات.
+                </p>
+              </div>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                salesAgentWhatsappNumber: settings.salesAgentWhatsappNumber,
+                salesAgentNotifyNewOrder: settings.salesAgentNotifyNewOrder !== false,
+                salesAgentNotifyNewCustomer: settings.salesAgentNotifyNewCustomer !== false,
+                salesAgentNotifyReceipt: settings.salesAgentNotifyReceipt !== false,
+                salesAgentNotifyPriceRequest: settings.salesAgentNotifyPriceRequest !== false,
+                salesAgentNotifyInvoiceChanged: settings.salesAgentNotifyInvoiceChanged !== false,
+                salesAgentAreas: settings.salesAgentAreas ?? [],
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <details className="group space-y-4">
+            <summary className="flex cursor-pointer list-none items-center justify-between">
+              <SectionTitle>قوالب رسائل واتساب</SectionTitle>
+              <ChevronDown className="h-5 w-5 text-slate-400 transition group-open:rotate-180" />
+            </summary>
+            <div className="flex flex-wrap gap-1.5 pt-2">
+              {WA_PLACEHOLDERS.map((v) => (
+                <span key={v} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-mono text-slate-600 dark:bg-slate-800 dark:text-slate-300">{v}</span>
+              ))}
+            </div>
+            <div className="space-y-3">
+              <TemplateField
+                label="قالب الفاتورة 🧾"
+                value={settings.invoiceTemplate ?? ""}
+                onChange={(v) => upd("invoiceTemplate", v)}
+              />
+              <TemplateField
+                label="قالب السند 🧾"
+                value={settings.voucherTemplate ?? ""}
+                onChange={(v) => upd("voucherTemplate", v)}
+              />
+              <TemplateField
+                label="قالب كشف الحساب 📊"
+                value={settings.statementTemplate ?? ""}
+                onChange={(v) => upd("statementTemplate", v)}
+              />
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                invoiceTemplate: settings.invoiceTemplate,
+                voucherTemplate: settings.voucherTemplate,
+                statementTemplate: settings.statementTemplate,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+
+            <hr className="border-slate-200 dark:border-slate-700" />
+            <SectionTitle>أسماء قوالب واتساب المعتمدة من ميتا</SectionTitle>
+            <p className="text-xs text-slate-500">
+              واتساب يرفض إرسال نص حر للزبون بعد مرور 24 ساعة على آخر رسالة منه — القوالب فوق تفشل بصمت بهذه الحالة.
+              لو أنشأت قالباً بنفس الغرض ووافقت عليه ميتا من Business Manager، اكتب اسمه بالضبط هنا وراح يترسل هو أول
+              (وإذا فشل أو ما كان موجود، يرجع تلقائياً للنص الحر فوق — بدون أي تغيير بالسلوك الحالي).
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="قالب الفاتورة (عادية + مصوّرة)">
+                <Input
+                  value={settings.invoiceTemplateName ?? ""}
+                  onChange={(e) => upd("invoiceTemplateName", e.target.value)}
+                  placeholder="invoice_notification"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب السند">
+                <Input
+                  value={settings.voucherTemplateName ?? ""}
+                  onChange={(e) => upd("voucherTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب كشف الحساب">
+                <Input
+                  value={settings.statementTemplateName ?? ""}
+                  onChange={(e) => upd("statementTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب رابط العميل الإلكتروني">
+                <Input
+                  value={settings.portalLinkTemplateName ?? ""}
+                  onChange={(e) => upd("portalLinkTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب كشف الحساب PDF (مستند)">
+                <Input
+                  value={settings.statementPdfTemplateName ?? ""}
+                  onChange={(e) => upd("statementPdfTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب رمز التحقق OTP">
+                <Input
+                  value={settings.otpTemplateName ?? ""}
+                  onChange={(e) => upd("otpTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب طلب الوصول للكتلوك">
+                <Input
+                  value={settings.catalogAccessRequestedTemplateName ?? ""}
+                  onChange={(e) => upd("catalogAccessRequestedTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب الموافقة على الوصول للكتلوك">
+                <Input
+                  value={settings.catalogAccessApprovedTemplateName ?? ""}
+                  onChange={(e) => upd("catalogAccessApprovedTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تثبيت طلب الكتلوك">
+                <Input
+                  value={settings.orderSubmittedTemplateName ?? ""}
+                  onChange={(e) => upd("orderSubmittedTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب وصول المنتج المطلوب">
+                <Input
+                  value={settings.productArrivalTemplateName ?? ""}
+                  onChange={(e) => upd("productArrivalTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تذكير الديون (إرسال يدوي)">
+                <Input
+                  value={settings.debtReminderTemplateName ?? ""}
+                  onChange={(e) => upd("debtReminderTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب رابط جرد الفاتورة">
+                <Input
+                  value={settings.countLinkTemplateName ?? ""}
+                  onChange={(e) => upd("countLinkTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تذكير الزبائن غير النشطين (إرسال يدوي)">
+                <Input
+                  value={settings.inactiveCustomerTemplateName ?? ""}
+                  onChange={(e) => upd("inactiveCustomerTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب ترحيب الحساب — أداة مساعدة (بلا رمز)">
+                <Input
+                  value={settings.storefrontCredentialsTemplateName ?? ""}
+                  onChange={(e) => upd("storefrontCredentialsTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب رمز الدخول — مصادقة (الرمز فقط)">
+                <Input
+                  value={settings.storefrontLoginCodeTemplateName ?? ""}
+                  onChange={(e) => upd("storefrontLoginCodeTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب دعوة الحساب — تسويق (بلا رمز)">
+                <Input
+                  value={settings.storefrontInviteTemplateName ?? ""}
+                  onChange={(e) => upd("storefrontInviteTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب الموافقة على الحساب — أداة مساعدة (بلا رمز)">
+                <Input
+                  value={settings.catalogAccessApprovedV2TemplateName ?? ""}
+                  onChange={(e) => upd("catalogAccessApprovedV2TemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تذكير انتهاء الكوبون">
+                <Input
+                  value={settings.couponExpiryReminderTemplateName ?? ""}
+                  onChange={(e) => upd("couponExpiryReminderTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب متابعة: ما رد علينا">
+                <Input
+                  value={settings.followUpNoReplyTemplateName ?? ""}
+                  onChange={(e) => upd("followUpNoReplyTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب متابعة: سجّل وما طلب">
+                <Input
+                  value={settings.followUpNoOrderTemplateName ?? ""}
+                  onChange={(e) => upd("followUpNoOrderTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب متابعة: زبون غير نشط">
+                <Input
+                  value={settings.followUpInactiveTemplateName ?? ""}
+                  onChange={(e) => upd("followUpInactiveTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                invoiceTemplateName: settings.invoiceTemplateName,
+                voucherTemplateName: settings.voucherTemplateName,
+                statementTemplateName: settings.statementTemplateName,
+                portalLinkTemplateName: settings.portalLinkTemplateName,
+                statementPdfTemplateName: settings.statementPdfTemplateName,
+                otpTemplateName: settings.otpTemplateName,
+                catalogAccessRequestedTemplateName: settings.catalogAccessRequestedTemplateName,
+                catalogAccessApprovedTemplateName: settings.catalogAccessApprovedTemplateName,
+                orderSubmittedTemplateName: settings.orderSubmittedTemplateName,
+                productArrivalTemplateName: settings.productArrivalTemplateName,
+                debtReminderTemplateName: settings.debtReminderTemplateName,
+                inactiveCustomerTemplateName: settings.inactiveCustomerTemplateName,
+                storefrontCredentialsTemplateName: settings.storefrontCredentialsTemplateName,
+                storefrontLoginCodeTemplateName: settings.storefrontLoginCodeTemplateName,
+                storefrontInviteTemplateName: settings.storefrontInviteTemplateName,
+                catalogAccessApprovedV2TemplateName: settings.catalogAccessApprovedV2TemplateName,
+                couponExpiryReminderTemplateName: settings.couponExpiryReminderTemplateName,
+                followUpNoReplyTemplateName: settings.followUpNoReplyTemplateName,
+                followUpNoOrderTemplateName: settings.followUpNoOrderTemplateName,
+                followUpInactiveTemplateName: settings.followUpInactiveTemplateName,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+
+            {/* Legacy message templates */}
+            {templates.length > 0 ? (
+              <>
+                <hr className="border-slate-200 dark:border-slate-700" />
+                <SectionTitle>قوالب قديمة</SectionTitle>
+                {templates.map((t) => (
+                  <div key={t.id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-sm font-medium">{t.name}</span>
+                      <Button size="sm" variant="outline" onClick={() => saveTemplate.mutate(t)} disabled={saveTemplate.isPending}>حفظ</Button>
+                    </div>
+                    <textarea
+                      className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                      value={t.body}
+                      onChange={(e) => setTemplates((prev) => prev.map((x) => x.id === t.id ? { ...x, body: e.target.value } : x))}
+                    />
+                  </div>
+                ))}
+              </>
+            ) : null}
+            </details>
+          </CardContent>
+        </Card>
+        </>
+      )}
+
+      {/* ── ALERTS ─────────────────────────────────────────── */}
       {activeTab === "alerts" && (
         <div className="space-y-4">
           {/* Existing alerts */}
@@ -1265,7 +1553,7 @@ export function SettingsPage() {
                   <Input type="number" value={settings.inactiveCustomerDays} onChange={(e) => upd("inactiveCustomerDays", Number(e.target.value))} />
                 </Field>
               </div>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -1303,7 +1591,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+                <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
                 <Button
                   variant="outline"
                   onClick={() => { setSummaryMsg(""); dailySummaryMutation.mutate(); }}
@@ -1403,7 +1691,7 @@ export function SettingsPage() {
                   </span>
                 )}
               </div>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -1433,7 +1721,7 @@ export function SettingsPage() {
                   </span>
                 )}
               </div>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -1464,9 +1752,6 @@ export function SettingsPage() {
 
         </div>
       )}
-
-      {/* ── SERVER CONNECTION ──────────────────────────────── */}
-      {activeTab === "server" && <ServerConnectionPanel />}
 
       {/* ── ARCHIVE ────────────────────────────────────────── */}
       {activeTab === "archive" && (
@@ -1964,9 +2249,9 @@ function PieceLabelPreview({ settings }: { settings: AppSettings }) {
   const nameSize = Math.max(12, Number(settings.pieceLabelNameFontSize ?? 14) * 1.12)
   const metaSize = Math.max(10, Number(settings.pieceLabelMetaFontSize ?? 10) * 1.05)
   const lines = [
-    (settings.pieceLabelShowName ?? true) ? { text: "اسم المادة كامل", size: nameSize, weight: "font-bold" } : null,
-    (settings.pieceLabelShowItemNumber ?? true) ? { text: "رقم الايتم: 8011-A4", size: metaSize, weight: "font-semibold" } : null,
-    (settings.pieceLabelShowCartonCount ?? true) ? { text: "العدد في الكارتون: 120", size: metaSize, weight: "font-semibold" } : null,
+    (settings.pieceLabelShowName ?? true) ? { text: "اسم المادة كامل اذا كان طويل جدا ينزل سطر جديد تلقائيا", size: nameSize, weight: "font-bold" } : null,
+    (settings.pieceLabelShowItemNumber ?? true) ? { text: "8011-A4", size: metaSize, weight: "font-semibold" } : null,
+    (settings.pieceLabelShowCartonCount ?? true) ? { text: "120", size: metaSize, weight: "font-semibold" } : null,
   ].filter(Boolean) as Array<{ text: string; size: number; weight: string }>
 
   const qr = (
@@ -1983,9 +2268,9 @@ function PieceLabelPreview({ settings }: { settings: AppSettings }) {
           {layout === "qr-only" ? (
             <div className="flex h-full items-center justify-center">{qr}</div>
           ) : layout === "stacked" ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-900">
-              {qr}
-              <div className="space-y-1">
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-900">
+              <div className="aspect-square min-h-0 w-auto max-w-full flex-1 self-center rounded-xl border border-slate-300 bg-[linear-gradient(45deg,#111_25%,transparent_25%,transparent_50%,#111_50%,#111_75%,transparent_75%,transparent)] bg-[length:16px_16px]" />
+              <div className="shrink-0 space-y-1">
                 {lines.map((line) => (
                   <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
                 ))}
@@ -2015,9 +2300,9 @@ function CartonLabelPreview({ settings }: { settings: AppSettings }) {
   const nameSize = Math.max(12, Number(settings.cartonLabelNameFontSize ?? 20) * 1.12)
   const metaSize = Math.max(10, Number(settings.cartonLabelMetaFontSize ?? 14) * 1.05)
   const lines = [
-    (settings.cartonLabelShowName ?? true) ? { text: "اسم المادة كامل", size: nameSize, weight: "font-bold" } : null,
-    (settings.cartonLabelShowItemNumber ?? true) ? { text: "رقم الايتم: 8011-A4", size: metaSize, weight: "font-semibold" } : null,
-    (settings.cartonLabelShowPcsPerCarton ?? true) ? { text: "قطعة بالكرتون: 120", size: metaSize, weight: "font-semibold" } : null,
+    (settings.cartonLabelShowName ?? true) ? { text: "اسم المادة كامل اذا كان طويل جدا ينزل سطر جديد تلقائيا", size: nameSize, weight: "font-bold" } : null,
+    (settings.cartonLabelShowItemNumber ?? true) ? { text: "8011-A4", size: metaSize, weight: "font-semibold" } : null,
+    (settings.cartonLabelShowPcsPerCarton ?? true) ? { text: "120", size: metaSize, weight: "font-semibold" } : null,
   ].filter(Boolean) as Array<{ text: string; size: number; weight: string }>
 
   const qr = (
@@ -2034,9 +2319,9 @@ function CartonLabelPreview({ settings }: { settings: AppSettings }) {
           {layout === "qr-only" ? (
             <div className="flex h-full items-center justify-center">{qr}</div>
           ) : layout === "stacked" ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-900">
-              {qr}
-              <div className="space-y-1">
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-900">
+              <div className="aspect-square min-h-0 w-auto max-w-full flex-1 self-center rounded-xl border border-slate-300 bg-[linear-gradient(45deg,#111_25%,transparent_25%,transparent_50%,#111_50%,#111_75%,transparent_75%,transparent)] bg-[length:16px_16px]" />
+              <div className="shrink-0 space-y-1">
                 {lines.map((line) => (
                   <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
                 ))}
@@ -2067,7 +2352,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function SaveRow({ onSave, isPending, saved, label }: { onSave: () => void; isPending: boolean; saved: boolean; label?: string }) {
+function SaveRow({ onSave, isPending, saved, error, label }: { onSave: () => void; isPending: boolean; saved: boolean; error?: string; label?: string }) {
   // Until GET /settings resolves, `settings` is still the all-empty
   // fallbackSettings object. Saving then PUTs blanks over every stored value —
   // including the WhatsApp/Telegram tokens and the invoice template — with no
@@ -2080,6 +2365,7 @@ function SaveRow({ onSave, isPending, saved, label }: { onSave: () => void; isPe
       </Button>
       {!loaded ? <span className="text-sm text-slate-500">جاري تحميل الإعدادات…</span> : null}
       {saved ? <span className="text-sm text-emerald-600">✓ تم الحفظ</span> : null}
+      {error ? <span className="text-sm text-red-600">{error}</span> : null}
     </div>
   )
 }
@@ -2828,11 +3114,6 @@ function ShortcutsPanel() {
 
   const resolved = resolveShortcuts(overrides)
 
-  function startEdit(id: string) {
-    setEditingId(id)
-    setListenKey(null)
-  }
-
   useEffect(() => {
     if (!editingId) return
     function capture(e: KeyboardEvent) {
@@ -2856,11 +3137,6 @@ function ShortcutsPanel() {
     setListenKey(null)
   }
 
-  function cancelEdit() {
-    setEditingId(null)
-    setListenKey(null)
-  }
-
   function toggleDisabled(id: string, disabled: boolean) {
     setOverrides((prev) => {
       const filtered = prev.filter((o) => o.id !== id)
@@ -2868,10 +3144,6 @@ function ShortcutsPanel() {
       const existing = prev.find((o) => o.id === id)
       return [...filtered, { id, key: existing?.key ?? def.defaultKey, mod: existing?.mod ?? def.defaultMod, disabled }]
     })
-  }
-
-  function resetAll() {
-    setOverrides([])
   }
 
   function handleSave() {
@@ -2885,10 +3157,10 @@ function ShortcutsPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold">اختصارات لوحة المفاتيح</h2>
-          <p className="text-sm text-slate-500 mt-0.5">اضغط على أي اختصار لتغييره — يعمل من أي صفحة ما عدا حقول الكتابة</p>
+          <p className="text-sm text-slate-500 mt-0.5">اضغط "تغيير" ثم اضغط الاختصار الجديد مباشرة — يعمل من أي صفحة ما عدا حقول الكتابة</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={resetAll} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => setOverrides([])} className="gap-1.5">
             <RotateCcw className="h-3.5 w-3.5" />
             إعادة الضبط
           </Button>
@@ -2914,23 +3186,17 @@ function ShortcutsPanel() {
             {resolved.map((sc) => {
               const isEditing = editingId === sc.id
               const isDefault = sc.key === sc.defaultKey && sc.mod === sc.defaultMod
-
               return (
                 <tr key={sc.id} className={`transition-colors ${sc.disabled ? "opacity-40" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"}`}>
-                  {/* label */}
                   <td className="px-4 py-3 font-medium">{sc.label}</td>
-
-                  {/* current key */}
                   <td className="px-4 py-3">
                     {isEditing ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400 bg-slate-100 dark:bg-slate-700 rounded px-2 py-1 min-w-[120px]">
-                          {listenKey
-                            ? `${MOD_LABELS[listenKey.mod]} + ${listenKey.key.toUpperCase()}`
-                            : "اضغط الاختصار الجديد..."}
+                        <span className="text-xs text-slate-400 bg-slate-100 dark:bg-slate-700 rounded px-2 py-1 min-w-[140px]">
+                          {listenKey ? `${MOD_LABELS[listenKey.mod]} + ${listenKey.key.toUpperCase()}` : "اضغط الاختصار الجديد..."}
                         </span>
                         <Button size="sm" variant="outline" onClick={confirmEdit} disabled={!listenKey} className="h-7 px-2 text-xs">تأكيد</Button>
-                        <Button size="sm" variant="ghost" onClick={cancelEdit} className="h-7 px-2 text-xs">إلغاء</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setListenKey(null) }} className="h-7 px-2 text-xs">إلغاء</Button>
                       </div>
                     ) : (
                       <kbd className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-mono ${isDefault ? "border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800" : "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"}`}>
@@ -2938,15 +3204,11 @@ function ShortcutsPanel() {
                       </kbd>
                     )}
                   </td>
-
-                  {/* default */}
                   <td className="px-4 py-3">
                     <kbd className="inline-flex items-center rounded border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-mono text-slate-400">
                       {MOD_LABELS[sc.defaultMod]} + {sc.defaultKey.toUpperCase()}
                     </kbd>
                   </td>
-
-                  {/* enabled toggle */}
                   <td className="px-4 py-3 text-center">
                     <button
                       onClick={() => toggleDisabled(sc.id, !sc.disabled)}
@@ -2955,16 +3217,8 @@ function ShortcutsPanel() {
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${!sc.disabled ? "translate-x-6" : "translate-x-1"}`} />
                     </button>
                   </td>
-
-                  {/* edit button */}
                   <td className="px-4 py-3 text-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => startEdit(sc.id)}
-                      disabled={sc.disabled || isEditing}
-                      className="h-7 px-3 text-xs"
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setEditingId(sc.id)} disabled={sc.disabled || isEditing} className="h-7 px-3 text-xs">
                       تغيير
                     </Button>
                   </td>
@@ -2974,15 +3228,12 @@ function ShortcutsPanel() {
           </tbody>
         </table>
       </div>
-
-      <p className="text-xs text-slate-400">
-        * التغييرات تُحفظ محلياً على هذا الجهاز فقط. اضغط "حفظ" لتفعيلها.
-      </p>
+      <p className="text-xs text-slate-400">* التغييرات تُحفظ محلياً على هذا الجهاز. اضغط "حفظ" لتفعيلها.</p>
     </div>
   )
 }
 
-// ─── Server Connection Panel ─────────────────────────────────────────────────
+// ─── Server Connection Panel (دسكتوب فقط) ─────────────────────────────
 
 function ServerConnectionPanel() {
   const [serverUrl, setServerUrl] = useState(() => localStorage.getItem("makhzouni_server_url") ?? "https://inventory-backend-production-7e85.up.railway.app/api")

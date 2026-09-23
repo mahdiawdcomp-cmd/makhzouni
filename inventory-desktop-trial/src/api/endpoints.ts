@@ -199,8 +199,8 @@ export async function verifyCatalogAccess(access: string) {
   return data.data
 }
 
-export async function getPublicCatalogProducts(access: string) {
-  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access } })
+export async function getPublicCatalogProducts(access: string, priceMode?: "WHOLESALE" | "CARTON") {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access, priceMode } })
   return data.data ?? []
 }
 
@@ -210,15 +210,15 @@ export async function getPublicCatalogProductImage(access: string, id: string) {
   return data.data?.imageUrl ?? null
 }
 
-export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string) {
-  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access } })
+export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string, sessionId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access }, headers: sessionId ? { "X-Catalog-Session": sessionId } : undefined })
   return data
 }
 
 /* ── Guest catalog (no token/OTP — only when the merchant turned off
    catalogRequireOtp; the phone gate collects the visitor's number first) ── */
-export async function getGuestCatalogProducts() {
-  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products")
+export async function getGuestCatalogProducts(priceMode?: "WHOLESALE" | "CARTON") {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products", { params: { priceMode } })
   return data.data ?? []
 }
 
@@ -231,8 +231,8 @@ export async function guestCatalogEnter(phone: string, details?: { name?: string
   return data.data
 }
 
-export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload & { visitorToken?: string }) {
-  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload)
+export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload & { visitorToken?: string }, sessionId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload, { headers: sessionId ? { "X-Catalog-Session": sessionId } : undefined })
   return data
 }
 
@@ -3973,9 +3973,9 @@ export async function getVisitorSession(token: string) {
   return data.data!
 }
 
-export async function getVisitorCatalogProducts(token: string) {
+export async function getVisitorCatalogProducts(token: string, priceMode?: "WHOLESALE" | "CARTON") {
   const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>(
-    "/public/catalog/visitor-products", { params: { token } },
+    "/public/catalog/visitor-products", { params: { token, priceMode } },
   )
   return data.data ?? []
 }
@@ -4387,3 +4387,63 @@ export async function getWholesaleInstagramStockAlerts() {
 export async function dismissWholesaleInstagramStockAlert(id: string) {
   await api.post(`/wholesale-instagram/posts/${id}/dismiss-stock-alert`)
 }
+
+/* ── منقولة من الويب: تقرير الهوامش ── */
+
+export interface MarginRow {
+  id: string
+  name: string
+  detail: string
+  revenue: number
+  cost: number
+  profit: number
+  margin: number
+  qty: number
+  invoices: number
+  /** Revenue whose cost is unknown — margin on this part is not real. */
+  revenueWithoutCost: number
+}
+
+export interface MarginReport {
+  from: string | null
+  to: string | null
+  totals: {
+    revenue: number; cost: number; profit: number; margin: number
+    revenueWithoutCost: number
+    /** Share of revenue that HAS a known cost, as a percentage. */
+    costCoverage: number
+  }
+  products: MarginRow[]
+  customers: MarginRow[]
+}
+
+export async function getMarginReport(params: { from?: string; to?: string }) {
+  const { data } = await api.get<ApiEnvelope<MarginReport>>("/reports/margins", { params })
+  return data.data
+}
+
+/* ── منقولة من الويب: حالة الموظف الذكي بالمحادثة ── */
+// «الموظف الذكي» — what it is doing on one conversation: standing down after
+// a human reply, and the durable facts it has learned about this number.
+export type AiConversationState = {
+  phone: string
+  /** The shop-wide switch — false means the agent answers nobody right now. */
+  enabled: boolean
+  mutedUntil: string | null
+  memories: Array<{ id: string; fact: string; createdAt: string }>
+}
+
+export async function getAiConversationState(phone: string) {
+  const { data } = await api.get<ApiEnvelope<AiConversationState>>(`/whatsapp/ai/state`, { params: { phone } })
+  return data.data
+}
+
+export async function setAiConversationMute(phone: string, minutes?: number) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string; mutedUntil: string | null }>>(`/whatsapp/ai/mute`, { phone, minutes })
+  return data.data
+}
+
+export async function deleteAiMemory(id: string) {
+  await api.delete(`/whatsapp/ai/memories/${id}`)
+}
+

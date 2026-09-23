@@ -1,4 +1,5 @@
 import {Fragment, useState, useMemo, useRef} from "react"
+import { CatalogFunnel } from "../components/catalog/CatalogFunnel"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BarChart3,
@@ -1189,6 +1190,7 @@ function AnalyticsTab() {
 
   return (
     <div className="space-y-4">
+      <CatalogFunnel />
       <div className="grid grid-cols-2 gap-4">
         <StatCard label="إجمالي المشاهدات" value={data?.totalViews ?? 0} color="slate" />
         <StatCard label="إجمالي الطلبات" value={data?.totalOrders ?? 0} color="emerald" />

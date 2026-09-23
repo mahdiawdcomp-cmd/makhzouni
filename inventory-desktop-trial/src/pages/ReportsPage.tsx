@@ -1,5 +1,5 @@
 import { QueryErrorBox } from "../components/ui/query-error"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useAuthStore } from "../store/authStore"
@@ -17,7 +17,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
-import { getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers, getSettings, updateSettings, getProductReviews, getSearchMisses } from "../api/endpoints"
+import { getProfitReport, getMarginReport, getWarehouseComparisonReport, getCrossSellPairs, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers, getSettings, updateSettings, getProductReviews, getSearchMisses } from "../api/endpoints"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -25,13 +25,14 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 
-type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "inactive" | "reviews" | "archive"
+type Tab = "assistant" | "store-brain" | "sales" | "profits" | "margins" | "top-customers" | "end-of-day" | "inventory" | "debts" | "inactive" | "reviews" | "archive"
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "assistant",    label: "المساعد الذكي",   emoji: "🤖" },
   { id: "store-brain",  label: "عقل المحل",      emoji: "🧠" },
   { id: "sales",        label: "المبيعات",       emoji: "📊" },
   { id: "profits",      label: "الأرباح",         emoji: "💰" },
+  { id: "margins",      label: "الهوامش",         emoji: "📐" },
   { id: "top-customers",label: "أفضل الزبائن",   emoji: "🏆" },
   { id: "end-of-day",   label: "نهاية اليوم",     emoji: "🌙" },
   { id: "inventory",    label: "المخزون",         emoji: "📦" },
@@ -83,6 +84,7 @@ export function ReportsPage() {
       {activeTab === "store-brain"   && canViewProfits && <StoreBrainTab />}
       {activeTab === "sales"         && <SalesTab />}
       {activeTab === "profits"       && canViewProfits && <ProfitsTab />}
+      {activeTab === "margins"       && canViewProfits && <MarginsTab />}
       {activeTab === "top-customers" && <TopCustomersTab />}
       {activeTab === "end-of-day"    && <EndOfDayTab />}
       {activeTab === "inventory"     && <InventoryTab />}
@@ -1234,6 +1236,124 @@ function InactiveTab() {
   )
 }
 
+/**
+ * «الهوامش» — per-product and per-customer margin, from the same cost helpers
+ * the Profits tab uses so the two screens can never disagree.
+ */
+function MarginsTab() {
+  const [from, setFrom] = useState("")
+  const [to, setTo] = useState("")
+  const [view, setView] = useState<"products" | "customers">("products")
+  const [sort, setSort] = useState<"profit" | "margin" | "revenue">("profit")
+  const [onlyLosses, setOnlyLosses] = useState(false)
+
+  const report = useQuery({
+    queryKey: ["margin-report", from, to],
+    queryFn: () => getMarginReport({ from: from || undefined, to: to || undefined }),
+  })
+  const data = report.data
+
+  const rows = useMemo(() => {
+    const source = (view === "products" ? data?.products : data?.customers) ?? []
+    const filtered = onlyLosses ? source.filter((r) => r.profit < 0) : source
+    return [...filtered].sort((a, b) => b[sort] - a[sort])
+  }, [data, view, sort, onlyLosses])
+
+  const totals = data?.totals
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Input type="date" className="w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <Input type="date" className="w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
+        <div className="flex gap-1 rounded-lg border p-0.5 dark:border-slate-700">
+          {([["products", "حسب المادة"], ["customers", "حسب الزبون"]] as const).map(([id, label]) => (
+            <button key={id} type="button" onClick={() => setView(id)}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view === id ? "bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-900" : "hover:bg-slate-100"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 rounded-lg border p-0.5 dark:border-slate-700">
+          {([["profit", "الربح"], ["margin", "الهامش"], ["revenue", "الإيراد"]] as const).map(([id, label]) => (
+            <button key={id} type="button" onClick={() => setSort(id)}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${sort === id ? "bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-900" : "hover:bg-slate-100"}`}>
+              ترتيب: {label}
+            </button>
+          ))}
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" checked={onlyLosses} onChange={(e) => setOnlyLosses(e.target.checked)} className="h-4 w-4 accent-rose-600" />
+          الخاسرة فقط
+        </label>
+      </div>
+
+      {report.isError && <QueryErrorBox title="تعذّر تحميل تقرير الهوامش" onRetry={() => void report.refetch()} />}
+
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <MetricCard title="الإيراد" value={totals?.revenue ?? 0} />
+        <MetricCard title="الكلفة" value={totals?.cost ?? 0} color="text-rose-600" />
+        <MetricCard title="الربح" value={totals?.profit ?? 0} color="text-amber-600" />
+        <MetricCard title="الهامش" value={totals?.margin ?? 0} suffix="%" color="text-blue-600" />
+      </div>
+
+      {/* Cost coverage decides whether the numbers above mean anything. */}
+      {totals && totals.revenueWithoutCost > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950">
+          <p className="font-medium text-amber-800 dark:text-amber-300">
+            ⚠️ {totals.costCoverage}٪ فقط من الإيراد عنده كلفة معروفة.
+          </p>
+          <p className="mt-1 text-amber-800/80 dark:text-amber-300/80">
+            مبلغ {fmt(totals.revenueWithoutCost)} د.ع انباع بمواد ما عندها كلفة مسجّلة، فربحه محسوب كأنه ربح كامل وهذا غير صحيح.
+            صلّحها من <Link to="/inventory/data-health" className="underline">فحص صحة البيانات</Link>.
+          </p>
+        </div>
+      )}
+
+      <Card>
+        <CardHeader><CardTitle>{view === "products" ? "هامش كل مادة" : "هامش كل زبون"} ({rows.length})</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto p-0">
+          {report.isLoading ? (
+            <p className="p-8 text-center text-sm text-slate-400">جاري التحميل...</p>
+          ) : rows.length === 0 ? (
+            <p className="p-8 text-center text-sm text-slate-400">ما في بيانات بهذه الفترة.</p>
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>{view === "products" ? "المادة" : "الزبون"}</TH>
+                  <TH>الإيراد</TH>
+                  <TH>الكلفة</TH>
+                  <TH>الربح</TH>
+                  <TH>الهامش</TH>
+                  <TH>{view === "products" ? "القطع" : "الفواتير"}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {rows.map((row) => (
+                  <TR key={row.id}>
+                    <TD>
+                      <div className="font-medium">{row.name}</div>
+                      {row.detail && <div className="font-mono text-xs text-slate-400">{row.detail}</div>}
+                      {row.revenueWithoutCost > 0 && (
+                        <div className="text-xs text-amber-600">بلا كلفة: {fmt(row.revenueWithoutCost)}</div>
+                      )}
+                    </TD>
+                    <TD>{fmt(row.revenue)}</TD>
+                    <TD className="text-rose-600">{fmt(row.cost)}</TD>
+                    <TD className={row.profit < 0 ? "font-bold text-rose-600" : "font-bold text-emerald-600"}>{fmt(row.profit)}</TD>
+                    <TD className={row.margin < 0 ? "text-rose-600" : ""}>{row.margin}%</TD>
+                    <TD className="text-slate-500">{fmt(view === "products" ? row.qty : row.invoices)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 // ─── Shared sub-components ────────────────────────────────────────────────────
 function MetricCard({ title, value, color, suffix = " د.ع" }: { title: string; value: number | string; color?: string; suffix?: string }) {
   return (

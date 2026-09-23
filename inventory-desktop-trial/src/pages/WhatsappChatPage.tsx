@@ -30,7 +30,10 @@ import {
 import {
   archiveWhatsappConversation,
   createWhatsappQuickReply,
+  deleteAiMemory,
   deleteWhatsappQuickReply,
+  getAiConversationState,
+  setAiConversationMute,
   getWhatsappConversations,
   getWhatsappMessages,
   getWhatsappQuickReplies,
@@ -504,6 +507,28 @@ export function WhatsappChatPage() {
     selectedPhone && threadQuery.data && (!lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000)
   )
 
+  // «الموظف الذكي» on THIS conversation: whether it is standing down because
+  // somebody here replied by hand, and what it remembers about the number.
+  const aiStateQuery = useQuery({
+    queryKey: ["ai-conversation-state", selectedPhone],
+    queryFn: () => getAiConversationState(selectedPhone as string),
+    enabled: Boolean(selectedPhone) && hasPermission("ACCESS_WHATSAPP_CHAT"),
+    refetchInterval: 60_000,
+  })
+  const aiState = aiStateQuery.data ?? null
+  const aiEnabled = Boolean(aiState?.enabled)
+  const aiMuted = aiEnabled && Boolean(aiState?.mutedUntil && new Date(aiState.mutedUntil).getTime() > Date.now())
+  const aiMuteMutation = useMutation({
+    mutationFn: ({ phone, minutes }: { phone: string; minutes?: number }) => setAiConversationMute(phone, minutes),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-conversation-state"] }),
+    onError: () => toast({ title: "تعذر تغيير حالة الموظف الذكي", variant: "destructive" }),
+  })
+  const aiForgetMutation = useMutation({
+    mutationFn: (id: string) => deleteAiMemory(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-conversation-state"] }),
+    onError: () => toast({ title: "تعذر حذف المعلومة", variant: "destructive" }),
+  })
+
   // In-conversation search matches, computed over whatever's currently loaded.
   const matchIds = useMemo(() => {
     const term = threadSearchTerm.trim().toLowerCase()
@@ -592,6 +617,8 @@ export function WhatsappChatPage() {
       setReplyTo(null)
       queryClient.invalidateQueries({ queryKey: ["whatsapp-messages"] })
       queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] })
+      // The server just silenced the agent on this number — show it at once.
+      queryClient.invalidateQueries({ queryKey: ["ai-conversation-state"] })
     },
     onError: () => {
       toast({ title: "تعذر إرسال الرسالة", variant: "destructive" })
@@ -1169,6 +1196,59 @@ export function WhatsappChatPage() {
               )}
             </div>
 
+            {aiMuted && (
+              <div className="flex flex-wrap items-center gap-2 border-t bg-violet-50 px-3 py-2 text-[11.5px] text-violet-800 dark:bg-violet-950 dark:text-violet-300" style={{ borderColor: "var(--theme-cardBorder)" }}>
+                <span>
+                  🤫 الموظف الذكي ساكت على هذا الرقم لحد{" "}
+                  {new Date(aiState!.mutedUntil as string).toLocaleTimeString("ar-IQ", { hour: "2-digit", minute: "2-digit" })}
+                  {" "}— إنت تتولى المحادثة.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => selectedPhone && aiMuteMutation.mutate({ phone: selectedPhone, minutes: 0 })}
+                  disabled={aiMuteMutation.isPending}
+                  className="rounded-full bg-violet-600 px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+                >
+                  رجّعه للرد
+                </button>
+              </div>
+            )}
+            {aiEnabled && !aiMuted && selectedPhone && (
+              <div className="flex flex-wrap items-center gap-2 border-t px-3 py-1.5 text-[11px]" style={{ borderColor: "var(--theme-cardBorder)", color: "var(--theme-textMuted)" }}>
+                <span>🧠 الموظف الذكي يرد على هذا الرقم</span>
+                <button
+                  type="button"
+                  onClick={() => aiMuteMutation.mutate({ phone: selectedPhone })}
+                  disabled={aiMuteMutation.isPending}
+                  className="rounded-full border px-2 py-0.5 text-[10.5px] font-semibold disabled:opacity-50"
+                  style={{ borderColor: "var(--theme-cardBorder)" }}
+                >
+                  سكّته
+                </button>
+              </div>
+            )}
+            {aiState && aiState.memories.length > 0 && (
+              <details className="border-t px-3 py-2 text-[11.5px]" style={{ borderColor: "var(--theme-cardBorder)" }}>
+                <summary className="cursor-pointer font-semibold" style={{ color: "var(--theme-textMuted)" }}>
+                  🧠 اللي يعرفه الموظف الذكي عن هذا الزبون ({aiState.memories.length})
+                </summary>
+                <ul className="mt-2 space-y-1">
+                  {aiState.memories.map((m) => (
+                    <li key={m.id} className="flex items-start gap-2">
+                      <span className="flex-1" style={{ color: "var(--theme-textPrimary)" }}>• {m.fact}</span>
+                      <button
+                        type="button"
+                        onClick={() => aiForgetMutation.mutate(m.id)}
+                        disabled={aiForgetMutation.isPending}
+                        className="shrink-0 text-[10.5px] font-semibold text-red-500 disabled:opacity-50"
+                      >
+                        انساها
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
             {windowClosed && (
               <div className="flex items-center gap-2 border-t bg-amber-50 px-3 py-2 text-[11.5px] text-amber-700 dark:bg-amber-950 dark:text-amber-300" style={{ borderColor: "var(--theme-cardBorder)" }}>
                 ⏱ مضت أكثر من 24 ساعة على آخر رسالة من الزبون — واتساب قد يرفض الرسائل الحرة حتى يراسلك من جديد (الرسالة المرفوضة تظهر حمراء مع السبب).

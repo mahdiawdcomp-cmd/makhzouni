@@ -40,7 +40,7 @@ import {
 import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "../../api/client"
-import { getApprovals, getAiEscalationsOpenCount, getRequestedProductsOpenCount } from "../../api/endpoints"
+import { getApprovals, getAiEscalationsOpenCount, getInboundMessages, getRequestedProductsOpenCount, getWholesaleInstagramStockAlerts } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
 import { useTenantConfig } from "../../hooks/useTenantConfig"
@@ -191,6 +191,26 @@ const adminItems = [
 
 function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
   const location = useLocation()
+  const isCampaigns = item.to === "/campaigns"
+  const inboxQuery = useQuery({
+    queryKey: ["inbound-messages-unread-count"],
+    queryFn: () => getInboundMessages({ status: "UNREAD" }),
+    refetchInterval: 20_000,
+    enabled: isCampaigns,
+  })
+  const unreadCount = inboxQuery.data?.unreadCount ?? 0
+
+  // Persistent "product ran out after the post went live" alert — surfaced
+  // here too so it's visible from anywhere, not just on the page itself.
+  const isWholesaleInstagram = item.to === "/wholesale-instagram"
+  const stockAlertsQuery = useQuery({
+    queryKey: ["wig-stock-alerts"],
+    queryFn: getWholesaleInstagramStockAlerts,
+    refetchInterval: 30_000,
+    enabled: isWholesaleInstagram,
+  })
+  const stockAlertCount = stockAlertsQuery.data?.length ?? 0
+
   // «تنبيهات الموظف الذكي» — escalations + product demand from the WhatsApp
   // agent. One badge for both, so the count reads as "things waiting on you".
   const isRequestedProducts = item.to === "/requested-products"
@@ -247,6 +267,16 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
           <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
         )}
         {item.label}
+        {isCampaigns && unreadCount > 0 && (
+          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+            {unreadCount}
+          </span>
+        )}
+        {isWholesaleInstagram && stockAlertCount > 0 && (
+          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+            {stockAlertCount}
+          </span>
+        )}
         {isRequestedProducts && requestedCount > 0 && (
           <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
             {requestedCount}
