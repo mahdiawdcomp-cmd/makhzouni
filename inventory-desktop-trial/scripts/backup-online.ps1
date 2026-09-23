@@ -33,7 +33,14 @@ param(
   [string]$AppDataDir = (Join-Path $env:APPDATA 'com.mazbwoni.mahdi'),
   [int]$RetentionCount = 10,
   [int]$TimeoutSec = 1800,
-  [string]$SecretEnvVar = 'MAKHZOUNI_BACKUP_SECRET'
+  [string]$SecretEnvVar = 'MAKHZOUNI_BACKUP_SECRET',
+  # نسخة ثانية على قرص غير الي عليه النسخة الأولى. نسخة وحدة على نفس الجهاز
+  # ما تحميك من عطل قرص ولا سرقة ولا فيروس فدية — تحميك من خطأ بالسيرفر فقط.
+  # فارغ = بدون نسخة ثانية.
+  [string]$MirrorDir = 'F:\makhzouni-backups',
+  # التنبيه عند الفشل. إطفاؤه يخلي فشل النسخ صامتاً، وهذا بالضبط الي صار من
+  # ١٨ أيلول ٢٠٢٦: المهمة ما اشتغلت لأسبوع وما انتبه أحد.
+  [switch]$NoAlert
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,6 +85,8 @@ function Save-Status {
     retentionCount  = $RetentionCount
     scriptVersion   = $ScriptVersion
     source          = $ApiUrl   # WITHOUT secret
+    mirrorPath      = $null
+    mirrorDir       = $null
   }
   if (Test-Path $StatusPath) {
     try {
@@ -94,10 +103,29 @@ function Save-Status {
   ($status | ConvertTo-Json -Depth 5) | Set-Content -Path $StatusPath -Encoding UTF8
 }
 
+function Send-Alert {
+  param([string]$Key, [string]$Title, [string]$Message)
+  if ($NoAlert) { return }
+  try {
+    & (Join-Path $PSScriptRoot 'notify-alert.ps1') -Key $Key -Title $Title -Message $Message | Out-Null
+  } catch {
+    Write-Log "Alert failed: $($_.Exception.Message)" 'WARN'
+  }
+}
+
 function Fail-Backup {
   param([string]$Message)
   Write-Log $Message 'ERROR'
   Save-Status @{ lastFailureAt = (Get-Date).ToString('o'); lastError = $Message }
+  Send-Alert -Key 'backup' -Title 'النسخة الاحتياطية ما اشتغلت' -Message @"
+ما انحفظت نسخة اليوم من بيانات المحل.
+
+السبب المسجّل:
+$Message
+
+معناها: لو صارت مشكلة بالسيرفر اليوم، آخر نسخة عندك هي الي قبل.
+افحص: النت شغال؟ السيرفر يرد؟ مفتاح النسخ موجود بالجهاز؟
+"@
   # Clean staging if it exists; NEVER touch old backups on failure.
   if (Test-Path $StagingDir) { Remove-Item $StagingDir -Recurse -Force -ErrorAction SilentlyContinue }
   exit 1
@@ -252,6 +280,42 @@ foreach ($old in $toDelete) {
   }
 }
 
+# ── 7b. نسخة ثانية على قرص ثاني ────────────────────────────────────────────
+# تُنفَّذ بعد ما تكون النسخة الأصلية سليمة ومفحوصة. فشل النسخة الثانية يُنبّه
+# ولا يُفشل النسخة الأصلية: قرص مفصول أو ممتلئ مشكلة تستاهل تنبيه، لكنها ما
+# تلغي نسخة صحيحة صارت فعلاً.
+$mirrorPath = $null
+if ($MirrorDir) {
+  try {
+    if (-not (Test-Path $MirrorDir)) { New-Item -ItemType Directory -Path $MirrorDir -Force | Out-Null }
+    $mirrorPath = Join-Path $MirrorDir (Split-Path $ZipPath -Leaf)
+    Copy-Item -Path $ZipPath -Destination $mirrorPath -Force
+    $mirrorInfo = Get-Item $mirrorPath
+    if ($mirrorInfo.Length -ne $zipInfo.Length) {
+      throw "حجم النسخة الثانية ($($mirrorInfo.Length)) مو مطابق للأصل ($($zipInfo.Length))"
+    }
+    Write-Log "Mirror OK -> $mirrorPath"
+
+    $mirrorAll = Get-ChildItem -Path $MirrorDir -Filter 'makhzouni-online-*.zip' -File |
+      Where-Object { $_.Name -match $pattern } | Sort-Object Name -Descending
+    foreach ($old in ($mirrorAll | Select-Object -Skip $RetentionCount)) {
+      try { Remove-Item $old.FullName -Force; Write-Log "Mirror retention: deleted $($old.Name)" }
+      catch { Write-Log "Mirror retention: FAILED to delete $($old.Name)" 'WARN' }
+    }
+  } catch {
+    $mirrorPath = $null
+    Write-Log "Mirror FAILED: $($_.Exception.Message)" 'WARN'
+    Send-Alert -Key 'backup-mirror' -Title 'النسخة الثانية ما انحفظت' -Message @"
+نسخة اليوم انحفظت على الجهاز، بس النسخة الثانية على القرص الثاني ما انحفظت.
+
+المكان المطلوب: $MirrorDir
+السبب: $($_.Exception.Message)
+
+معناها: عندك نسخة وحدة بس. إذا خرب القرص أو انسرق الجهاز تروح وياه.
+"@
+  }
+}
+
 # ── 8. Update status + finish ──────────────────────────────────────────────
 $backupsCount = ($kept | Measure-Object).Count
 Save-Status @{
@@ -260,6 +324,8 @@ Save-Status @{
   lastBackupSize = $zipInfo.Length
   backupsCount   = $backupsCount
   lastError      = $null
+  mirrorPath     = $mirrorPath
+  mirrorDir      = $MirrorDir
 }
 Write-Log ("Backup OK -> {0} ({1} bytes). Kept {2} backup(s)." -f $ZipPath, $zipInfo.Length, $backupsCount)
 Write-Log "==== Online backup end ===="

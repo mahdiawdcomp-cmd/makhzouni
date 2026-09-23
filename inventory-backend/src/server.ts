@@ -72,6 +72,28 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(compression());
+
+/**
+ * Public liveness check — answered for ANY origin, and deliberately mounted
+ * BEFORE the CORS gate below.
+ *
+ * It carries no data and needs no login, and the things that ask it are
+ * exactly the ones that cannot be on an allow-list: the desktop program
+ * pointed at a spare server, an uptime monitor, a browser on a port nobody
+ * registered. Behind the gate, an unlisted origin got a 500 with no CORS
+ * header — so a perfectly healthy server looked dead to the very screen whose
+ * job is to tell the shopkeeper what is wrong.
+ */
+app.get("/health", (_req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  // helmet sets Cross-Origin-Resource-Policy: same-origin for everything, and
+  // that blocks a cross-origin request even in `no-cors` mode — the exact form
+  // the desktop's outage check falls back to. This one public response opts
+  // out; nothing else does.
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.json({ status: "ok", service: "inventory-backend" });
+});
+
 app.use(cors({
   origin: (origin, callback) => {
     if (isCorsAllowed(origin)) callback(null, true);
@@ -89,9 +111,6 @@ app.use(requestLogger);
 app.use(auditLogMiddleware);
 app.use(realtimeMutationMiddleware);
 
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "inventory-backend" });
-});
 
 // Batch 3 — report-only entitlements check. Never blocks; only logs when a
 // mapped route is hit without its required feature (see tenant.middleware.ts).

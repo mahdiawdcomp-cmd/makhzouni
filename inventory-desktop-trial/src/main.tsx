@@ -11,6 +11,7 @@ import App from "./App"
 import "./index.css"
 import { LanguageProvider } from "./i18n/LanguageProvider"
 import { DesktopTrialGate } from "./DesktopTrialGate"
+import { OutageGate } from "./components/OutageGate"
 import "./desktop-trial.css"
 import { api } from "./api/client"
 import { idbPersister } from "./lib/offline-store"
@@ -66,6 +67,7 @@ if (isStaleServer) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <OutageGate>
     <DesktopTrialGate>
       <PersistQueryClientProvider
         client={queryClient}
@@ -91,5 +93,6 @@ createRoot(document.getElementById("root")!).render(
         </ThemeProvider>
       </PersistQueryClientProvider>
     </DesktopTrialGate>
+    </OutageGate>
   </StrictMode>,
 )

@@ -220,6 +220,10 @@ const router = createBrowserRouter([
 export default function App() {
   const { data: tenant } = useTenantConfig()
 
+  // «السيرفر ما يرد» is handled by OutageGate in main.tsx, above the login
+  // gate — during an outage nobody can sign in, so this component never
+  // mounts and a check here would never run for the person who needs it.
+
   // SUSPENDED is a hard stop. EXPIRED deliberately is NOT: the backend already
   // enforces read-only (423 on writes, reads/exports/prints allowed), and
   // returning here instead took the whole router down with it — including

@@ -40,6 +40,7 @@ import {
   XCircle,
 } from "lucide-react"
 import { useAuthStore } from "../store/authStore"
+import { api } from "../api/client"
 import { Instagram as InstagramIcon } from "../components/instagram/InstagramIcon"
 import {
   getCustomers,
@@ -3268,10 +3269,13 @@ function ServerConnectionPanel() {
   function saveServerUrl() {
     const base = serverUrl.replace(/\/+$/, "")
     localStorage.setItem("makhzouni_server_url", base)
-    // Update axios base URL live
-    const axiosInstance = (window as { __makhzouni_api?: { defaults: { baseURL: string } } }).__makhzouni_api
-    if (axiosInstance) axiosInstance.defaults.baseURL = base
-    setTestResult({ ok: true, msg: "تم حفظ الرابط. سيُطبَّق عند إعادة التشغيل." })
+    // Applied to the live client too, not only on the next start. The old code
+    // looked for `window.__makhzouni_api`, which nothing ever sets — so the
+    // "live" half was dead and only a restart moved the program to the new
+    // server. That matters exactly once: during an outage, when someone is
+    // switching to the spare server with customers waiting.
+    api.defaults.baseURL = base
+    setTestResult({ ok: true, msg: "تم حفظ الرابط وتطبيقه. إذا بقت شاشة ما تشتغل، سكّر البرنامج وافتحه." })
   }
 
   async function changePassword() {
