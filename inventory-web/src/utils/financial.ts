@@ -1,8 +1,39 @@
 export type InvoiceFinancialType = "SALE" | "PURCHASE" | "SALES_RETURN"
 
+/**
+ * كل مبلغ نهائي دينار صحيح — نفس قاعدة السيرفر بالضبط.
+ *
+ * السعر نفسه يبقى مثل ما كتبته، كسراً كان أو لا. الي ينقرّب هو **مجموع
+ * السطر**: ١٢ قطعة بسعر ٨٣٣٫٣٣ = ٩٩٩٩٫٩٦ → ١٠٬٠٠٠، ومجموع الفاتورة يصير
+ * جمع سطور صحيحة، فالي ينطبع على الورقة يجمع بالضبط.
+ *
+ * كانت هنا نسخة تقرّب لخانتين بينما السيرفر يقرّب لدينار — فالشاشة تعرض
+ * ١١٢٠٠٠٫٢٩ والسيرفر يحفظ ١١٢٠٠٠، ورقمان مختلفان لنفس الفاتورة.
+ */
 export function roundMoney(value: number) {
   if (!Number.isFinite(value)) return 0
-  return Math.round((value + Number.EPSILON) * 100) / 100
+  return Math.round(value + Number.EPSILON)
+}
+
+/**
+ * مجموع سطر واحد بالدينار الصحيح. كل شاشة تحسب مجموع سطر لازم تمر من هنا،
+ * وإلا تختلف شاشة عن شاشة بدينار — والزبون يجمع السطور بيده ويطلعله رقم
+ * غير الي مكتوب بالمجموع.
+ */
+export function lineTotal(quantity: number, unitPrice: number) {
+  return roundMoney((Number(quantity) || 0) * (Number(unitPrice) || 0))
+}
+
+/**
+ * السعر يقبل الكسر — لحد خانتين، لأن عمود السعر بقاعدة البيانات خانتان.
+ *
+ * التقريب يصير هنا وإنت تشوفه، لا بصمت بعد الحفظ: بدونه تكتب ٨٣٣٫٣٣٣ وتشوفها
+ * على الشاشة بينما المحفوظ ٨٣٣٫٣٣، ويطلع رقمان لنفس المادة.
+ */
+export function priceWithFils(value: number) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 0
+  return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
 export function calculateInvoiceFinancials(input: {

@@ -25,7 +25,7 @@ import type { Customer, Product } from "../types/api"
 import { fmt } from "../utils/fmt"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
-import { calculateInvoiceFinancials } from "../utils/financial"
+import { calculateInvoiceFinancials, lineTotal } from "../utils/financial"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { unitPriceFrom, unitToPieces } from "../utils/units"
@@ -755,7 +755,8 @@ export function POSPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, products])
 
-  const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
+  // جمع سطور مقرّبة — نفس قاعدة الفواتير والسيرفر.
+  const subtotal = items.reduce((sum, i) => sum + lineTotal(i.quantity, i.unitPrice), 0)
   const paidValue = Number(paid || 0)
   const financials = calculateInvoiceFinancials({ type: "SALE", subtotal, discount, paidAmount: paidValue })
   const remaining = financials.remainingAmount
@@ -1287,7 +1288,7 @@ export function POSPage() {
                       <div className="text-[11px] text-slate-500">
                         {fmt(item.unitPrice)} ×{" "}
                         <span className="font-semibold text-slate-700 dark:text-slate-200">
-                          {fmt(item.quantity * item.unitPrice)}
+                          {fmt(lineTotal(item.quantity, item.unitPrice))}
                         </span>
                       </div>
                     </div>

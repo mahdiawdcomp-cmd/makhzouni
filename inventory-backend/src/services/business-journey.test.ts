@@ -383,6 +383,39 @@ describe("carton pricing through the invoice service", () => {
   });
 });
 
+describe("سعر مكسور ومجموع نظيف", () => {
+  it("السعر الي يكتبه البائع ينحفظ مثل ما هو، ومجموع السطر دينار صحيح", async () => {
+    const { createInvoice, cancelInvoice } = await import("./invoice.service");
+    // ٨٣٣٫٣٣ للقطعة × ١٢ = ٩٩٩٩٫٩٦. المطلوب: السعر يبقى ٨٣٣٫٣٣ بالفاتورة
+    // (لأنه سعر المادة الحقيقي)، والمجموع يطلع ١٠٬٠٠٠ بلا كسور.
+    const inv = await createInvoice(
+      { customerId: CUST, type: InvoiceType.SALE, discount: 0, tax: 0, paidAmount: 0,
+        items: [{ productId: PROD, unit: Unit.PIECE, quantity: 12, unitPrice: 833.33 }] },
+      "user-1", tx);
+    assert.equal(Number(inv.items[0].unitPrice), 833.33, "السعر المكتوب ما ينلمس");
+    assert.equal(Number(inv.items[0].totalPrice), 10_000, "مجموع السطر دينار صحيح");
+    assert.equal(inv.subtotal, 10_000);
+    assert.equal(inv.totalAmount, 10_000);
+    assert.equal(inv.totalAmount, Math.round(inv.totalAmount), "ماكو كسور بالمجموع");
+    await cancelInvoice(inv.id, tx);
+  });
+
+  it("السعر المشتق من سعر القطعة يبقى مقرّباً — الكارتون ١٠٬٠٠٠ لا ٩٩٩٩٫٩٦", async () => {
+    const { createInvoice, cancelInvoice } = await import("./invoice.service");
+    const previous = product.salePrice;
+    product.salePrice = 833.33;
+    // بلا `unitPrice`: السعر ينشتق من سعر القطعة × ١٢.
+    const inv = await createInvoice(
+      { customerId: CUST, type: InvoiceType.SALE, discount: 0, tax: 0, paidAmount: 0,
+        items: [{ productId: PROD, unit: Unit.CARTON, quantity: 1 }] },
+      "user-1", tx);
+    assert.equal(Number(inv.items[0].unitPrice), 10_000);
+    assert.equal(inv.subtotal, 10_000);
+    await cancelInvoice(inv.id, tx);
+    product.salePrice = previous;
+  });
+});
+
 describe("purchase weighted-average cost", () => {
   let createInvoice: Function;
 

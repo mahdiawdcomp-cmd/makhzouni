@@ -10,6 +10,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import type { Customer } from "../types/api"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
+import { lineTotal } from "../utils/financial"
 
 type Line = { productId: string; quantity: number; unitPrice: number }
 
@@ -75,7 +76,8 @@ export function QuotationsPage() {
     productItemRefs.current[productHighlight]?.scrollIntoView({ block: "nearest" })
   }, [productHighlight])
 
-  const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+  // جمع سطور مقرّبة — نفس قاعدة الفواتير والسيرفر.
+  const subtotal = lines.reduce((sum, line) => sum + lineTotal(line.quantity, line.unitPrice), 0)
   const total = Math.max(0, subtotal - discount)
 
   const createMutation = useMutation({
@@ -238,7 +240,7 @@ export function QuotationsPage() {
                     <TD>{p?.name ?? line.productId}</TD>
                     <TD><Input type="number" value={line.quantity} onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? { ...x, quantity: Number(e.target.value) } : x))} /></TD>
                     <TD><Input type="number" value={line.unitPrice} onChange={(e) => setLines((prev) => prev.map((x, i) => i === index ? { ...x, unitPrice: Number(e.target.value) } : x))} /></TD>
-                    <TD>{money(line.quantity * line.unitPrice)}</TD>
+                    <TD>{money(lineTotal(line.quantity, line.unitPrice))}</TD>
                   </TR>
                 )
               })}

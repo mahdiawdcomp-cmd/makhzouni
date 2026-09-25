@@ -20,6 +20,8 @@ import {
   MapPinned,
   Home,
   KeyRound,
+  Bell,
+  BellOff,
   LayoutList,
   List,
   Megaphone,
@@ -606,6 +608,56 @@ function readSidebarLayout(): SidebarLayout {
   }
 }
 
+const SIDEBAR_ATTENTION_KEY = "sidebar-attention"
+
+function readShowAttention(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_ATTENTION_KEY) !== "hidden"
+  } catch {
+    return true
+  }
+}
+
+/**
+ * «يحتاج انتباهك» — a shortcut list of the pages that currently carry a badge,
+ * most urgent first. The pages also stay in their normal place, so the menu
+ * never reshuffles under the user's hand; this block only appears and empties.
+ */
+function AttentionSection({
+  leaves,
+  badges,
+  renderLeaf,
+}: {
+  leaves: Leaf[]
+  badges: BadgeMap
+  renderLeaf: (leaf: Leaf, index: number) => ReactNode
+}) {
+  const total = combineBadges(leaves.map((l) => badges[l.to]))
+  return (
+    <AnimatePresence initial={false}>
+      {leaves.length > 0 && (
+        <motion.div
+          key="attention"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          style={{ overflow: "hidden" }}
+        >
+          <div className="mb-3 rounded-xl border border-white/8 bg-white/[0.03] p-1.5">
+            <div className="mb-1 flex items-center gap-2 px-2 pt-0.5 text-[11px] font-semibold text-white/50">
+              <Bell className="h-3.5 w-3.5" />
+              يحتاج انتباهك
+              <BadgePill badge={total} className="mr-auto" />
+            </div>
+            <div className="space-y-0.5">{leaves.map((leaf, i) => renderLeaf(leaf, i))}</div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 function SideLink({
   to,
   label,
@@ -682,6 +734,18 @@ export function Sidebar() {
     setLayoutChoice(next)
     try {
       localStorage.setItem(SIDEBAR_LAYOUT_KEY, next)
+    } catch {
+      // Storage blocked — the choice still holds for this session.
+    }
+  }
+
+  // «يحتاج انتباهك» on/off — independent of the layout choice.
+  const [showAttention, setShowAttention] = useState<boolean>(readShowAttention)
+  function toggleAttention() {
+    const next = !showAttention
+    setShowAttention(next)
+    try {
+      localStorage.setItem(SIDEBAR_ATTENTION_KEY, next ? "shown" : "hidden")
     } catch {
       // Storage blocked — the choice still holds for this session.
     }
@@ -810,6 +874,13 @@ export function Sidebar() {
     if (to === "/account/statement-export") return () => setStatementExportOpen(true)
     return undefined
   }
+
+  // Pages with a live badge the user can open, most urgent first, then biggest.
+  const attentionLeaves = Object.entries(badges)
+    .filter(([path, badge]) => !!badge && badge.count > 0 && canSeePath(path))
+    .sort(([, a], [, b]) => BADGE_TONE_RANK[b!.tone] - BADGE_TONE_RANK[a!.tone] || b!.count - a!.count)
+    .map(([path]) => leafByPath.get(path))
+    .filter((l): l is Leaf => !!l)
 
   const visibleItems = navItems.filter((item) => {
     if (isWorkerOnly) return "to" in item && (item.to === "/worker" || item.to === "/losses")
@@ -954,6 +1025,21 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
+        {showAttention && !isWorkerOnly && (
+          <AttentionSection
+            leaves={attentionLeaves}
+            badges={badges}
+            renderLeaf={(leaf, i) => (
+              <SideLeaf
+                key={`attention:${leaf.to}`}
+                item={leaf}
+                index={i}
+                badge={badges[leaf.to]}
+                onActivate={leafAction(leaf.to)}
+              />
+            )}
+          />
+        )}
         {layout === "grouped" ? groupedList : classicList}
       </nav>
 
@@ -963,15 +1049,29 @@ export function Sidebar() {
       {/* Display screen shortcut + layout switch */}
       <div className="shrink-0 border-t border-white/6 px-2.5 py-2 space-y-0.5">
         {!isWorkerOnly && (
-          <button
-            type="button"
-            onClick={toggleLayout}
-            title="التبديل بين القائمة المجمّعة والكلاسيكية"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--theme-sidebarText)] transition-all hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
-          >
-            {layout === "grouped" ? <List className="h-3.5 w-3.5" /> : <LayoutList className="h-3.5 w-3.5" />}
-            {layout === "grouped" ? "عرض القائمة الكلاسيكية" : "عرض القائمة المجمّعة"}
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={toggleLayout}
+              title="التبديل بين القائمة المجمّعة والكلاسيكية"
+              className="flex flex-1 items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--theme-sidebarText)] transition-all hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
+            >
+              {layout === "grouped" ? <List className="h-3.5 w-3.5" /> : <LayoutList className="h-3.5 w-3.5" />}
+              {layout === "grouped" ? "عرض القائمة الكلاسيكية" : "عرض القائمة المجمّعة"}
+            </button>
+            <button
+              type="button"
+              onClick={toggleAttention}
+              title={showAttention ? "إخفاء قسم «يحتاج انتباهك»" : "إظهار قسم «يحتاج انتباهك»"}
+              aria-label={showAttention ? "إخفاء قسم يحتاج انتباهك" : "إظهار قسم يحتاج انتباهك"}
+              className={cn(
+                "rounded-lg p-2 transition-all hover:bg-white/6",
+                showAttention ? "text-white/60 hover:text-white" : "text-white/25 hover:text-white/60",
+              )}
+            >
+              {showAttention ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
+            </button>
+          </div>
         )}
         <button
           type="button"

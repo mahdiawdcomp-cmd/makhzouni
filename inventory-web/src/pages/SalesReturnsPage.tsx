@@ -14,6 +14,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { apiErrorMessage } from "../utils/apiError"
 import { formatDate } from "../utils/date"
 import { fmt } from "../utils/fmt"
+import { lineTotal } from "../utils/financial"
 import { sortCustomersByRelevance, sortProductsByRelevance } from "../utils/search"
 import { UNIT_LABELS, unitToPieces, visibleUnits, type InvoiceUnit } from "../utils/units"
 import type { Customer, Product } from "../types/api"
@@ -159,7 +160,8 @@ export function SalesReturnsPage() {
     setLines((prev) => prev.filter((l) => l.id !== id))
   }
 
-  const total = lines.reduce((sum, l) => sum + Math.max(0, l.quantity) * Math.max(0, l.unitPrice), 0)
+  // جمع سطور مقرّبة — نفس قاعدة الفواتير والسيرفر.
+  const total = lines.reduce((sum, l) => sum + lineTotal(Math.max(0, l.quantity), Math.max(0, l.unitPrice)), 0)
 
   // ── Save ────────────────────────────────────────────────────────────────
   const [notes, setNotes] = useState("")
@@ -409,7 +411,7 @@ export function SalesReturnsPage() {
                             onValueChange={(n) => updateLine(line.id, { unitPrice: n })}
                           />
                         </TD>
-                        <TD className="font-semibold">{fmt(line.quantity * line.unitPrice)}</TD>
+                        <TD className="font-semibold">{fmt(lineTotal(line.quantity, line.unitPrice))}</TD>
                         <TD>
                           <Button variant="ghost" size="sm" onClick={() => removeLine(line.id)}>
                             <Trash2 className="h-4 w-4 text-rose-500" />

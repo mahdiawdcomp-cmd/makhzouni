@@ -45,6 +45,7 @@ import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useT
 import { cartonBreakdown, unitToPieces } from "../utils/units"
 import { InvoiceLabelsDialog } from "../components/InvoiceLabelsDialog"
 import { PurchasePerformancePanel } from "../components/PurchasePerformancePanel"
+import { lineTotal } from "../utils/financial"
 
 function money(v: number | undefined) { return fmt(v) }
 
@@ -432,7 +433,8 @@ export function InvoiceDetailPage() {
     setEditProductOpen(false); setEditProductSearch("")
   }
 
-  const editSubtotal = editItems.reduce((s, it) => s + it.quantity * it.unitPrice, 0)
+  // جمع سطور مقرّبة — نفس قاعدة بقية الشاشات والسيرفر.
+  const editSubtotal = editItems.reduce((s, it) => s + lineTotal(it.quantity, it.unitPrice), 0)
   const editTotal = editSubtotal - Number(editDiscount) + Number(editTax)
 
   const editMutation = useMutation({
@@ -929,7 +931,7 @@ export function InvoiceDetailPage() {
                       onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, quantity: Number(e.target.value) } : x))} /></TD>
                     <TD><Input type="number" className="w-24 h-8 text-sm" value={it.unitPrice} onFocus={(e) => e.target.select()}
                       onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, unitPrice: Number(e.target.value) } : x))} /></TD>
-                    <TD><Input type="number" className="w-28 h-8 text-sm font-semibold" value={Math.round(it.quantity * it.unitPrice)}
+                    <TD><Input type="number" className="w-28 h-8 text-sm font-semibold" value={lineTotal(it.quantity, it.unitPrice)}
                       onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const tot = Number(e.target.value); const qty = it.quantity || 1

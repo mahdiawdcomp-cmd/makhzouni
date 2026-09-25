@@ -34,7 +34,7 @@ import { localDateStr } from "../utils/date"
 import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
-import { calculateInvoiceFinancials } from "../utils/financial"
+import { calculateInvoiceFinancials, lineTotal, priceWithFils, roundMoney } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
@@ -794,7 +794,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" })
   }, [productHighlight])
 
-  const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
+  // جمع سطور **مقرّبة**، مو جمع أرقام مكسورة ثم تقريب: هكذا يطابق المجموع
+  // المطبوع جمعَ السطور المعروضة، ويطابق الي يحسبه السيرفر بالضبط.
+  const subtotal = useMemo(() => items.reduce((sum, item) => sum + lineTotal(item.quantity, item.unitPrice), 0), [items])
   // Summed as PIECES first, then broken down once — adding each line's rounded
   // carton count would silently drop every partial carton.
   const invoiceCartons = useMemo(() => {
@@ -1232,7 +1234,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       }
       // Update tab metadata
       if (activeTid) {
-        const sub = items.reduce((s, it) => s + it.quantity * it.unitPrice, 0)
+        // نفس قاعدة الشاشة: جمع سطور مقرّبة. بدونها بطاقة المسودة فوق تعرض
+        // ٩٬٩٩٩٫٩٦ بينما الفاتورة نفسها تعرض ١٠٬٠٠٠.
+        const sub = items.reduce((s, it) => s + lineTotal(it.quantity, it.unitPrice), 0)
         upsertTab(uid, {
           id: activeTid,
           type: invoiceType,
@@ -1656,6 +1660,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     setItems((current) => current.map((item, i) => {
       if (i !== index) return item
       const next = { ...item, ...patch }
+      // السعر ينحفظ بخانتين بقاعدة البيانات، فالتقريب يصير هنا قِبال عين
+      // البائع بدل ما يصير بصمت بعد الحفظ.
+      if (patch.unitPrice !== undefined) next.unitPrice = priceWithFils(patch.unitPrice)
       if (patch.unit && patch.unit !== item.unit && patch.unitPrice === undefined) {
         next.unitPrice = unitPriceFor(item.product, patch.unit)
       }
@@ -2225,7 +2232,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
               >
                 <span>{t.type === "PURCHASE" ? "🛒" : "🧾"}</span>
                 <span className="max-w-[80px] truncate">{t.label}</span>
-                {t.subtotal > 0 ? <span className="opacity-60">{fmt(t.subtotal)}</span> : null}
+                {t.subtotal > 0 ? <span className="opacity-60">{fmt(roundMoney(t.subtotal))}</span> : null}
                 <button
                   type="button"
                   className="rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
@@ -2787,7 +2794,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           <NumericInput
                             ref={(el) => { totalRefs.current[rowKey] = el }}
                             className={cn(dz.h, dz.text, "w-28 font-semibold")}
-                            value={Math.round(item.quantity * item.unitPrice * 1000) / 1000}
+                            value={lineTotal(item.quantity, item.unitPrice)}
                             onFocus={selectAllOnFocus}
                             onValueChange={(n) => updateItemTotal(index, n)}
                             onKeyDown={(e) => handleRowKey(e, rowKey, "total")}
@@ -3669,7 +3676,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                     <TD>{item.product.name}</TD>
                     <TD>{item.quantity}</TD>
                     <TD>{fmt(item.unitPrice)}</TD>
-                    <TD>{fmt(item.quantity * item.unitPrice)}</TD>
+                    <TD>{fmt(lineTotal(item.quantity, item.unitPrice))}</TD>
                   </TR>
                 ))}
               </TBody>
