@@ -1037,12 +1037,40 @@ export async function getAtRiskCustomers(limit = 10) {
       lastTransactionAt: true,
       invoices: {
         where: { type: "SALE", status: "ACTIVE" },
-        select: { date: true },
+        select: { date: true, totalAmount: true },
         orderBy: { date: "desc" },
         take: 6,
       },
     },
   });
+
+  /**
+   * Accounts we BUY from more than we sell to — suppliers, whatever the flag says.
+   *
+   * `isSupplier` alone was not enough: an account marked "customer AND supplier"
+   * passed the filter, so the shop's own goods supplier sat in «زبائن يحتاجون
+   * تواصل» marked 62 days late, while the shop owed HIM 288 million. Chasing a
+   * man you owe money to for his next order is not a to-do, it is noise that
+   * teaches the owner to ignore the list.
+   */
+  const purchaseTotals = new Map<string, number>();
+  const salesTotals = new Map<string, number>();
+  if (customers.length > 0) {
+    const sums = await prisma.invoice.groupBy({
+      by: ["customerId", "type"],
+      where: {
+        customerId: { in: customers.map((c) => c.id) },
+        status: "ACTIVE",
+        type: { in: ["PURCHASE", "SALE"] },
+      },
+      _sum: { totalAmount: true },
+    });
+    for (const row of sums) {
+      if (!row.customerId) continue;
+      const target = row.type === "PURCHASE" ? purchaseTotals : salesTotals;
+      target.set(row.customerId, toNumber(row._sum.totalAmount ?? 0));
+    }
+  }
 
   const results: Array<{
     id: string;
@@ -1057,6 +1085,8 @@ export async function getAtRiskCustomers(limit = 10) {
 
   for (const c of customers) {
     if (c.invoices.length === 0) continue;
+    // نشتري منه أكثر مما نبيعه = مورّد، مهما كانت خانة التصنيف.
+    if ((purchaseTotals.get(c.id) ?? 0) > (salesTotals.get(c.id) ?? 0)) continue;
 
     const lastInvoiceDate = c.invoices[0].date;
     const daysSinceLast = Math.floor(
