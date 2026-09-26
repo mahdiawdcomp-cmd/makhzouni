@@ -172,12 +172,11 @@ export interface AppSettings {
   // Dedicated number that receives staff approval requests (delete/cancel).
   // Falls back to storePhone when empty.
   adminApprovalWhatsappNumber?: string;
-  // «إشعار فواتير الشراء» — fires only for a REGULAR purchase invoice saved
-  // from the invoices screen (invoices.controller.ts::addInvoice, no nested
-  // transaction). Deliberately excludes the China/landed-cost import (can run
-  // to thousands of lines — see LandedCostImportBatch) and the staff-approval
-  // queue (createInvoice there runs inside an outer tx that may still roll
-  // back). Empty = feature off, no fallback to storePhone — this is a personal
+  // «إشعار فواتير الشراء» — fires for every purchase invoice: the invoices
+  // screen, the China/landed-cost import and the staff-approval queue. The
+  // last two send only after their transaction commits, and the photos are
+  // loaded in pages because a China order can run to hundreds of lines.
+  // Empty = feature off, no fallback to storePhone — this is a personal
   // line, not a customer-facing number.
   purchaseInvoiceNotifyWhatsappNumber?: string;
   // ── «إشعارات المندوب» — the fourth notification box ────────────────────

@@ -20,11 +20,10 @@ function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | nu
  * committed, and every failure inside here is swallowed — a WhatsApp hiccup
  * must never be the reason a purchase invoice appears to fail.
  *
- * Deliberately narrow in scope (see settings.service.ts's comment on
- * purchaseInvoiceNotifyWhatsappNumber): only the direct invoices-screen
- * purchase path calls this. The China/landed-cost import (hundreds to
- * thousands of lines per batch) and the staff-approval queue (runs inside an
- * outer transaction that can still roll back) are excluded on purpose.
+ * Callers: the invoices screen, the China/landed-cost import (whole-shipment
+ * and per-row arrival) and the approval queue. The last two run inside a
+ * transaction, so each fires this only once that transaction has committed.
+ * A China order can be hundreds of lines, hence the paged photo loading below.
  */
 export async function notifyPurchaseInvoiceCreated(invoiceId: string) {
   try {
@@ -48,45 +47,56 @@ export async function notifyPurchaseInvoiceCreated(invoiceId: string) {
     });
     if (!invoice || invoice.items.length === 0) return;
 
-    const productIds = [...new Set(invoice.items.map((it) => it.productId))];
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
-      select: { id: true, imageUrl: true, pcsPerCarton: true, salePrice: true },
-    });
-    const productById = new Map(products.map((p) => [p.id, p]));
-
     await sendWhatsAppText(
       phone,
       `🧾 فاتورة شراء جديدة ${invoice.invoiceNumber}${invoice.customer ? ` — ${invoice.customer.name}` : ""}\n${invoice.items.length} صنف`
     ).catch(() => null);
     await new Promise((r) => setTimeout(r, 400));
 
-    for (const item of invoice.items) {
-      const product = productById.get(item.productId);
-      const codeLine = item.itemNumber ? `\nكود: ${item.itemNumber}` : "";
-      const cartonLine = product && product.pcsPerCarton > 1 ? `\n${product.pcsPerCarton} قطعة/كرتون` : "";
-      // Sale price, not what was paid on this purchase line — this message is
-      // meant to be forwarded straight into a customer group, and the cost
-      // price has no business leaving the shop.
-      const priceLine = product?.salePrice ? `\n${Number(product.salePrice)} د.ع` : "";
-      const caption = `📦 ${item.productName}${codeLine}${cartonLine}${priceLine}`;
-
-      const image = product?.imageUrl ? dataUrlToBuffer(product.imageUrl) : null;
-      try {
-        if (image) {
-          await sendWhatsAppImage(phone, caption, image.buffer, image.mime);
-        } else {
-          // No photo on file — a text line so the product is never silently
-          // missing from the notification (rather than skipping it, which is
-          // what the wholesale broadcast does for lack of a better option).
-          await sendWhatsAppText(phone, `${caption}\n(بدون صورة)`);
-        }
-      } catch (err) {
-        logger.warn(`[PurchaseInvoiceNotify] failed to send item ${item.productId}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      await new Promise((r) => setTimeout(r, 400));
+    // Photos are base64 data URLs, so a China order of hundreds of lines cannot
+    // be loaded in one query. One small page at a time, in invoice order.
+    const PAGE = 20;
+    for (let start = 0; start < invoice.items.length; start += PAGE) {
+      const page = invoice.items.slice(start, start + PAGE);
+      const products = await prisma.product.findMany({
+        where: { id: { in: [...new Set(page.map((it) => it.productId))] } },
+        select: { id: true, imageUrl: true, pcsPerCarton: true, salePrice: true },
+      });
+      const productById = new Map(products.map((p) => [p.id, p]));
+      await sendItemsPage(phone, page, productById);
     }
   } catch (err) {
     logger.warn(`[PurchaseInvoiceNotify] failed for invoice ${invoiceId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+type NotifyItem = { productId: string; productName: string; itemNumber: string | null };
+type NotifyProduct = { id: string; imageUrl: string | null; pcsPerCarton: number; salePrice: unknown };
+
+async function sendItemsPage(phone: string, items: NotifyItem[], productById: Map<string, NotifyProduct>) {
+  for (const item of items) {
+    const product = productById.get(item.productId);
+    const codeLine = item.itemNumber ? `\nكود: ${item.itemNumber}` : "";
+    const cartonLine = product && product.pcsPerCarton > 1 ? `\n${product.pcsPerCarton} قطعة/كرتون` : "";
+    // Sale price, not what was paid on this purchase line — this message is
+    // meant to be forwarded straight into a customer group, and the cost
+    // price has no business leaving the shop.
+    const priceLine = product?.salePrice ? `\n${Number(product.salePrice)} د.ع` : "";
+    const caption = `📦 ${item.productName}${codeLine}${cartonLine}${priceLine}`;
+
+    const image = product?.imageUrl ? dataUrlToBuffer(product.imageUrl) : null;
+    try {
+      if (image) {
+        await sendWhatsAppImage(phone, caption, image.buffer, image.mime);
+      } else {
+        // No photo on file — a text line so the product is never silently
+        // missing from the notification (rather than skipping it, which is
+        // what the wholesale broadcast does for lack of a better option).
+        await sendWhatsAppText(phone, `${caption}\n(بدون صورة)`);
+      }
+    } catch (err) {
+      logger.warn(`[PurchaseInvoiceNotify] failed to send item ${item.productId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await new Promise((r) => setTimeout(r, 400));
   }
 }

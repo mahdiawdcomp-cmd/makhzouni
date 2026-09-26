@@ -1144,6 +1144,17 @@ export async function reviewApproval(
     };
   });
 
+  // A staff-created purchase invoice reaches the books only now, so the photo
+  // notice that the direct path sends at creation time goes out here instead.
+  if (approval.requestType === approvalRequestTypes.CREATE_INVOICE) {
+    const created = reviewed.result as { id?: string; type?: string } | null;
+    if (created?.id && created.type === "PURCHASE") {
+      import("./purchase-invoice-notify.service")
+        .then((m) => m.notifyPurchaseInvoiceCreated(created.id as string))
+        .catch(() => undefined);
+    }
+  }
+
   // Billing runs AFTER the approval commits, deliberately: it opens its own
   // transaction, moves stock and sends a WhatsApp, and none of that can be
   // undone by a rollback. A failure here leaves an approved order sitting in

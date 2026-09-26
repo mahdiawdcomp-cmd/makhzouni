@@ -483,6 +483,15 @@ export async function finalConfirmBatch(
     { maxWait: 10_000, timeout: 60_000 },
   );
 
+  // Committed. Same rule as every other purchase invoice: the product photos
+  // go to the «إشعار فواتير الشراء» number. Never awaited — hundreds of lines
+  // take minutes to send and must not hold the confirm request open.
+  if (summary.purchaseInvoiceId) {
+    import("./purchase-invoice-notify.service")
+      .then((m) => m.notifyPurchaseInvoiceCreated(summary.purchaseInvoiceId))
+      .catch(() => undefined);
+  }
+
   // Committed. Now, and only now, the people holding reservations hear that
   // their goods have landed.
   const ids = summary.arrivedIncomingIds ?? [];
