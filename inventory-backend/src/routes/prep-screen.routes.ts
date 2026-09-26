@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { requireAnyPermission, requirePermission } from "../middleware/permission.middleware";
+import { requirePermission } from "../middleware/permission.middleware";
 import { asyncHandler } from "../utils/async-handler";
 import { getVapidPublicKey } from "../utils/push-notify";
 import {
   PREP_NOTIFY,
-  getPrepLive,
+  getPrepState,
+  markPrepLine,
+  markPrepReady,
   removeStaffSubscription,
   saveStaffSubscription,
   setPrepLive,
@@ -35,15 +37,34 @@ const subscriptionSchema = z.object({
   keys: z.object({ p256dh: z.string(), auth: z.string() }),
 }).passthrough();
 
-router.get("/live", requireAnyPermission(PREP_NOTIFY, "MANAGE_INVOICES", "ACCESS_POS"), (_req, res) => {
-  res.json({ success: true, data: getPrepLive() });
+// Same bar as creating an invoice (POST /invoices needs only a signed-in user):
+// the cashier polls this for the workers' ready/short marks, so a cashier
+// without MANAGE_INVOICES must not be locked out.
+router.get("/live", (_req, res) => {
+  res.json({ success: true, data: getPrepState() });
 });
 
-// Same bar as creating an invoice (POST /invoices needs only a signed-in user),
-// or a cashier without MANAGE_INVOICES would silently never reach the phones.
 router.put("/live", (req, res) => {
   const data = setPrepLive(snapshotSchema.parse(req.body));
   res.json({ success: true, data });
+});
+
+const markSchema = z.object({
+  orderId: z.string().min(1).max(200),
+  key: z.string().min(1).max(300),
+  status: z.object({ state: z.enum(["done", "short"]), found: z.number().int().min(0).optional() }).nullable(),
+});
+
+router.post("/mark", (req, res) => {
+  const { orderId, key, status } = markSchema.parse(req.body);
+  const ok = markPrepLine(orderId, key, status, req.user!.name);
+  res.status(ok ? 200 : 404).json({ success: ok, data: getPrepState() });
+});
+
+router.post("/ready", (req, res) => {
+  const { orderId, ready } = z.object({ orderId: z.string().min(1).max(200), ready: z.boolean() }).parse(req.body);
+  const ok = markPrepReady(orderId, ready, req.user!.name);
+  res.status(ok ? 200 : 404).json({ success: ok, data: getPrepState() });
 });
 
 router.get("/vapid-key", (_req, res) => {

@@ -6,7 +6,7 @@ import { AlertTriangle, Camera, Download, ImageDown, Monitor, Plus, Printer, Rec
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall, getLoyaltyBalance, putPrepLive } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall, getLoyaltyBalance, getPrepLive, putPrepLive } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
@@ -36,7 +36,7 @@ import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials, lineTotal, priceWithFils, roundMoney } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
-import { publishPrep } from "../utils/prepScreen"
+import { playPrepDing, prepLineKeys, prepOrderId, publishPrep } from "../utils/prepScreen"
 import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
@@ -729,14 +729,20 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const blocker = useUnsavedWarning(isDirty, savingRef)
 
   const prepPendingRef = useRef<Parameters<typeof putPrepLive>[0] | null>(null)
+  const hasLines = items.length > 0
+  const prepId = useMemo(
+    () => (isPurchase ? "" : editId ? (hasLines ? `edit-${editId}` : `idle-edit-${editId}`) : prepOrderId(draftKey, hasLines)),
+    [isPurchase, editId, draftKey, hasLines],
+  )
+  const prepKeys = useMemo(() => prepLineKeys(items), [items])
   // «شاشة التجهيز» — mirror sale lines live to the prep window (second monitor).
   useEffect(() => {
     if (isPurchase) return
     const snapshot = {
-      draftId: editId ?? draftKey,
+      draftId: prepId,
       customerName: selectedCustomer?.name ?? null,
       lines: items.map((it, i) => ({
-        key: `${it.product.id}-${it.unit}-${i}`,
+        key: prepKeys[i],
         name: it.product.name,
         imageUrl: it.product.thumbnailUrl || it.product.imageUrl || null,
         quantity: it.quantity,
@@ -753,13 +759,75 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       putPrepLive(snapshot).catch(() => {})
     }, 400)
     return () => clearTimeout(t)
-  }, [items, selectedCustomer?.name, isPurchase, editId, draftKey])
+  }, [items, prepKeys, prepId, selectedCustomer?.name, isPurchase])
   // Saving clears the lines and usually navigates away within the debounce
-  // window — flush that last (empty) snapshot, or the server would still hold
-  // the old order and never push for the next one.
+  // window — flush that last (empty) snapshot so the phones stop showing it as live.
   useEffect(() => () => {
     if (prepPendingRef.current) putPrepLive(prepPendingRef.current).catch(() => {})
   }, [])
+
+  // Workers' replies: ✔ ticks the line's «جهز» box; ❗ short shows a red badge
+  // on the line and a toast; «order ready» toasts even after the invoice was saved.
+  // Runs on every fetch (poll or realtime push), outside render: ticks lines,
+  // plays the chime and toasts. First fetch only records what already exists.
+  const prepSeenRef = useRef<Set<string> | null>(null)
+  const prepIdRef = useRef(prepId)
+  useEffect(() => { prepIdRef.current = prepId }, [prepId])
+  const prepQuery = useQuery({
+    queryKey: ["prep-screen"],
+    queryFn: async () => {
+      const state = await getPrepLive()
+      const first = prepSeenRef.current === null
+      const seen = prepSeenRef.current ?? new Set<string>()
+      prepSeenRef.current = seen
+      const currentId = prepIdRef.current
+      const toTick: string[] = []
+      for (const o of state.orders) {
+        for (const [key, st] of Object.entries(o.statuses)) {
+          const id = `${o.snapshot.draftId}|${key}|${st.state}|${st.found ?? ""}|${st.at}`
+          if (seen.has(id)) continue
+          seen.add(id)
+          if (st.state === "done" && o.snapshot.draftId === currentId) toTick.push(key)
+          if (first || st.state !== "short") continue
+          const line = o.snapshot.lines.find((l) => l.key === key)
+          playPrepDing([660, 440])
+          toast({
+            variant: "destructive",
+            title: `❗ نقص: ${line?.name ?? "صنف"}`,
+            description: st.found ? `لكوا ${st.found} بس من ${line?.quantity ?? "?"} — ${st.by}` : `ماكو ولا وحدة — ${st.by}`,
+          })
+        }
+        if (o.ready) {
+          const id = `${o.snapshot.draftId}|ready|${o.ready.at}`
+          if (!seen.has(id)) {
+            seen.add(id)
+            if (!first) {
+              playPrepDing([1046, 1568])
+              toast({
+                title: "✅ الطلب جاهز",
+                description: `${o.snapshot.customerName ?? `${o.snapshot.lines.length} أصناف`} — ${o.ready.by}`,
+              })
+            }
+          }
+        }
+      }
+      if (toTick.length) {
+        setItems((cur) => {
+          const keys = prepLineKeys(cur)
+          return cur.map((it, i) => (toTick.includes(keys[i]) && !it.prepared ? { ...it, prepared: true } : it))
+        })
+      }
+      return state
+    },
+    enabled: !isPurchase,
+    refetchInterval: 2500,
+    refetchIntervalInBackground: true,
+  })
+  const prepStatuses = useMemo(
+    () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {},
+    [prepQuery.data, prepId],
+  )
+
 
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
@@ -2600,7 +2668,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                     <Fragment key={index}>
                     {/* A prepared line is tinted green so a picker can see the
                         remaining work without reading every checkbox. */}
-                    <TR className={item.prepared ? "bg-emerald-50/70 dark:bg-emerald-950/20" : undefined}>
+                    <TR
+                      className={
+                        !isPurchase && prepStatuses[prepKeys[index]]?.state === "short"
+                          ? "bg-red-50 ring-2 ring-inset ring-red-400 dark:bg-red-950/30"
+                          : item.prepared ? "bg-emerald-50/70 dark:bg-emerald-950/20" : undefined
+                      }
+                    >
                       <TD className="text-center">
                         <input
                           type="checkbox"
@@ -2621,6 +2695,23 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         <div className={cn("flex flex-nowrap items-center whitespace-nowrap cursor-context-menu", dz.gap, dz.text)}>
                           <ProductThumb product={item.product} size={dz.thumb} />
                           <span className="font-medium">{item.product.name}</span>
+                          {(() => {
+                            // What the prep worker reported for this line.
+                            const st = !isPurchase ? prepStatuses[prepKeys[index]] : undefined
+                            if (!st) return null
+                            return st.state === "short" ? (
+                              <span
+                                className="animate-pulse rounded-md bg-red-600 px-1.5 py-0.5 text-[11px] font-bold text-white"
+                                title={`أبلغ عنه ${st.by}`}
+                              >
+                                ❗ {st.found ? `ناقص — لكوا ${st.found} من ${item.quantity}` : "ماكو بالمخزن"}
+                              </span>
+                            ) : (
+                              <span className="rounded-md bg-emerald-600 px-1.5 py-0.5 text-[11px] font-bold text-white" title={`جهّزه ${st.by}`}>
+                                ✔ تجهّز
+                              </span>
+                            )
+                          })()}
                           {/* Item number: the number people call the product by
                               on the phone and on the shelf. It used to be on the
                               line and its absence made rows hard to identify. */}

@@ -4,9 +4,11 @@ import { getVapidPublicKey } from "../utils/push-notify";
 import { publishRealtimeChange } from "./realtime.service";
 
 // «شاشة التجهيز» — the sale invoice the cashier is typing right now, relayed to
-// the prep workers' phones. Each shop runs its own backend, so this in-memory
-// slot is per-tenant by construction. It is a live mirror only (a restart just
-// empties it until the cashier's next keystroke); nothing here is a record.
+// the prep workers' phones, plus what the workers report back per line
+// (ready ✔ / short ❗ with how many they found) and per order (all ready).
+// Each shop runs its own backend, so this in-memory state is per-tenant by
+// construction. It is a live mirror only: a restart empties it until the
+// cashier's next keystroke. Nothing here is a business record.
 
 export const PREP_NOTIFY = "PREP_NOTIFY";
 
@@ -20,34 +22,81 @@ export interface PrepLine {
 }
 
 export interface PrepSnapshot {
+  /** One id per order (the cashier mints a new one when a fresh invoice gets its first line). */
   draftId: string;
   customerName: string | null;
   lines: PrepLine[];
   updatedAt: number;
 }
 
-let live: PrepSnapshot | null = null;
-// Last draft we already pushed for — one push per invoice, not one per line.
-let notifiedDraftId: string | null = null;
+export interface LineStatus {
+  state: "done" | "short";
+  /** For «short»: how many the worker actually found (0 = none at all). */
+  found?: number;
+  by: string;
+  at: number;
+}
 
-export function getPrepLive() {
-  return live;
+export interface PrepOrder {
+  snapshot: PrepSnapshot;
+  statuses: Record<string, LineStatus>;
+  ready: { by: string; at: number } | null;
+}
+
+const MAX_ORDERS = 15;
+const ORDER_TTL_MS = 3 * 60 * 60 * 1000;
+
+let live: PrepSnapshot | null = null;
+// Insertion-ordered: oldest first. Re-inserted on every update.
+const orders = new Map<string, PrepOrder>();
+
+function prune() {
+  const cutoff = Date.now() - ORDER_TTL_MS;
+  for (const [id, o] of orders) if (o.snapshot.updatedAt < cutoff) orders.delete(id);
+  while (orders.size > MAX_ORDERS) orders.delete(orders.keys().next().value as string);
+}
+
+function changed() {
+  publishRealtimeChange({ resource: "prep-screen", action: "updated" });
+}
+
+export function getPrepState() {
+  prune();
+  return { live, orders: [...orders.values()].reverse() };
 }
 
 export function setPrepLive(next: PrepSnapshot) {
   // Two cashier tabs can race; never let an older snapshot overwrite a newer one.
-  if (live && live.draftId === next.draftId && next.updatedAt < live.updatedAt) return live;
-  const prev = live;
+  if (live && live.draftId === next.draftId && next.updatedAt < live.updatedAt) return getPrepState();
   live = next;
-  publishRealtimeChange({ resource: "prep-screen", action: "updated" });
 
-  const startsOrder = next.lines.length > 0 && (!prev || prev.lines.length === 0 || prev.draftId !== next.draftId);
-  if (next.lines.length === 0 && prev?.draftId === next.draftId) notifiedDraftId = null;
-  if (startsOrder && notifiedDraftId !== next.draftId) {
-    notifiedDraftId = next.draftId;
-    void notifyPrepStaff(next);
+  if (next.lines.length > 0) {
+    const existing = orders.get(next.draftId);
+    orders.delete(next.draftId);
+    orders.set(next.draftId, { snapshot: next, statuses: existing?.statuses ?? {}, ready: existing?.ready ?? null });
+    // A brand-new order id with lines = the cashier just started a sale → one push.
+    if (!existing) void notifyPrepStaff(next);
   }
-  return live;
+  prune();
+  changed();
+  return getPrepState();
+}
+
+export function markPrepLine(orderId: string, key: string, status: { state: "done" | "short"; found?: number } | null, by: string) {
+  const order = orders.get(orderId);
+  if (!order) return false;
+  if (status) order.statuses[key] = { ...status, by, at: Date.now() };
+  else delete order.statuses[key];
+  changed();
+  return true;
+}
+
+export function markPrepReady(orderId: string, ready: boolean, by: string) {
+  const order = orders.get(orderId);
+  if (!order) return false;
+  order.ready = ready ? { by, at: Date.now() } : null;
+  changed();
+  return true;
 }
 
 async function notifyPrepStaff(snapshot: PrepSnapshot) {

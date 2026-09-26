@@ -1,4 +1,4 @@
-﻿import { api, publicApi } from "./client"
+import { api, publicApi } from "./client"
 import type {
   ApiEnvelope,
   AppSettings,
@@ -4489,8 +4489,14 @@ export async function putPrepLive(snapshot: import("../utils/prepScreen").PrepSn
   await api.put("/prep-screen/live", snapshot)
 }
 export async function getPrepLive() {
-  const { data } = await api.get<ApiEnvelope<import("../utils/prepScreen").PrepSnapshot | null>>("/prep-screen/live")
-  return data.data ?? null
+  const { data } = await api.get<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/live")
+  return data.data ?? { live: null, orders: [] }
+}
+export async function markPrepLine(orderId: string, key: string, status: { state: "done" | "short"; found?: number } | null) {
+  await api.post("/prep-screen/mark", { orderId, key, status })
+}
+export async function markPrepReady(orderId: string, ready: boolean) {
+  await api.post("/prep-screen/ready", { orderId, ready })
 }
 export async function getPrepVapidKey() {
   const { data } = await api.get<ApiEnvelope<{ publicKey: string }>>("/prep-screen/vapid-key")

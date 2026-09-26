@@ -13,6 +13,7 @@ type RealtimeResource =
   | "invoices"
   | "notifications"
   | "order-preparations"
+  | "prep-screen"
   | "products"
   | "quotations"
   | "reports"
@@ -43,6 +44,7 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   invoices: ["invoices", "invoice", "dashboard-report", "reports", "customers", "products", "approvals"],
   notifications: ["notifications"],
   "order-preparations": ["order-preparations", "approvals"],
+  "prep-screen": ["prep-screen"],
   products: ["products", "product", "product-movement", "dashboard-report", "reports"],
   quotations: ["quotations"],
   reports: ["reports", "dashboard-report"],
