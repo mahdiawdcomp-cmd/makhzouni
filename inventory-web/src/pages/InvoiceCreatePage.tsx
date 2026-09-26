@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, Users, X } from "lucide-react"
+import { AlertTriangle, Camera, Download, ImageDown, Monitor, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, Users, X } from "lucide-react"
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
@@ -2301,6 +2301,16 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         </div>
         <div className="mr-auto flex items-center gap-1.5">
           <VoiceInvoiceButton compact />
+          {!isPurchase && (
+            <button
+              type="button"
+              title="فتح شاشة التجهيز بنافذة منفصلة — اسحبها للشاشة الثانية"
+              onClick={() => window.open("/prep", "prep-screen", "popup,width=1280,height=800")?.focus()}
+              className="inline-flex h-7 items-center gap-1.5 rounded border border-white/30 bg-white/20 px-2 text-xs font-medium text-white hover:bg-white/30"
+            >
+              <Monitor className="h-3.5 w-3.5" /> شاشة التجهيز
+            </button>
+          )}
           {isPurchase && (
             <button type="button" onClick={() => setOcrOpen(true)} className="inline-flex h-7 items-center gap-1.5 rounded border border-white/30 bg-white/20 px-2 text-xs font-medium text-white hover:bg-white/30">
               <Camera className="h-3.5 w-3.5" /> صورة
