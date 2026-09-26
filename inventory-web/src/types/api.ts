@@ -40,6 +40,8 @@ export type UserPermission =
   // a customer pays must never be something a rep has by default. ADMIN passes
   // by role, as with every other permission.
   | "MANAGE_CUSTOMER_OFFERS"
+  // «شاشة التجهيز» — phone push + live prep screen for the warehouse workers.
+  | "PREP_NOTIFY"
 
 export interface ApiEnvelope<T> {
   success: boolean

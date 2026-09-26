@@ -11,6 +11,7 @@ export type RealtimeResource =
   | "invoices"
   | "notifications"
   | "order-preparations"
+  | "prep-screen"
   | "products"
   | "quotations"
   | "reports"

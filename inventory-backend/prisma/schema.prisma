@@ -3162,3 +3162,16 @@ model AuctionBid {
   @@index([auctionId, createdAt])
   @@map("auction_bids")
 }
+
+/// «شاشة التجهيز» — Web Push subscriptions of staff phones (users holding
+/// PREP_NOTIFY). One row per browser endpoint; a user may have several phones.
+model StaffPushSubscription {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  endpoint     String   @unique
+  subscription Json
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("staff_push_subscriptions")
+}

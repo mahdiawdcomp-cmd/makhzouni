@@ -292,7 +292,7 @@ self.addEventListener("fetch", (event) => {
 
 // ── Push notifications (product arrival alerts) ────────────────────────────
 self.addEventListener("push", (event) => {
-  let payload: { title?: string; body?: string; url?: string } = {}
+  let payload: { title?: string; body?: string; url?: string; image?: string; tag?: string; staff?: boolean } = {}
   try {
     payload = event.data?.json() ?? {}
   } catch {
@@ -300,13 +300,16 @@ self.addEventListener("push", (event) => {
   }
 
   const title = payload.title ?? "مخزوني"
-  const options: NotificationOptions = {
+  // «شاشة التجهيز» staff alert: English/LTR, loud, stays until tapped.
+  const staff = payload.staff === true
+  const options: NotificationOptions & { image?: string; vibrate?: number[]; renotify?: boolean } = {
     body: payload.body ?? "",
     icon: "/favicon.svg",
     badge: "/favicon.svg",
-    dir: "rtl",
-    lang: "ar",
+    dir: staff ? "ltr" : "rtl",
+    lang: staff ? "en" : "ar",
     data: { url: payload.url ?? "/" },
+    ...(staff ? { image: payload.image, tag: payload.tag, renotify: true, requireInteraction: true, vibrate: [400, 150, 400, 150, 600] } : {}),
   }
 
   event.waitUntil(self.registration.showNotification(title, options))

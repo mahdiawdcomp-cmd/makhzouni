@@ -4483,3 +4483,19 @@ export async function setLoyaltyExclusion(customerId: string, payload: { exclude
   )
   return data.data!
 }
+
+// «شاشة التجهيز» — live sale-invoice mirror + staff phone push.
+export async function putPrepLive(snapshot: import("../utils/prepScreen").PrepSnapshot) {
+  await api.put("/prep-screen/live", snapshot)
+}
+export async function getPrepLive() {
+  const { data } = await api.get<ApiEnvelope<import("../utils/prepScreen").PrepSnapshot | null>>("/prep-screen/live")
+  return data.data ?? null
+}
+export async function getPrepVapidKey() {
+  const { data } = await api.get<ApiEnvelope<{ publicKey: string }>>("/prep-screen/vapid-key")
+  return data.data?.publicKey ?? ""
+}
+export async function subscribePrepPush(subscription: PushSubscriptionJSON) {
+  await api.post("/prep-screen/subscribe", subscription)
+}

@@ -6,7 +6,7 @@ import { AlertTriangle, Camera, Download, ImageDown, Monitor, Plus, Printer, Rec
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall, getLoyaltyBalance } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall, getLoyaltyBalance, putPrepLive } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
@@ -731,7 +731,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   // «شاشة التجهيز» — mirror sale lines live to the prep window (second monitor).
   useEffect(() => {
     if (isPurchase) return
-    publishPrep({
+    const snapshot = {
       draftId: editId ?? draftKey,
       customerName: selectedCustomer?.name ?? null,
       lines: items.map((it, i) => ({
@@ -743,7 +743,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         notes: it.notes,
       })),
       updatedAt: Date.now(),
-    })
+    }
+    publishPrep(snapshot)
+    // Same snapshot to the server → workers' phones (and their push alert).
+    const t = setTimeout(() => { putPrepLive(snapshot).catch(() => {}) }, 400)
+    return () => clearTimeout(t)
   }, [items, selectedCustomer?.name, isPurchase, editId, draftKey])
 
   // ---- OCR state ----

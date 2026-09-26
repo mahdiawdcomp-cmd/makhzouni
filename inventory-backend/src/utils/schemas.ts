@@ -59,6 +59,8 @@ const userPermissionSchema = z.enum([
   // «عروض خاصة بالزبون» — an ALLOW permission (ADMIN passes by role). Listed
   // here because a permission missing from this enum cannot be granted at all.
   "MANAGE_CUSTOMER_OFFERS",
+  // «شاشة التجهيز» — receives a phone push when the cashier starts a sale.
+  "PREP_NOTIFY",
 ]);
 
 const auditEntitySchema = z.enum([
