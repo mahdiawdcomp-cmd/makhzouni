@@ -78,6 +78,7 @@ const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage
 const PublicInvoiceCountPage = lazyPage(() => import("./pages/PublicInvoiceCountPage"), "PublicInvoiceCountPage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
+const PrepScreenPage = lazyPage(() => import("./pages/PrepScreenPage"), "PrepScreenPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
 const WorkerPage = lazyPage(() => import("./pages/WorkerPage"), "WorkerPage")
 // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
@@ -116,6 +117,7 @@ const router = createBrowserRouter([
   // ── Public routes ──
   { path: "/login", element: s(<LoginPage />) },
   { path: "/display", element: s(<DisplayPage />) },
+  { path: "/prep", element: s(<PrepScreenPage />) },
   { path: "/catalog", element: s(<PublicCatalogPage />) },
   { path: "/shop", element: f("retailShop", "متجر المفرد", <RetailShopPage />) },
   { path: "/client/:token", element: s(<ClientPortalPage />) },

@@ -36,6 +36,7 @@ import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials, lineTotal, priceWithFils, roundMoney } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
+import { publishPrep } from "../utils/prepScreen"
 import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
@@ -726,6 +727,24 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     ? editReady && !savedInvoiceId && serializeEditState() !== editSnapshotRef.current
     : (!!selectedCustomer || items.length > 0 || discount > 0 || paidAmount > 0 || !!couponCode.trim()) && !savedInvoiceId
   const blocker = useUnsavedWarning(isDirty, savingRef)
+
+  // «شاشة التجهيز» — mirror sale lines live to the prep window (second monitor).
+  useEffect(() => {
+    if (isPurchase) return
+    publishPrep({
+      draftId: editId ?? draftKey,
+      customerName: selectedCustomer?.name ?? null,
+      lines: items.map((it, i) => ({
+        key: `${it.product.id}-${it.unit}-${i}`,
+        name: it.product.name,
+        imageUrl: it.product.thumbnailUrl || it.product.imageUrl || null,
+        quantity: it.quantity,
+        unit: it.unit,
+        notes: it.notes,
+      })),
+      updatedAt: Date.now(),
+    })
+  }, [items, selectedCustomer?.name, isPurchase, editId, draftKey])
 
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
