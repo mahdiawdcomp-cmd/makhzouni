@@ -132,7 +132,8 @@ export function PrepScreenPage() {
 
   // Keep an already-granted subscription registered with the server (new phone login, rotated keys).
   useEffect(() => {
-    if (signedIn && pushState === "on") void enablePush()
+    // Browser permission alone doesn't mean the server has us — show the real result.
+    if (signedIn && pushState === "on") void enablePush().then((err) => { if (err) { setPushState("off"); setPushError(err) } })
   }, [signedIn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

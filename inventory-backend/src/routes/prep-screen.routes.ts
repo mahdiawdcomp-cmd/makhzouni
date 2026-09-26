@@ -39,7 +39,9 @@ router.get("/live", requireAnyPermission(PREP_NOTIFY, "MANAGE_INVOICES", "ACCESS
   res.json({ success: true, data: getPrepLive() });
 });
 
-router.put("/live", requireAnyPermission("MANAGE_INVOICES", "ACCESS_POS"), (req, res) => {
+// Same bar as creating an invoice (POST /invoices needs only a signed-in user),
+// or a cashier without MANAGE_INVOICES would silently never reach the phones.
+router.put("/live", (req, res) => {
   const data = setPrepLive(snapshotSchema.parse(req.body));
   res.json({ success: true, data });
 });

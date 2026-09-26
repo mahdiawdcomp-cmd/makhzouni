@@ -728,6 +728,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     : (!!selectedCustomer || items.length > 0 || discount > 0 || paidAmount > 0 || !!couponCode.trim()) && !savedInvoiceId
   const blocker = useUnsavedWarning(isDirty, savingRef)
 
+  const prepPendingRef = useRef<Parameters<typeof putPrepLive>[0] | null>(null)
   // «شاشة التجهيز» — mirror sale lines live to the prep window (second monitor).
   useEffect(() => {
     if (isPurchase) return
@@ -746,9 +747,19 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     }
     publishPrep(snapshot)
     // Same snapshot to the server → workers' phones (and their push alert).
-    const t = setTimeout(() => { putPrepLive(snapshot).catch(() => {}) }, 400)
+    prepPendingRef.current = snapshot
+    const t = setTimeout(() => {
+      prepPendingRef.current = null
+      putPrepLive(snapshot).catch(() => {})
+    }, 400)
     return () => clearTimeout(t)
   }, [items, selectedCustomer?.name, isPurchase, editId, draftKey])
+  // Saving clears the lines and usually navigates away within the debounce
+  // window — flush that last (empty) snapshot, or the server would still hold
+  // the old order and never push for the next one.
+  useEffect(() => () => {
+    if (prepPendingRef.current) putPrepLive(prepPendingRef.current).catch(() => {})
+  }, [])
 
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
