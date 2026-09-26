@@ -133,6 +133,10 @@ export function PrepScreenPage() {
   const [flashKey, setFlashKey] = useState<string | null>(null)
   const [started, setStarted] = useState(false)
   const [signedIn] = useState(hasToken)
+  // The upstairs monitor is driven from the cashier's PC — nobody can tap it —
+  // so the OK / SHORT / ORDER READY buttons only appear on touch devices (the
+  // workers' phones). The monitor still shows every mark the phones make.
+  const [canAct] = useState(() => hasToken() && window.matchMedia("(pointer: coarse)").matches)
   const [pushState, setPushState] = useState<"off" | "on" | "busy">(() =>
     typeof Notification !== "undefined" && Notification.permission === "granted" ? "on" : "off")
   const [pushError, setPushError] = useState("")
@@ -266,7 +270,7 @@ export function PrepScreenPage() {
   function ActionButtons({ line, big }: { line: PrepLine; big?: boolean }) {
     const st = statusOf(line.key)
     const sz = big ? "h-16 text-2xl" : "h-14 text-xl"
-    if (!signedIn) return null
+    if (!canAct) return null
     return (
       <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
         <button
@@ -304,15 +308,15 @@ export function PrepScreenPage() {
             <span className="text-5xl font-black">START</span>
           </button>
           <div className="text-lg text-white/60">اضغط للتشغيل (صوت + شاشة كاملة)</div>
-          {signedIn && pushState !== "on" && (
+          {canAct && pushState !== "on" && (
             <button type="button" onClick={onEnablePush} disabled={pushState === "busy"} className="flex cursor-pointer items-center gap-3 rounded-2xl bg-amber-400 px-6 py-4 text-2xl font-black text-slate-900 hover:bg-amber-300 disabled:opacity-60">
               <BellRing className="h-7 w-7" /> TURN ON NOTIFICATIONS
             </button>
           )}
-          {signedIn && pushState === "on" && (
+          {canAct && pushState === "on" && (
             <div className="flex items-center gap-2 text-lg font-bold text-emerald-400"><Bell className="h-5 w-5" /> Notifications ON</div>
           )}
-          {!signedIn && <div className="max-w-md text-base text-amber-300">Sign in on this device to use OK / SHORT buttons.</div>}
+          {!signedIn && window.matchMedia("(pointer: coarse)").matches && <div className="max-w-md text-base text-amber-300">Sign in on this device to use OK / SHORT buttons.</div>}
           {pushError && <div className="max-w-md rounded-xl bg-red-600/80 px-4 py-2 text-base">{pushError}</div>}
         </div>
       )}
@@ -420,7 +424,7 @@ export function PrepScreenPage() {
         )}
       </main>
 
-      {signedIn && lines.length > 0 && (
+      {canAct && lines.length > 0 && (
         <div className="border-t border-white/10 bg-black/60 p-2">
           <button
             type="button"

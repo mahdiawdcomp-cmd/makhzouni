@@ -285,7 +285,7 @@ async function loadForWrite(agent: RepAgent, invoiceId: string) {
       notes: true,
       customer: { select: { name: true } },
       items: {
-        select: { id: true, productId: true, productName: true, warehouseId: true, unit: true, quantity: true, unitPrice: true, notes: true, prepared: true },
+        select: { id: true, productId: true, productName: true, warehouseId: true, unit: true, quantity: true, unitPrice: true, notes: true, prepared: true, preparedBy: true },
       },
     },
   });
@@ -446,6 +446,7 @@ export async function editAgentInvoice(
         unitPrice: line.unitPrice,
         notes: original.notes ?? undefined,
         prepared: original.prepared,
+        preparedBy: original.preparedBy,
       };
     }),
   };

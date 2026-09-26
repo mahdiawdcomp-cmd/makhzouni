@@ -1586,6 +1586,9 @@ model InvoiceItem {
   // Purely operational: it never touches stock, money or the books, but it has
   // to survive a save so reopening the invoice shows what is left to pick.
   prepared    Boolean @default(false)
+  // Who ticked it: the worker's name from «شاشة التجهيز», or the cashier who
+  // ticked by hand. A plain name, not a user FK — it is a note, like `notes`.
+  preparedBy  String? @map("prepared_by")
 
   @@index([invoiceId])
   @@index([productId])

@@ -692,6 +692,10 @@ export function InvoiceDetailPage() {
                     <p className="font-bold text-gray-800">{item.productName ?? item.productId}</p>
                     <p className="text-xs text-gray-500">{unitLabel(item.unit)}</p>
                     {item.notes ? <p className="mt-0.5 text-xs font-medium text-amber-700">📝 {item.notes}</p> : null}
+                    {/* Who picked it — internal, never on the customer's printout. */}
+                    {item.prepared && item.preparedBy ? (
+                      <p className="mt-0.5 text-xs font-semibold text-emerald-700 print:hidden">✔ جهّزه: {item.preparedBy}</p>
+                    ) : null}
                   </td>
                   <td className="py-3 px-4 text-center">{unitLabel(item.unit)}</td>
                   <td className="py-3 px-4 text-center font-bold">{fmt(item.quantity)}</td>

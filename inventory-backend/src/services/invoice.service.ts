@@ -95,6 +95,7 @@ export interface InvoiceItemInput {
   allowNegativeStock?: boolean;
   // «تم تجهيز» — picker's tick. Stored as-is; affects nothing but the UI.
   prepared?: boolean;
+  preparedBy?: string | null;
   // Depot pull: move a WHOLE CARTON to المحل instead of only the pieces sold.
   // A depot is stacked in sealed cartons — taking 12 pieces out of one leaves a
   // broken carton on the shelf that no count sheet can describe.
@@ -1231,6 +1232,7 @@ async function createInvoiceInTransaction(
         totalPrice: pricedItem.totalPrice,
         notes: item.notes?.trim() || null,
         prepared: Boolean(item.prepared),
+        preparedBy: item.prepared ? item.preparedBy?.trim() || null : null,
       },
     });
   }

@@ -96,6 +96,8 @@ interface DraftItem {
   /** «تم تجهيز» — ticked by whoever pulled this line off the shelf. Saved with
    *  the invoice, so reopening it shows what is still outstanding. */
   prepared?: boolean
+  /** Who ticked it — a prep worker's name (from «شاشة التجهيز») or the cashier. */
+  preparedBy?: string
   /** Depot pull: move a WHOLE CARTON to المحل, not just the pieces sold. */
   transferWholeCarton?: boolean
 }
@@ -430,7 +432,7 @@ interface PersistedDraft {
   customerId: string | null
   date: string
   paymentMode: PaymentMode
-  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string; warehouseName?: string; allowNegativeStock?: boolean; notes?: string; prepared?: boolean }>
+  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string; warehouseName?: string; allowNegativeStock?: boolean; notes?: string; prepared?: boolean; preparedBy?: string }>
   discount: number
   paidAmount: number
   invoiceNotes?: string
@@ -491,6 +493,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const readOnly = useReadOnly()
 
   const userId = useAuthStore((s) => s.user?.id)
+  const userName = useAuthStore((s) => s.user?.name)
   const uid = userId ?? "anon"
   const permissions = useAuthStore((s) => s.user?.permissions ?? [])
   const hidePrice = !isPurchase && permissions.includes("VIEW_WITHOUT_PRICES" as never)
@@ -781,13 +784,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const seen = prepSeenRef.current ?? new Set<string>()
       prepSeenRef.current = seen
       const currentId = prepIdRef.current
-      const toTick: string[] = []
+      const toTick = new Map<string, string>() // line key → worker name
       for (const o of state.orders) {
         for (const [key, st] of Object.entries(o.statuses)) {
           const id = `${o.snapshot.draftId}|${key}|${st.state}|${st.found ?? ""}|${st.at}`
           if (seen.has(id)) continue
           seen.add(id)
-          if (st.state === "done" && o.snapshot.draftId === currentId) toTick.push(key)
+          if (st.state === "done" && o.snapshot.draftId === currentId) toTick.set(key, st.by)
           if (first || st.state !== "short") continue
           const line = o.snapshot.lines.find((l) => l.key === key)
           playPrepDing([660, 440])
@@ -811,10 +814,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
           }
         }
       }
-      if (toTick.length) {
+      if (toTick.size) {
         setItems((cur) => {
           const keys = prepLineKeys(cur)
-          return cur.map((it, i) => (toTick.includes(keys[i]) && !it.prepared ? { ...it, prepared: true } : it))
+          return cur.map((it, i) => {
+            const by = toTick.get(keys[i])
+            return by !== undefined ? { ...it, prepared: true, preparedBy: by } : it
+          })
         })
       }
       return state
@@ -1088,6 +1094,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         // Reopening an invoice must show what was already picked, so the tick
         // comes back from the saved line rather than resetting to unticked.
         prepared: Boolean(it.prepared),
+        preparedBy: it.preparedBy ?? undefined,
       }
     })
 
@@ -1152,7 +1159,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       let dropped = 0
       for (const it of draft.items) {
         const p = products.find((x) => x.id === it.productId)
-        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes, prepared: it.prepared })
+        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes, prepared: it.prepared, preparedBy: it.preparedBy })
         else dropped += 1
       }
       setPriceMode(draft.priceMode ?? "WHOLESALE")
@@ -1321,6 +1328,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
           allowNegativeStock: i.allowNegativeStock,
           notes: i.notes,
           prepared: i.prepared,
+          preparedBy: i.preparedBy,
         })),
         discount,
         paidAmount,
@@ -2011,6 +2019,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             warehouseId: item.warehouseId,
             notes: item.notes?.trim() || undefined,
             prepared: Boolean(item.prepared),
+            preparedBy: item.prepared ? item.preparedBy : undefined,
             transferWholeCarton: item.transferWholeCarton || undefined,
           })),
         })
@@ -2061,6 +2070,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         warehouseId: item.warehouseId,
         notes: item.notes?.trim() || undefined,
         prepared: Boolean(item.prepared),
+        preparedBy: item.prepared ? item.preparedBy : undefined,
         transferWholeCarton: item.transferWholeCarton || undefined,
         // Every SALE line is authorized to go below zero. allowNegative only
         // *permits* a deficit, it never creates one, and the shortage is still
@@ -2682,7 +2692,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           checked={Boolean(item.prepared)}
                           title="تم تجهيز المادة"
                           aria-label={`تم تجهيز ${item.product.name}`}
-                          onChange={(event) => updateItem(index, { prepared: event.target.checked })}
+                          onChange={(event) => updateItem(index, { prepared: event.target.checked, preparedBy: event.target.checked ? userName : undefined })}
                         />
                       </TD>
                       <TD
@@ -2698,7 +2708,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           {(() => {
                             // What the prep worker reported for this line.
                             const st = !isPurchase ? prepStatuses[prepKeys[index]] : undefined
-                            if (!st) return null
+                            if (!st) {
+                              // Reopened invoice: the name saved with the line.
+                              return item.prepared && item.preparedBy ? (
+                                <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                  ✔ {item.preparedBy}
+                                </span>
+                              ) : null
+                            }
                             return st.state === "short" ? (
                               <span
                                 className="animate-pulse rounded-md bg-red-600 px-1.5 py-0.5 text-[11px] font-bold text-white"
@@ -2708,7 +2725,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                               </span>
                             ) : (
                               <span className="rounded-md bg-emerald-600 px-1.5 py-0.5 text-[11px] font-bold text-white" title={`جهّزه ${st.by}`}>
-                                ✔ تجهّز
+                                ✔ {st.by || "تجهّز"}
                               </span>
                             )
                           })()}
