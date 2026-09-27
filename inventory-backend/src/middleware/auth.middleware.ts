@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { verifyToken } from "../utils/jwt";
+import { assertWorkerScope } from "./worker-scope";
 
 export async function authMiddleware(
   req: Request,
@@ -41,6 +42,9 @@ export async function authMiddleware(
       permissions: user.permissions,
       isActive: user.isActive,
     };
+
+    // Worker-only accounts: only the worker screens' endpoints, on every client.
+    assertWorkerScope(user, req.method, `${req.baseUrl}${req.path}`);
 
     next();
   } catch (error) {
