@@ -9,7 +9,7 @@ import {
   type PrepSnapshot,
   type PrepState,
 } from "../utils/prepScreen"
-import { ackPrepOrder, getPrepLive, getPrepVapidKey, markPrepLine, markPrepReady, subscribePrepPush } from "../api/endpoints"
+import { ackPrepOrder, recordPageView, getPrepLive, getPrepVapidKey, markPrepLine, markPrepReady, subscribePrepPush } from "../api/endpoints"
 
 // «شاشة التجهيز» — opened on the second monitor (/prep) or on a worker's phone.
 // Workers don't read Arabic, so everything they need is a picture + a big
@@ -177,6 +177,9 @@ export function PrepScreenPage() {
   }, [])
 
   useEffect(() => subscribePrep(apply), [apply])
+
+  // «سجل الصفحات» — this page lives outside AppLayout, so log it here.
+  useEffect(() => { if (signedIn) recordPageView("/prep", "شاشة التجهيز").catch(() => {}) }, [signedIn])
 
   const refresh = useCallback(async () => {
     try {

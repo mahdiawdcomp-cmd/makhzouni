@@ -16,6 +16,7 @@ const lazyPage = <T extends Record<string, unknown>>(
 ) => lazy(() => loader().then((m) => ({ default: m[name] as React.ComponentType })))
 
 const ApprovalsPage = lazyPage(() => import("./pages/ApprovalsPage"), "ApprovalsPage")
+const ActivityLogPage = lazyPage(() => import("./pages/ActivityLogPage"), "ActivityLogPage")
 const PersonalDebtsPage = lazyPage(() => import("./pages/PersonalDebtsPage"), "PersonalDebtsPage")
 const AuditLogsPage = lazyPage(() => import("./pages/AuditLogsPage"), "AuditLogsPage")
 const AnalyzedErrorsPage = lazyPage(() => import("./pages/AnalyzedErrorsPage"), "AnalyzedErrorsPage")
@@ -203,6 +204,7 @@ const router = createBrowserRouter([
             children: [
               { path: "users", element: s(<UsersPage />) },
               { path: "approvals", element: s(<ApprovalsPage />) },
+          { path: "activity-log", element: s(<ActivityLogPage />) },
               { path: "personal-debts", element: s(<PersonalDebtsPage />) },
               { path: "audit-logs", element: f("auditLog", "سجل التدقيق", <AuditLogsPage />) },
               { path: "error-logs", element: s(<AnalyzedErrorsPage />) },

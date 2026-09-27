@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   Download,
+  Eye,
   FileCheck2,
   FileSpreadsheet,
   FileText,
@@ -226,6 +227,7 @@ const isSaasOwner = import.meta.env.VITE_IS_SAAS_OWNER === "true"
 const adminItems = [
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
   { to: "/error-logs", label: "صحة النظام والأخطاء", Icon: AlertTriangle },
+  { to: "/activity-log", label: "سجل الصفحات", Icon: Eye },
   { to: "/personal-debts", label: "الديون الشخصية", Icon: HandCoins },
   { to: "/sales-agents", label: "المندوبون", Icon: Bike },
   // Next to the reps because it is the reps' list: the neighbourhoods they

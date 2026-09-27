@@ -9,10 +9,15 @@ import { NotificationsBell } from "./NotificationsBell"
 import { WhatsappChatButton } from "./WhatsappChatButton"
 import { LanguageSwitcher } from "./LanguageSwitcher"
 
-function useCurrentPageLabel(): string {
+export function useCurrentPageLabel(): string {
   const { pathname, search } = useLocation()
 
   if (pathname === "/") return "الرئيسية"
+  if (pathname.startsWith("/worker")) return "صفحة العامل"
+  if (pathname.startsWith("/losses")) return "التالف"
+  if (pathname.startsWith("/activity-log")) return "سجل الصفحات"
+  if (pathname.startsWith("/invoices/") && pathname.endsWith("/edit")) return "تعديل فاتورة"
+  if (/^\/invoices\/[^/]+$/.test(pathname) && pathname !== "/invoices/new" && pathname !== "/invoices/returns") return "عرض فاتورة"
   if (pathname.startsWith("/inventory/transfers")) return "التحويلات"
   if (pathname.startsWith("/inventory/low-stock")) return "مخزون منخفض"
   if (pathname.startsWith("/inventory")) return "المخزن"

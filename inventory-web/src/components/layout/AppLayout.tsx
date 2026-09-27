@@ -18,6 +18,7 @@ import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
 import { OnboardingWizard } from "../OnboardingWizard"
 import { AgentButton } from "../agent/AgentButton"
 import { MobileLogoutButton } from "./MobileLogoutButton"
+import { PageViewTracker } from "./PageViewTracker"
 import { ErrorBoundary } from "../ErrorBoundary"
 import { toast } from "../ui/use-toast"
 import { LanguageSwitcher } from "./LanguageSwitcher"
@@ -332,6 +333,8 @@ export function AppLayout() {
           onRefresh={pwa.refreshApp}
           onSync={pwa.syncNow}
         />
+
+        <PageViewTracker />
 
         {/* Mobile top bar */}
         <div

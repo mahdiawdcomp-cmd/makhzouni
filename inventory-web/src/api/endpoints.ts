@@ -4523,3 +4523,12 @@ export async function getPrepWorkers() {
   const { data } = await api.get<ApiEnvelope<Array<{ id: string; name: string }>>>("/prep-screen/workers")
   return data.data ?? []
 }
+// «سجل الصفحات»
+export async function recordPageView(path: string, label: string | null) {
+  await api.post("/activity/page-view", { path, label })
+}
+export interface PageViewRow { id: string; userId: string; userName: string; path: string; label: string | null; createdAt: string }
+export async function getPageViews(params: { userId?: string; from?: string; to?: string; limit?: number }) {
+  const { data } = await api.get<ApiEnvelope<PageViewRow[]>>("/activity/page-views", { params })
+  return data.data ?? []
+}
