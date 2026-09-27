@@ -4485,8 +4485,17 @@ export async function setLoyaltyExclusion(customerId: string, payload: { exclude
 }
 
 // «شاشة التجهيز» — live sale-invoice mirror + staff phone push.
+// Pictures are data URLs (~10 KB each): never ship them with the snapshot —
+// the prep screens load each product's picture once via getPrepThumbs().
+function withoutInlineImages(snapshot: import("../utils/prepScreen").PrepSnapshot) {
+  return { ...snapshot, lines: snapshot.lines.map((l) => (l.imageUrl?.startsWith("data:") ? { ...l, imageUrl: null } : l)) }
+}
 export async function putPrepLive(snapshot: import("../utils/prepScreen").PrepSnapshot) {
-  await api.put("/prep-screen/live", snapshot)
+  await api.put("/prep-screen/live", withoutInlineImages(snapshot))
+}
+export async function getPrepThumbs(productIds: string[]) {
+  const { data } = await api.get<ApiEnvelope<Record<string, string | null>>>("/prep-screen/thumbs", { params: { ids: productIds.join(",") } })
+  return data.data ?? {}
 }
 export async function getPrepLive() {
   const { data } = await api.get<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/live")
@@ -4510,7 +4519,7 @@ export async function subscribePrepPush(subscription: PushSubscriptionJSON) {
   note: string | null
   targetUserId: string | null
 }) {
-  const { data } = await api.post<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/send", payload)
+  const { data } = await api.post<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/send", { ...payload, snapshot: withoutInlineImages(payload.snapshot) })
   return data.data
 }
 export async function cancelPrepOrder(orderId: string) {

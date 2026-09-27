@@ -10,6 +10,7 @@ import {
 import type { Product } from "../types/api"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { useAuthStore } from "../store/authStore"
+import { PrepWorkerCard } from "../components/prep/PrepWorkerCard"
 
 /**
  * Warehouse-worker page (/worker) — deliberately self-contained:
@@ -220,6 +221,9 @@ export function WorkerPage() {
           {t("language")}
         </button>
       </div>
+
+      {/* ── «شاشة التجهيز» + notifications (PREP_NOTIFY holders) ── */}
+      {(user?.permissions ?? []).includes("PREP_NOTIFY") && <PrepWorkerCard lang={lang} />}
 
       {/* ── Search ── */}
       <div className="space-y-2 rounded-2xl border bg-white p-3 shadow-sm">

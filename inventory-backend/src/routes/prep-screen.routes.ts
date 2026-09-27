@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { requireAnyPermission, requirePermission } from "../middleware/permission.middleware";
 import { asyncHandler } from "../utils/async-handler";
+import prisma from "../config/database";
 import { getVapidPublicKey } from "../utils/push-notify";
 import {
   PREP_NOTIFY,
@@ -32,7 +33,9 @@ const snapshotSchema = z.object({
   lines: z.array(z.object({
     key: z.string().max(300),
     name: z.string().max(500),
-    imageUrl: z.string().max(2000).nullable(),
+    // Pictures are data URLs here; a stale client may still send them. Accept
+    // and drop them — screens load pictures via /thumbs, pushes need http URLs.
+    imageUrl: z.string().max(500_000).nullable().transform((v) => (v && v.startsWith("data:") ? null : v)),
     quantity: z.number(),
     unit: z.enum(["PIECE", "DOZEN", "BOX", "CARTON"]),
     notes: z.string().max(500).optional(),
@@ -107,6 +110,23 @@ router.post("/ack", (req, res) => {
 
 router.get("/workers", deskOnly, asyncHandler(async (_req, res) => {
   res.json({ success: true, data: await listPrepWorkers() });
+}));
+
+// Product thumbnails for the prep screen. Pictures are stored as data URLs
+// (~10 KB each), so snapshots travel WITHOUT them — polled every 1.5 s they
+// would be megabytes — and each screen fetches a product's picture once.
+router.get("/thumbs", asyncHandler(async (req, res) => {
+  const ids = String(req.query.ids ?? "")
+    .split(",")
+    .filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+    .slice(0, 60);
+  if (ids.length === 0) { res.json({ success: true, data: {} }); return; }
+  const rows = await prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, thumbnailUrl: true, imageUrl: true } });
+  const data: Record<string, string | null> = {};
+  for (const id of ids) data[id] = null;
+  for (const r of rows) data[r.id] = r.thumbnailUrl || r.imageUrl || null;
+  res.setHeader("Cache-Control", "private, max-age=600");
+  res.json({ success: true, data });
 }));
 
 router.get("/vapid-key", (_req, res) => {

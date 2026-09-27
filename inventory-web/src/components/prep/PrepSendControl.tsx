@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Bell, BellRing, Flame, Loader2, Printer, X } from "lucide-react"
 import { printPrepSlip } from "../../utils/printPrepSlip"
+import { apiErrorMessage } from "../../utils/apiError"
 import { cancelPrepOrder, getPrepWorkers, sendPrepOrder } from "../../api/endpoints"
 import type { PrepOrder, PrepSnapshot } from "../../utils/prepScreen"
 import { toast } from "../ui/use-toast"
@@ -39,8 +40,8 @@ export function PrepSendControl({ getSnapshot, order, hasLines }: {
     try {
       await sendPrepOrder({ snapshot, urgent: o.urgent, note: o.note.trim() || null, targetUserId: o.targetUserId })
       toast({ title: o.urgent ? "🔥 انرسل للتجهيز (مستعجل)" : "🔔 انرسل للتجهيز" })
-    } catch {
-      toast({ variant: "destructive", title: "ما انرسل للتجهيز", description: "تأكد من الإنترنت وحاول مرة ثانية" })
+    } catch (err) {
+      toast({ variant: "destructive", title: "ما انرسل للتجهيز", description: apiErrorMessage(err, "تأكد من الإنترنت وحاول مرة ثانية") })
     } finally {
       setBusy(false)
     }

@@ -9,7 +9,9 @@ import {
   type PrepSnapshot,
   type PrepState,
 } from "../utils/prepScreen"
-import { ackPrepOrder, recordPageView, getPrepLive, getPrepVapidKey, markPrepLine, markPrepReady, subscribePrepPush } from "../api/endpoints"
+import { ackPrepOrder, recordPageView, getPrepLive, markPrepLine, markPrepReady } from "../api/endpoints"
+import { enablePrepPush } from "../utils/prepPush"
+import { usePrepThumb } from "../utils/prepThumbs"
 
 // «شاشة التجهيز» — opened on the second monitor (/prep) or on a worker's phone.
 // Workers don't read Arabic, so everything they need is a picture + a big
@@ -30,8 +32,9 @@ const POLL_MS = 1500
 type Mark = { state: "done" | "short"; found?: number } | null
 
 function Thumb({ line, className, style }: { line: PrepLine; className: string; style?: React.CSSProperties }) {
-  return line.imageUrl ? (
-    <img src={line.imageUrl} alt="" style={style} className={`${className} bg-white object-contain`} />
+  const src = usePrepThumb(line)
+  return src ? (
+    <img src={src} alt="" style={style} className={`${className} bg-white object-contain`} />
   ) : (
     <div style={style} className={`${className} flex items-center justify-center bg-slate-800 text-slate-500`}>
       <Package className="h-1/3 w-1/3" />
@@ -45,32 +48,6 @@ function hasToken() {
 
 function readMyId(): string | null {
   try { return (JSON.parse(localStorage.getItem("inventory_user") ?? "null") as { id?: string } | null)?.id ?? null } catch { return null }
-}
-
-function urlBase64ToUint8Array(base64: string) {
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4)
-  const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"))
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)))
-}
-
-async function enablePush(): Promise<string | null> {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-    return "This browser does not support notifications. Use Chrome."
-  }
-  const perm = await Notification.requestPermission()
-  if (perm !== "granted") return "Notifications are blocked. Allow them in Chrome settings for this site."
-  try {
-    const key = await getPrepVapidKey()
-    if (!key) return "Notifications are not configured on the server."
-    const reg = await navigator.serviceWorker.ready
-    const sub = (await reg.pushManager.getSubscription())
-      ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) }))
-    await subscribePrepPush(sub.toJSON())
-    return null
-  } catch (e) {
-    const status = (e as { response?: { status?: number } }).response?.status
-    return status === 403 ? "This account has no «إشعارات التجهيز» permission." : "Could not enable notifications."
-  }
 }
 
 // ── «How many did you find?» pad ────────────────────────────────────────────
@@ -221,7 +198,7 @@ export function PrepScreenPage() {
   // Keep an already-granted subscription registered with the server (new phone login, rotated keys).
   useEffect(() => {
     // Browser permission alone doesn't mean the server has us — show the real result.
-    if (signedIn && pushState === "on") void enablePush().then((err) => { if (err) { setPushState("off"); setPushError(err) } })
+    if (signedIn && pushState === "on") void enablePrepPush().then((err) => { if (err) { setPushState("off"); setPushError(err) } })
   }, [signedIn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -301,7 +278,7 @@ export function PrepScreenPage() {
 
   async function onEnablePush() {
     setPushState("busy")
-    const err = await enablePush()
+    const err = await enablePrepPush()
     setPushError(err ?? "")
     setPushState(err ? "off" : "on")
   }
