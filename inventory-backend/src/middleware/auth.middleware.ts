@@ -3,6 +3,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { verifyToken } from "../utils/jwt";
 import { assertWorkerScope } from "./worker-scope";
+import { assertStaffScope } from "./staff-scope";
 
 export async function authMiddleware(
   req: Request,
@@ -45,6 +46,8 @@ export async function authMiddleware(
 
     // Worker-only accounts: only the worker screens' endpoints, on every client.
     assertWorkerScope(user, req.method, `${req.baseUrl}${req.path}`);
+    // Ordinary staff: each API area needs its permission (see staff-scope.ts).
+    assertStaffScope(user, req.method, `${req.baseUrl}${req.path}`);
 
     next();
   } catch (error) {

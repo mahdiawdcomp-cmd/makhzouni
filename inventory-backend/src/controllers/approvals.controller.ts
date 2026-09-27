@@ -10,8 +10,16 @@ import { hasPermission } from "../middleware/permission.middleware";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 
-export const getPendingApprovals = asyncHandler(async (_req, res) => {
-  const approvals = await listPendingApprovals();
+/** Admins and «الموافقات» review anything; «قبول التحويلات» reviews transfers only. */
+function canReviewType(user: Express.User, requestType: string | undefined) {
+  if (user.role === "ADMIN" || hasPermission(user, "MANAGE_APPROVALS")) return true;
+  return requestType === "CREATE_TRANSFER" && hasPermission(user, "MANAGE_TRANSFERS");
+}
+
+export const getPendingApprovals = asyncHandler(async (req, res) => {
+  const all = await listPendingApprovals();
+  // A transfers-only reviewer must not read price, delete or customer requests.
+  const approvals = all.filter((a) => canReviewType(req.user!, (a as { requestType?: string }).requestType));
 
   res.json({
     success: true,
@@ -48,8 +56,7 @@ export const bulkReviewApprovals = asyncHandler(async (req, res) => {
         select: { requestType: true, requestedBy: true },
       });
       const isTransfer = target?.requestType === "CREATE_TRANSFER";
-      const canReview = req.user.role === "ADMIN" || (isTransfer && hasPermission(req.user, "MANAGE_TRANSFERS"));
-      if (!canReview) { errors.push(id); continue; }
+      if (!canReviewType(req.user, target?.requestType)) { errors.push(id); continue; }
       // Same segregation-of-duties rule as the single-review handler — bulk
       // approve must not become the way around it.
       if (req.user.role !== "ADMIN" && target?.requestedBy === req.user.id) { errors.push(id); continue; }
@@ -73,15 +80,13 @@ export const reviewPendingApproval = asyncHandler(async (req, res) => {
   }
 
   const id = String(req.params.id);
-  // Admins review anything; holders of MANAGE_TRANSFERS may review transfers.
+  // Admins and «الموافقات» review anything; «قبول التحويلات» may review transfers.
   const target = await prisma.pendingApproval.findUnique({
     where: { id },
     select: { requestType: true, requestedBy: true },
   });
   const isTransfer = target?.requestType === "CREATE_TRANSFER";
-  const canReview =
-    req.user.role === "ADMIN" || (isTransfer && hasPermission(req.user, "MANAGE_TRANSFERS"));
-  if (!canReview) {
+  if (!canReviewType(req.user, target?.requestType)) {
     throw new AppError("Only admins can review approval requests", 403, "ADMIN_REQUIRED");
   }
 

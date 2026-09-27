@@ -724,6 +724,7 @@ export function Sidebar() {
   const tenantFeatures = tenantQuery.data?.entitlementFeatures
   // Warehouse worker: only his two pages appear — عامل المخزن + التلف والخسائر.
   const isWorkerOnly = useAuthStore((s) => s.isWorkerOnly())
+  const canReviewApprovals = (user?.permissions ?? []).some((p) => p === "MANAGE_APPROVALS" || p === "MANAGE_TRANSFERS")
 
   // «مجمّع» / «كلاسيكي» — a per-browser choice, flipped from the button at the
   // bottom. The worker's two-item list has nothing to group, so it stays classic.
@@ -800,6 +801,8 @@ export function Sidebar() {
     const leaf = leafByPath.get(path)
     if (!leaf) return false
     if (isWorkerOnly) return path === "/worker" || path === "/losses"
+    // «الموافقات» / «قبول التحويلات» holders review requests too (server narrows by type).
+    if (path === "/approvals") return isAdmin || canReviewApprovals
     if (adminPaths.has(path)) return isAdmin
     return hasPermission(leaf) && hasFeature(leaf)
   }
@@ -1091,6 +1094,7 @@ export function Sidebar() {
 /** Compact horizontal icon-strip shown at the top when in invoice focus mode.
  *  All links pass through keepInvoiceOpen → open in new tab automatically. */
 export function SidebarTopBar() {
+  const canReviewApprovals = (useAuthStore((s) => s.user)?.permissions ?? []).some((p) => p === "MANAGE_APPROVALS" || p === "MANAGE_TRANSFERS")
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === "ADMIN"
   const permissions = user?.permissions ?? []
@@ -1176,7 +1180,7 @@ export function SidebarTopBar() {
           </NavLink>
         )
       })}
-      {isAdmin && (
+      {(isAdmin || canReviewApprovals) && (
         <NavLink to="/approvals"
           className={({ isActive }) => cn(
             "flex items-center gap-1.5 rounded-md px-2 h-8 transition-all",
