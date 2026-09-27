@@ -62,7 +62,7 @@ router.put("/live", (req, res) => {
 const markSchema = z.object({
   orderId: z.string().min(1).max(200),
   key: z.string().min(1).max(300),
-  status: z.object({ state: z.enum(["done", "short"]), found: z.number().int().min(0).optional() }).nullable(),
+  status: z.object({ state: z.enum(["done", "short", "count"]), found: z.number().int().min(0).optional() }).nullable(),
 });
 
 router.post("/mark", (req, res) => {

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AlertTriangle, Bell, BellRing, Check, CheckCheck, Maximize, Minus, Package, Plus, Volume2, X } from "lucide-react"
+import { AlertTriangle, Bell, BellRing, Check, CheckCheck, ChevronLeft, ChevronRight, Hash, Maximize, Minus, Package, Plus, Volume2, X } from "lucide-react"
 import {
   playPrepDing,
+  playPrepSiren,
   readPrep,
   subscribePrep,
   type PrepLine,
@@ -13,11 +14,16 @@ import { ackPrepOrder, recordPageView, getPrepLive, markPrepLine, markPrepReady 
 import { enablePrepPush } from "../utils/prepPush"
 import { usePrepThumb } from "../utils/prepThumbs"
 
-// «شاشة التجهيز» — opened on the second monitor (/prep) or on a worker's phone.
-// Workers don't read Arabic, so everything they need is a picture + a big
-// Western-digit quantity + an English unit tag, and every action is a big
-// coloured button: ✔ READY, ❗ SHORT (then «how many did you find?»), and
-// ORDER READY. Their marks go to the server, which the cashier's invoice polls.
+// «شاشة التجهيز» — opened on the upstairs monitor (/prep) or on a worker's phone.
+// Workers don't read Arabic: everything is a picture, a big Western-digit
+// quantity and an English unit tag.
+//
+// Layout: a grid of picture tiles (3 across on a phone, 5 on the monitor),
+// each with its quantity and its status colour. Tapping a tile opens it full
+// size with three big actions — ✔ DONE, ❗ PROBLEM (how many found) and
+// 🔢 OTHER COUNT (any number, can be more) — and swipes to the next item.
+// A newly sent order sounds a loud siren, flashes red and vibrates until the
+// worker taps RECEIVED; the screen is kept awake while the page is open.
 
 const UNIT_TAG: Record<PrepLine["unit"], { label: string; cls: string }> = {
   PIECE: { label: "PCS", cls: "bg-sky-500" },
@@ -26,15 +32,15 @@ const UNIT_TAG: Record<PrepLine["unit"], { label: string; cls: string }> = {
   CARTON: { label: "CARTON", cls: "bg-rose-600" },
 }
 
-const CARD_LIMIT = 5 // above this, switch to compact rows so nothing shrinks to unreadable
 const POLL_MS = 1500
+const SIREN_EVERY_MS = 2500
 
-type Mark = { state: "done" | "short"; found?: number } | null
+type Mark = { state: "done" | "short" | "count"; found?: number } | null
 
 function Thumb({ line, className, style }: { line: PrepLine; className: string; style?: React.CSSProperties }) {
   const src = usePrepThumb(line)
   return src ? (
-    <img src={src} alt="" style={style} className={`${className} bg-white object-contain`} />
+    <img src={src} alt="" style={style} className={`${className} bg-white object-contain`} draggable={false} />
   ) : (
     <div style={style} className={`${className} flex items-center justify-center bg-slate-800 text-slate-500`}>
       <Package className="h-1/3 w-1/3" />
@@ -50,29 +56,38 @@ function readMyId(): string | null {
   try { return (JSON.parse(localStorage.getItem("inventory_user") ?? "null") as { id?: string } | null)?.id ?? null } catch { return null }
 }
 
-// ── «How many did you find?» pad ────────────────────────────────────────────
-function ShortPad({ line, current, onPick, onClear, onClose }: {
+/** What a mark means for display: colour + short English label. */
+function markLook(st: PrepLineStatus | undefined, qty: number) {
+  if (!st) return null
+  if (st.state === "done") return { ring: "ring-emerald-400", bg: "bg-emerald-600", label: "✔" }
+  const found = st.found ?? 0
+  if (found > qty) return { ring: "ring-amber-400", bg: "bg-amber-500", label: `${found}` }
+  return { ring: "ring-red-500", bg: "bg-red-600", label: found === 0 ? "NONE" : `${found}` }
+}
+
+// ── Number pad: «how many found?» (PROBLEM) or «what number?» (OTHER COUNT) ──
+function CountPad({ line, mode, current, onPick, onClose }: {
   line: PrepLine
+  mode: "short" | "other"
   current?: PrepLineStatus
-  onPick: (found: number) => void
-  onClear: () => void
+  onPick: (n: number) => void
   onClose: () => void
 }) {
-  const [n, setN] = useState(current?.state === "short" ? current.found ?? 0 : 0)
-  const max = Math.max(0, line.quantity - 1)
-  const quick = max <= 23 ? Array.from({ length: max + 1 }, (_, i) => i) : null
+  const [n, setN] = useState(current?.found ?? (mode === "other" ? line.quantity : 0))
+  const max = mode === "short" ? Math.max(0, line.quantity - 1) : 9999
+  const quick = mode === "short" && max <= 23 ? Array.from({ length: max + 1 }, (_, i) => i) : null
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 p-3" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-3" onClick={onClose}>
       <div className="w-full max-w-xl rounded-3xl bg-slate-900 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center gap-4">
           <Thumb line={line} className="h-24 w-24 shrink-0 rounded-2xl" />
           <div className="min-w-0 flex-1">
-            <div className="text-3xl font-black text-red-400">SHORT</div>
+            <div className={`text-3xl font-black ${mode === "short" ? "text-red-400" : "text-amber-300"}`}>{mode === "short" ? "PROBLEM" : "OTHER COUNT"}</div>
             <div className="text-xl font-bold">NEED <span className="rounded-lg bg-red-600 px-2 tabular-nums">{line.quantity}</span> {UNIT_TAG[line.unit]?.label}</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="cursor-pointer rounded-xl p-2 text-white/60 hover:bg-white/10"><X className="h-8 w-8" /></button>
         </div>
-        <div className="mb-3 text-center text-2xl font-black">HOW MANY FOUND?</div>
+        <div className="mb-3 text-center text-2xl font-black">{mode === "short" ? "HOW MANY FOUND?" : "HOW MANY DID YOU PREPARE?"}</div>
         {quick ? (
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
             {quick.map((q) => (
@@ -87,17 +102,19 @@ function ShortPad({ line, current, onPick, onClear, onClose }: {
             ))}
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-4">
+          <div className="flex items-center justify-center gap-3">
             <button type="button" onClick={() => setN((v) => Math.max(0, v - 1))} className="cursor-pointer rounded-2xl bg-slate-700 p-5 hover:bg-slate-600"><Minus className="h-8 w-8" /></button>
-            <div className="min-w-32 text-center text-7xl font-black tabular-nums">{n}</div>
+            <input
+              inputMode="numeric"
+              value={n}
+              onChange={(e) => { const v = Number(e.target.value.replace(/\D/g, "")); if (Number.isFinite(v)) setN(Math.min(max, v)) }}
+              className="w-32 rounded-2xl bg-slate-800 py-3 text-center text-6xl font-black tabular-nums outline-none"
+            />
             <button type="button" onClick={() => setN((v) => Math.min(max, v + 1))} className="cursor-pointer rounded-2xl bg-slate-700 p-5 hover:bg-slate-600"><Plus className="h-8 w-8" /></button>
-            <button type="button" onClick={() => onPick(n)} className="cursor-pointer rounded-2xl bg-red-600 px-6 py-5 text-3xl font-black hover:bg-red-500">OK</button>
           </div>
         )}
-        {current && (
-          <button type="button" onClick={onClear} className="mt-4 w-full cursor-pointer rounded-2xl border border-white/20 py-3 text-xl font-bold text-white/70 hover:bg-white/10">
-            CLEAR MARK
-          </button>
+        {!quick && (
+          <button type="button" onClick={() => onPick(n)} className="mt-4 w-full cursor-pointer rounded-2xl bg-amber-500 py-4 text-3xl font-black text-slate-900 hover:bg-amber-400">OK</button>
         )}
       </div>
     </div>
@@ -110,13 +127,14 @@ export function PrepScreenPage() {
   // Optimistic marks until the next poll confirms them. Keyed `${orderId}|${lineKey}`.
   const [pending, setPending] = useState<Record<string, Mark>>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [padKey, setPadKey] = useState<string | null>(null)
+  const [openKey, setOpenKey] = useState<string | null>(null)
+  const [pad, setPad] = useState<{ key: string; mode: "short" | "other" } | null>(null)
   const [flashKey, setFlashKey] = useState<string | null>(null)
   const [started, setStarted] = useState(false)
   const [signedIn] = useState(hasToken)
   // The upstairs monitor is driven from the cashier's PC — nobody can tap it —
-  // so the OK / SHORT / ORDER READY buttons only appear on touch devices (the
-  // workers' phones). The monitor still shows every mark the phones make.
+  // so the action buttons only appear on touch devices (the workers' phones).
+  // The monitor still shows every mark the phones make.
   const [canAct] = useState(() => hasToken() && window.matchMedia("(pointer: coarse)").matches)
   const [myId] = useState(readMyId)
   // Cancelled orders this phone already OK'd.
@@ -144,7 +162,7 @@ export function PrepScreenPage() {
     })
     if (changed) {
       setFlashKey(changed.key)
-      // The monitor chimes on every line; phones chime only for sent orders (in refresh).
+      // The monitor chimes on every line; phones get the siren for sent orders instead.
       if (startedRef.current && !canActRef.current) playPrepDing()
       // A new order starting takes over the monitor.
       if (!sameDraft && !canActRef.current) setSelectedId(null)
@@ -161,27 +179,24 @@ export function PrepScreenPage() {
   const refresh = useCallback(async () => {
     try {
       const s = await getPrepLive()
-      // Phone: a newly sent (or re-sent / cancelled) order for me rings and takes over.
+      // Phone: a newly sent (or re-sent / cancelled) order for me takes over the screen.
       if (canActRef.current) {
         const known = sentSeenRef.current
         const firstLoad = known === null
         const next = new Map<string, string>()
-        let ring: "new" | "urgent" | "cancel" | null = null
         let focus: string | null = null
+        let cancelled = false
         for (const o of s.orders) {
           if (!o.sent || (o.sent.targetUserId && o.sent.targetUserId !== myIdRef.current)) continue
           const sig = `${o.sent.at}|${o.cancelled ? "x" : ""}`
           next.set(o.snapshot.draftId, sig)
           if (firstLoad || known?.get(o.snapshot.draftId) === sig) continue
-          if (o.cancelled) ring = ring ?? "cancel"
-          else { ring = o.sent.urgent ? "urgent" : ring === "urgent" ? ring : "new"; focus = o.snapshot.draftId }
+          if (o.cancelled) cancelled = true
+          else focus = o.snapshot.draftId
         }
         sentSeenRef.current = next
-        if (ring && startedRef.current) {
-          if (ring === "cancel") playPrepDing([440, 330])
-          else { playPrepDing(); if (ring === "urgent") setTimeout(() => playPrepDing([1320, 1760]), 500) }
-        }
-        if (focus) setSelectedId(focus)
+        if (cancelled && startedRef.current) playPrepDing([440, 330])
+        if (focus) { setSelectedId(focus); setOpenKey(null) }
       }
       setServer(s)
       if (s.live) apply(s.live)
@@ -207,6 +222,21 @@ export function PrepScreenPage() {
     return () => clearTimeout(t)
   }, [flashKey])
 
+  // Keep the screen on while this page is open (after START), so the siren
+  // and the order are there the moment one arrives. Re-acquired on return.
+  useEffect(() => {
+    if (!started || !("wakeLock" in navigator)) return
+    let lock: { release: () => Promise<void> } | null = null
+    const acquire = () => {
+      (navigator as unknown as { wakeLock: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } })
+        .wakeLock.request("screen").then((l) => { lock = l }).catch(() => {})
+    }
+    acquire()
+    const onVis = () => { if (document.visibilityState === "visible") acquire() }
+    document.addEventListener("visibilitychange", onVis)
+    return () => { document.removeEventListener("visibilitychange", onVis); void lock?.release().catch(() => {}) }
+  }, [started])
+
   // Unfinished orders, newest first. The live one uses the freshest snapshot.
   // Monitor: every invoice the cashier opens. Phone: only what was SENT to
   // this worker (or to all), urgent first; a cancelled one stays until OK'd.
@@ -221,13 +251,29 @@ export function PrepScreenPage() {
         .sort((a, b) => Number(Boolean(b.sent?.urgent && !b.cancelled)) - Number(Boolean(a.sent?.urgent && !a.cancelled)))
       return list
     }
-    list = list.filter((o) => !o.cancelled)
+    // Monitor: the invoice open right now + sent orders still being prepared.
+    // An unsent invoice that is no longer the live one is gone (saved/deleted).
+    list = list.filter((o) => !o.cancelled && (o.sent || o.snapshot.draftId === live?.draftId))
     if (live && live.lines.length > 0 && !list.some((o) => o.snapshot.draftId === live.draftId)
       && !(server?.orders ?? []).some((o) => o.snapshot.draftId === live.draftId && (o.ready || o.cancelled))) {
       list.unshift({ snapshot: live, statuses: {}, ready: null, sent: null, cancelled: null })
     }
     return list
   }, [server, live, canAct, myId, dismissed])
+
+  // Phone: sent orders nobody has acknowledged yet → the alarm keeps going.
+  const unacked = canAct ? openOrders.filter((o) => o.sent && !o.sent.ack && !o.cancelled) : []
+  const alarmOn = started && unacked.length > 0
+  useEffect(() => {
+    if (!alarmOn) return
+    const ring = () => {
+      playPrepSiren()
+      try { navigator.vibrate?.([600, 200, 600, 200, 600]) } catch { /* ignore */ }
+    }
+    ring()
+    const id = setInterval(ring, SIREN_EVERY_MS)
+    return () => { clearInterval(id); try { navigator.vibrate?.(0) } catch { /* ignore */ } }
+  }, [alarmOn])
 
   const view = (selectedId && openOrders.find((o) => o.snapshot.draftId === selectedId))
     || (!canAct && live && openOrders.find((o) => o.snapshot.draftId === live.draftId))
@@ -241,10 +287,18 @@ export function PrepScreenPage() {
     return view?.statuses[key]
   }
 
+  // Newest line first — that's what the cashier just added.
+  const lines = [...(view?.snapshot.lines ?? [])].reverse()
+  const doneCount = lines.filter((l) => statusOf(l.key)?.state === "done").length
+  const problemCount = lines.filter((l) => { const s = statusOf(l.key); return s && s.state !== "done" }).length
+  const openIndex = openKey ? lines.findIndex((l) => l.key === openKey) : -1
+  const openLine = openIndex >= 0 ? lines[openIndex] : undefined
+  const padLine = pad ? lines.find((l) => l.key === pad.key) : undefined
+
   async function mark(key: string, m: Mark) {
     if (!viewId) return
     setPending((s) => ({ ...s, [`${viewId}|${key}`]: m }))
-    setPadKey(null)
+    setPad(null)
     try {
       await markPrepLine(viewId, key, m)
       setActionError("")
@@ -257,17 +311,41 @@ export function PrepScreenPage() {
     }
   }
 
+  /** Mark from the big view, then move on to the next item still to do. */
+  function markAndNext(key: string, m: Mark) {
+    void mark(key, m)
+    const idx = lines.findIndex((l) => l.key === key)
+    const next = lines.slice(idx + 1).concat(lines.slice(0, idx)).find((l) => !statusOf(l.key))
+    setOpenKey(next ? next.key : null)
+  }
+
+  /** Worker's number → the right state: fewer = short, same = done, more = count. */
+  function pickCount(line: PrepLine, n: number) {
+    const m: Mark = n === line.quantity ? { state: "done" } : n < line.quantity ? { state: "short", found: n } : { state: "count", found: n }
+    markAndNext(line.key, m)
+  }
+
+  function onPadPick(n: number) {
+    if (padLine) pickCount(padLine, n)
+  }
+
   async function orderReady() {
     if (!viewId) return
     try {
       await markPrepReady(viewId, true)
       playPrepDing([1046, 1568])
       setSelectedId(null)
+      setOpenKey(null)
       setActionError("")
       void refresh()
     } catch {
       setActionError("Not saved — check internet / sign in")
     }
+  }
+
+  async function ack(orderId: string) {
+    try { await ackPrepOrder(orderId); setActionError(""); void refresh() }
+    catch { setActionError("Not saved — check internet / sign in") }
   }
 
   function start() {
@@ -283,49 +361,17 @@ export function PrepScreenPage() {
     setPushState(err ? "off" : "on")
   }
 
-  // Newest line first — that's what the cashier just added.
-  const lines = [...(view?.snapshot.lines ?? [])].reverse()
-  const compact = lines.length > CARD_LIMIT
-  const doneCount = lines.filter((l) => statusOf(l.key)?.state === "done").length
-  const shortCount = lines.filter((l) => statusOf(l.key)?.state === "short").length
-  const padLine = padKey ? lines.find((l) => l.key === padKey) : undefined
-
-  function ActionButtons({ line, big }: { line: PrepLine; big?: boolean }) {
-    const st = statusOf(line.key)
-    const sz = big ? "h-16 text-2xl" : "h-14 text-xl"
-    if (!canAct || view?.cancelled) return null
-    return (
-      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          onClick={() => mark(line.key, st?.state === "done" ? null : { state: "done" })}
-          className={`flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-2xl font-black ${sz} ${st?.state === "done" ? "bg-emerald-500 ring-4 ring-emerald-200" : "bg-emerald-700 hover:bg-emerald-600"}`}
-        >
-          <Check className="h-7 w-7" strokeWidth={4} /> OK
-        </button>
-        <button
-          type="button"
-          onClick={() => setPadKey(line.key)}
-          className={`flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-2xl font-black ${sz} ${st?.state === "short" ? "bg-red-500 ring-4 ring-red-200" : "bg-red-800 hover:bg-red-700"}`}
-        >
-          <AlertTriangle className="h-6 w-6" /> SHORT
-        </button>
-      </div>
-    )
-  }
-
-  function ShortBanner({ st }: { st: PrepLineStatus }) {
-    return (
-      <div className="rounded-xl bg-red-600 px-3 py-1 text-center text-lg font-black">
-        ❗ SHORT — FOUND <span className="tabular-nums">{st.found ?? 0}</span>
-      </div>
-    )
+  // Swipe between items in the big view.
+  const touchX = useRef<number | null>(null)
+  function step(dir: 1 | -1) {
+    if (openIndex < 0 || lines.length === 0) return
+    setOpenKey(lines[(openIndex + dir + lines.length) % lines.length].key)
   }
 
   return (
     <div dir="ltr" className="flex h-[100dvh] select-none flex-col overflow-hidden bg-slate-950 text-white" style={{ fontFamily: '"Cairo", system-ui, sans-serif' }}>
       {!started && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-slate-950/95 p-6 text-center">
+        <div className="absolute inset-0 z-[70] flex flex-col items-center justify-center gap-6 bg-slate-950/95 p-6 text-center">
           <button type="button" onClick={start} className="flex cursor-pointer flex-col items-center gap-4 rounded-3xl bg-emerald-600 px-12 py-8 hover:bg-emerald-500">
             <Volume2 className="h-16 w-16" />
             <span className="text-5xl font-black">START</span>
@@ -339,8 +385,24 @@ export function PrepScreenPage() {
           {canAct && pushState === "on" && (
             <div className="flex items-center gap-2 text-lg font-bold text-emerald-400"><Bell className="h-5 w-5" /> Notifications ON</div>
           )}
-          {!signedIn && window.matchMedia("(pointer: coarse)").matches && <div className="max-w-md text-base text-amber-300">Sign in on this device to use OK / SHORT buttons.</div>}
+          {!signedIn && window.matchMedia("(pointer: coarse)").matches && <div className="max-w-md text-base text-amber-300">Sign in on this device to use the buttons.</div>}
           {pushError && <div className="max-w-md rounded-xl bg-red-600/80 px-4 py-2 text-base">{pushError}</div>}
+        </div>
+      )}
+
+      {/* NEW ORDER alarm — red flashing takeover until RECEIVED */}
+      {alarmOn && (
+        <div className="absolute inset-0 z-[65] flex animate-pulse flex-col items-center justify-center gap-6 bg-red-600 p-6 text-center">
+          <BellRing className="h-28 w-28" />
+          <div className="text-5xl font-black">{unacked.some((o) => o.sent?.urgent) ? "🔥 URGENT ORDER" : "NEW ORDER"}</div>
+          <div className="text-2xl font-bold">{unacked[0].snapshot.lines.length} ITEMS</div>
+          <button
+            type="button"
+            onClick={() => { const id = unacked[0].snapshot.draftId; setSelectedId(id); void ack(id) }}
+            className="w-full max-w-md cursor-pointer rounded-3xl bg-white py-6 text-4xl font-black text-red-600 shadow-2xl"
+          >
+            👍 RECEIVED
+          </button>
         </div>
       )}
 
@@ -354,7 +416,7 @@ export function PrepScreenPage() {
           {lines.length > 0 && (
             <div className="flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-1 text-xl font-bold tabular-nums">
               <span className="text-emerald-400">{doneCount}✔</span>
-              {shortCount > 0 && <span className="text-red-400">{shortCount}❗</span>}
+              {problemCount > 0 && <span className="text-red-400">{problemCount}❗</span>}
               <span className="text-white/50">/ {lines.length}</span>
             </div>
           )}
@@ -366,7 +428,7 @@ export function PrepScreenPage() {
 
       {actionError && <div className="bg-red-600 px-4 py-2 text-center text-lg font-bold">{actionError}</div>}
 
-      {/* Order banner: cancelled / urgent / sent-to / note / RECEIVED */}
+      {/* Order banner: cancelled / urgent / sent-to / note */}
       {view?.cancelled ? (
         <div className="flex flex-col items-center gap-3 bg-red-700 px-4 py-6 text-center">
           <div className="text-4xl font-black">❌ CANCELLED — STOP</div>
@@ -394,96 +456,43 @@ export function PrepScreenPage() {
               <div dir="rtl" className={view.sent.noteUr ? "text-sm font-semibold opacity-70" : "text-xl font-black"}>{view.sent.noteUr ? view.sent.note : `📝 ${view.sent.note}`}</div>
             </div>
           )}
-          {canAct && !view.sent.ack && (
-            <button
-              type="button"
-              onClick={async () => {
-                try { await ackPrepOrder(view.snapshot.draftId); setActionError(""); void refresh() }
-                catch { setActionError("Not saved — check internet / sign in") }
-              }}
-              className="w-full cursor-pointer animate-pulse rounded-2xl bg-sky-500 py-4 text-3xl font-black hover:bg-sky-400"
-            >
-              👍 RECEIVED
-            </button>
-          )}
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto p-3 sm:p-4">
+      {/* Picture grid — 3 across on a phone, 5 on the monitor */}
+      <main className="flex-1 overflow-y-auto p-2 sm:p-3">
         {lines.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-white/25">
             <Package className="h-28 w-28" />
             <div className="text-3xl font-bold sm:text-4xl">WAITING FOR ORDER</div>
           </div>
-        ) : compact ? (
-          // Many items: one row each — small picture, huge quantity. Readable at any count.
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-            {lines.map((l) => {
-              const st = statusOf(l.key)
-              const tag = UNIT_TAG[l.unit] ?? UNIT_TAG.PIECE
-              return (
-                <div
-                  key={l.key}
-                  className={`flex flex-col gap-2 rounded-2xl border-4 bg-slate-900 p-2 transition-all ${
-                    flashKey === l.key ? "border-yellow-300 bg-yellow-300/10"
-                      : st?.state === "short" ? "border-red-500 bg-red-950/40"
-                      : st?.state === "done" ? "border-emerald-500 opacity-50" : "border-white/10"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="relative shrink-0">
-                      <Thumb line={l} className="h-20 w-20 rounded-xl sm:h-24 sm:w-24" />
-                      {st?.state === "done" && <Check className="absolute inset-0 m-auto h-16 w-16 text-emerald-400" strokeWidth={4} />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className={`mb-1 inline-block rounded-lg px-2 py-0.5 text-base font-black ${tag.cls}`}>{tag.label}</div>
-                      <div dir="rtl" className="truncate text-base text-white/60">{l.name}</div>
-                      {l.notes && <div dir="rtl" className="truncate text-sm font-bold text-amber-300">⚠ {l.notes}</div>}
-                    </div>
-                    <div className="flex h-20 min-w-20 shrink-0 items-center justify-center rounded-2xl bg-red-600 px-3 text-5xl font-black tabular-nums sm:h-24 sm:min-w-24 sm:text-6xl">
-                      {l.quantity}
-                    </div>
-                  </div>
-                  {st?.state === "short" && <ShortBanner st={st} />}
-                  <ActionButtons line={l} />
-                </div>
-              )
-            })}
-          </div>
         ) : (
-          // Few items: cards with a capped picture so it never swallows the screen.
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-3 gap-2 lg:grid-cols-5 lg:gap-3">
             {lines.map((l) => {
               const st = statusOf(l.key)
+              const look = markLook(st, l.quantity)
               const tag = UNIT_TAG[l.unit] ?? UNIT_TAG.PIECE
               return (
-                <div
+                <button
                   key={l.key}
-                  className={`relative flex flex-col overflow-hidden rounded-3xl border-4 bg-slate-900 transition-all ${
-                    flashKey === l.key ? "border-yellow-300 shadow-[0_0_40px_rgba(253,224,71,0.5)]"
-                      : st?.state === "short" ? "border-red-500"
-                      : st?.state === "done" ? "border-emerald-500" : "border-white/10"
+                  type="button"
+                  onClick={() => setOpenKey(l.key)}
+                  className={`relative aspect-square cursor-pointer overflow-hidden rounded-2xl bg-slate-900 ring-4 transition-all ${
+                    flashKey === l.key ? "ring-yellow-300" : look ? look.ring : "ring-white/10"
                   }`}
                 >
-                  <div className="relative">
-                    <Thumb line={l} className={`w-full ${st?.state === "done" ? "opacity-40" : ""}`} style={{ height: "min(30vh, 240px)" }} />
-                    {st?.state === "done" && <Check className="absolute inset-0 m-auto h-28 w-28 text-emerald-400 drop-shadow-2xl" strokeWidth={4} />}
-                  </div>
-                  <div className="flex items-center justify-between gap-3 p-3">
-                    <div className="min-w-0">
-                      <div className={`mb-1 inline-block rounded-lg px-3 py-0.5 text-xl font-black ${tag.cls}`}>{tag.label}</div>
-                      <div dir="rtl" className="truncate text-base text-white/60">{l.name}</div>
-                    </div>
-                    <div className="flex h-24 min-w-24 shrink-0 items-center justify-center rounded-2xl bg-red-600 px-3 text-6xl font-black tabular-nums">
-                      {l.quantity}
-                    </div>
-                  </div>
-                  {l.notes && <div dir="rtl" className="truncate bg-amber-400 px-3 py-1 text-base font-bold text-slate-900">⚠ {l.notes}</div>}
-                  <div className="space-y-2 p-3 pt-0">
-                    {st?.state === "short" && <ShortBanner st={st} />}
-                    <ActionButtons line={l} big />
-                  </div>
-                </div>
+                  <Thumb line={l} className={`h-full w-full ${st?.state === "done" ? "opacity-40" : ""}`} />
+                  <span className="absolute right-1 top-1 flex h-11 min-w-11 items-center justify-center rounded-full border-2 border-white bg-red-600 px-1.5 text-2xl font-black tabular-nums shadow-lg lg:h-14 lg:min-w-14 lg:text-3xl">
+                    {l.quantity}
+                  </span>
+                  <span className={`absolute bottom-1 left-1 rounded-md px-1.5 text-xs font-black lg:text-sm ${tag.cls}`}>{tag.label}</span>
+                  {l.notes && <span className="absolute left-1 top-1 rounded-md bg-amber-400 px-1 text-sm font-black text-slate-900">⚠</span>}
+                  {look && (
+                    <span className={`absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-0.5 text-lg font-black ${look.bg}`}>
+                      {st?.state === "done" ? <Check className="h-6 w-6" strokeWidth={4} /> : <>❗ {look.label}</>}
+                    </span>
+                  )}
+                </button>
               )
             })}
           </div>
@@ -496,7 +505,7 @@ export function PrepScreenPage() {
             type="button"
             onClick={orderReady}
             className={`flex w-full cursor-pointer items-center justify-center gap-3 rounded-2xl py-4 text-3xl font-black ${
-              doneCount + shortCount === lines.length ? "animate-pulse bg-emerald-500 hover:bg-emerald-400" : "bg-emerald-800 hover:bg-emerald-700"
+              doneCount + problemCount === lines.length ? "animate-pulse bg-emerald-500 hover:bg-emerald-400" : "bg-emerald-800 hover:bg-emerald-700"
             }`}
           >
             <CheckCheck className="h-9 w-9" /> ORDER READY
@@ -514,10 +523,11 @@ export function PrepScreenPage() {
               <button
                 key={id}
                 type="button"
-                onClick={() => setSelectedId(id)}
+                onClick={() => { setSelectedId(id); setOpenKey(null) }}
                 className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-2xl border-2 bg-slate-900 p-2 ${id === viewId ? "border-yellow-300" : "border-white/10 hover:border-white/40"}`}
               >
                 {isLive && <span className="h-3 w-3 animate-pulse rounded-full bg-emerald-400" />}
+                {o.cancelled ? <span className="text-xl">❌</span> : o.sent?.urgent ? <span className="text-xl">🔥</span> : null}
                 {o.snapshot.lines.slice(0, 4).map((l) => (
                   <div key={l.key} className="relative">
                     <Thumb line={l} className="h-12 w-12 rounded-lg" />
@@ -531,13 +541,72 @@ export function PrepScreenPage() {
         </footer>
       )}
 
-      {padLine && (
-        <ShortPad
+      {/* Big view of one item: picture, quantity, actions; swipe for the next */}
+      {openLine && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-slate-950"
+          onTouchStart={(e) => { touchX.current = e.touches[0].clientX }}
+          onTouchEnd={(e) => {
+            if (touchX.current === null) return
+            const dx = e.changedTouches[0].clientX - touchX.current
+            touchX.current = null
+            if (Math.abs(dx) > 60) step(dx < 0 ? 1 : -1)
+          }}
+        >
+          <div className="flex items-center justify-between px-3 py-2">
+            <div className="text-xl font-bold tabular-nums text-white/60">{openIndex + 1} / {lines.length}</div>
+            <button type="button" onClick={() => setOpenKey(null)} aria-label="Close" className="cursor-pointer rounded-xl p-2 text-white/70 hover:bg-white/10"><X className="h-9 w-9" /></button>
+          </div>
+          <div className="relative flex min-h-0 flex-1 items-center justify-center px-2">
+            <button type="button" onClick={() => step(-1)} aria-label="Previous" className="absolute left-1 z-10 cursor-pointer rounded-full bg-black/50 p-2"><ChevronLeft className="h-8 w-8" /></button>
+            <Thumb line={openLine} className="h-full max-h-full w-full rounded-2xl" />
+            <button type="button" onClick={() => step(1)} aria-label="Next" className="absolute right-1 z-10 cursor-pointer rounded-full bg-black/50 p-2"><ChevronRight className="h-8 w-8" /></button>
+          </div>
+          <div className="space-y-3 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className={`rounded-lg px-3 py-1 text-2xl font-black ${(UNIT_TAG[openLine.unit] ?? UNIT_TAG.PIECE).cls}`}>{(UNIT_TAG[openLine.unit] ?? UNIT_TAG.PIECE).label}</span>
+                <div dir="rtl" className="mt-1 truncate text-base text-white/60">{openLine.name}</div>
+              </div>
+              <div className="flex h-24 min-w-24 items-center justify-center rounded-3xl bg-red-600 px-4 text-7xl font-black tabular-nums">{openLine.quantity}</div>
+            </div>
+            {openLine.notes && <div dir="rtl" className="rounded-xl bg-amber-400 px-3 py-1 text-lg font-bold text-slate-900">⚠ {openLine.notes}</div>}
+            {(() => {
+              const st = statusOf(openLine.key)
+              const look = markLook(st, openLine.quantity)
+              return look && st?.state !== "done"
+                ? <div className={`rounded-xl px-3 py-2 text-center text-2xl font-black ${look.bg}`}>{(st?.found ?? 0) > openLine.quantity ? "🔢 PREPARED" : "❗ FOUND"} {st?.found ?? 0}</div>
+                : null
+            })()}
+            {canAct && !view?.cancelled && (
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={() => markAndNext(openLine.key, { state: "done" })} className="flex cursor-pointer flex-col items-center gap-1 rounded-2xl bg-emerald-600 py-4 text-xl font-black hover:bg-emerald-500">
+                  <Check className="h-9 w-9" strokeWidth={4} /> DONE
+                </button>
+                <button type="button" onClick={() => setPad({ key: openLine.key, mode: "short" })} className="flex cursor-pointer flex-col items-center gap-1 rounded-2xl bg-red-600 py-4 text-xl font-black hover:bg-red-500">
+                  <AlertTriangle className="h-9 w-9" /> PROBLEM
+                </button>
+                <button type="button" onClick={() => setPad({ key: openLine.key, mode: "other" })} className="flex cursor-pointer flex-col items-center gap-1 rounded-2xl bg-amber-500 py-4 text-xl font-black text-slate-900 hover:bg-amber-400">
+                  <Hash className="h-9 w-9" /> OTHER
+                </button>
+              </div>
+            )}
+            {canAct && statusOf(openLine.key) && (
+              <button type="button" onClick={() => void mark(openLine.key, null)} className="w-full cursor-pointer rounded-xl border border-white/20 py-2 text-lg font-bold text-white/60">
+                CLEAR MARK
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {pad && padLine && (
+        <CountPad
           line={padLine}
+          mode={pad.mode}
           current={statusOf(padLine.key)}
-          onPick={(found) => mark(padLine.key, { state: "short", found })}
-          onClear={() => mark(padLine.key, null)}
-          onClose={() => setPadKey(null)}
+          onPick={onPadPick}
+          onClose={() => setPad(null)}
         />
       )}
     </div>

@@ -35,8 +35,9 @@ export interface PrepSnapshot {
 }
 
 export interface LineStatus {
-  state: "done" | "short";
-  /** For «short»: how many the worker actually found (0 = none at all). */
+  /** done = as invoiced; short = found fewer; count = found a different (e.g. larger) number. */
+  state: "done" | "short" | "count";
+  /** For «short» / «count»: how many the worker actually has (0 = none at all). */
   found?: number;
   by: string;
   at: number;
@@ -67,8 +68,9 @@ export interface PrepOrder {
 
 const MAX_ORDERS = 20;
 const ORDER_TTL_MS = 3 * 60 * 60 * 1000;
-const REMIND_AFTER_MS = 2 * 60 * 1000;
-const MAX_REMINDERS = 3;
+// Unacknowledged orders keep ringing — the owner wants them hard to miss.
+const REMIND_AFTER_MS = 45 * 1000;
+const MAX_REMINDERS = 8;
 
 let live: PrepSnapshot | null = null;
 // Insertion-ordered: oldest first. Re-inserted on every update.
@@ -179,15 +181,26 @@ export function setPrepLive(next: PrepSnapshot) {
   // Two cashier tabs can race; never let an older snapshot overwrite a newer one.
   if (live && live.draftId === next.draftId && next.updatedAt < live.updatedAt) return getPrepState();
   live = next;
-  // Keep every order with lines (the monitor shows them all), and keep a sent
-  // order in sync even if the cashier removed every line.
-  if (next.lines.length > 0 || orders.get(next.draftId)?.sent) upsertOrder(next);
+  // Only the invoice open right now and orders SENT to the workers are kept.
+  // An unsent invoice that was saved, deleted, emptied or left for another
+  // one disappears at once — the monitor used to pile up every old invoice.
+  for (const [id, o] of orders) {
+    if (!o.sent && (id !== next.draftId || next.lines.length === 0)) { orders.delete(id); persist(id); }
+  }
+  const sentOrder = orders.get(next.draftId);
+  // A SENT invoice whose lines were all removed (discarded, not saved — saving
+  // moves the cashier to a new draft id) is cancelled so the workers stop.
+  if (sentOrder?.sent && next.lines.length === 0 && !sentOrder.cancelled) {
+    const o = upsertOrder(next);
+    o.cancelled = { by: sentOrder.sent.by, at: Date.now() };
+    void pushToWorkers(o, "❌ ORDER CANCELLED", "Stop preparing this order");
+  } else if (next.lines.length > 0 || sentOrder?.sent) upsertOrder(next);
   prune();
   liveChanged();
   return getPrepState();
 }
 
-export function markPrepLine(orderId: string, key: string, status: { state: "done" | "short"; found?: number } | null, by: string) {
+export function markPrepLine(orderId: string, key: string, status: { state: "done" | "short" | "count"; found?: number } | null, by: string) {
   const order = orders.get(orderId);
   if (!order) return false;
   if (status) order.statuses[key] = { ...status, by, at: Date.now() };
@@ -289,7 +302,7 @@ async function translateNote(orderId: string, note: string) {
   }
 }
 
-// Unacknowledged sent orders ring again every 2 minutes, up to 3 times.
+// Unacknowledged sent orders ring again every 45 s, up to 8 times (~6 min).
 const reminderTimer = setInterval(() => {
   const now = Date.now();
   for (const order of orders.values()) {

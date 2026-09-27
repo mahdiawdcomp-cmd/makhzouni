@@ -22,8 +22,9 @@ export interface PrepSnapshot {
 }
 
 export interface PrepLineStatus {
-  state: "done" | "short"
-  /** For «short»: how many the worker found (0 = none). */
+  /** done = as invoiced; short = found fewer; count = a different number (can be more). */
+  state: "done" | "short" | "count"
+  /** For «short» / «count»: how many the worker actually has (0 = none). */
   found?: number
   by: string
   at: number
@@ -139,5 +140,27 @@ export function playPrepDing(tones: [number, number] = [880, 1320]) {
     o.start()
     o.stop(ctx.currentTime + 0.5)
     o.onended = () => void ctx.close()
+  } catch { /* ignore */ }
+}
+/** Loud alarm for a new order on the workers' phones: a harsh rising siren,
+ *  much louder and rougher than the soft chime. Needs a prior tap on the page. */
+export function playPrepSiren() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    const ctx = new Ctx()
+    const g = ctx.createGain()
+    g.gain.value = 0.9
+    g.connect(ctx.destination)
+    for (let i = 0; i < 3; i++) {
+      const o = ctx.createOscillator()
+      o.type = "square"
+      const t0 = ctx.currentTime + i * 0.35
+      o.frequency.setValueAtTime(700, t0)
+      o.frequency.linearRampToValueAtTime(1500, t0 + 0.3)
+      o.connect(g)
+      o.start(t0)
+      o.stop(t0 + 0.3)
+    }
+    setTimeout(() => void ctx.close(), 1400)
   } catch { /* ignore */ }
 }

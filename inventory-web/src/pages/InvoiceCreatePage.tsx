@@ -101,6 +101,9 @@ interface DraftItem {
   preparedBy?: string
   /** Depot pull: move a WHOLE CARTON to المحل, not just the pieces sold. */
   transferWholeCarton?: boolean
+  /** Quantity before the cashier applied a prep worker's count — the row stays
+   *  red with «تعدّل من X إلى Y» so the change is obvious. UI only. */
+  prepAdjustedFrom?: number
 }
 
 function stockOf(product: Product) {
@@ -850,7 +853,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     const out: Array<{ index: number; found: number }> = []
     items.forEach((it, i) => {
       const st = statuses[prepKeys[i]]
-      if (!isPurchase && st?.state === "short" && (st.found ?? 0) < it.quantity) out.push({ index: i, found: st.found ?? 0 })
+      if (!isPurchase && (st?.state === "short" || st?.state === "count") && (st.found ?? 0) !== it.quantity) out.push({ index: i, found: st.found ?? 0 })
     })
     return out
   }, [prepQuery.data, prepId, items, prepKeys, isPurchase])
@@ -859,7 +862,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   function applyPrepShortages() {
     const byIndex = new Map(prepShortLines.map((s) => [s.index, s.found]))
     setItems((cur) => cur
-      .map((it, i) => (byIndex.has(i) ? { ...it, quantity: byIndex.get(i)! } : it))
+      .map((it, i) => (byIndex.has(i) ? { ...it, quantity: byIndex.get(i)!, prepAdjustedFrom: it.prepAdjustedFrom ?? it.quantity } : it))
       .filter((_it, i) => !(byIndex.has(i) && byIndex.get(i) === 0)))
   }
   const prepStatuses = useMemo(
@@ -2675,10 +2678,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         {/* «شاشة التجهيز» shortages the worker reported — one tap fixes the invoice. */}
         {prepShortLines.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b border-red-200 bg-red-50 px-3 py-2 text-sm dark:border-red-900 dark:bg-red-950/30">
-            <span className="font-bold text-red-700 dark:text-red-300">❗ نقص من التجهيز:</span>
+            <span className="font-bold text-red-700 dark:text-red-300">❗ العامل غيّر العدد:</span>
             {prepShortLines.map((s) => (
               <span key={s.index} className="rounded-md bg-white px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-200 dark:bg-slate-900 dark:ring-red-900">
-                {items[s.index]?.product.name} — {s.found ? `لكوا ${s.found} من ${items[s.index]?.quantity}` : "ماكو"}
+                {items[s.index]?.product.name} — {s.found === 0 ? "ماكو" : s.found > (items[s.index]?.quantity ?? 0) ? `زايد: جهّزوا ${s.found} بدل ${items[s.index]?.quantity}` : `لكوا ${s.found} من ${items[s.index]?.quantity}`}
               </span>
             ))}
             <Button size="sm" className="ms-auto h-7 bg-red-600 text-xs hover:bg-red-500" onClick={applyPrepShortages}>
@@ -2761,7 +2764,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         remaining work without reading every checkbox. */}
                     <TR
                       className={
-                        !isPurchase && prepStatuses[prepKeys[index]]?.state === "short"
+                        item.prepAdjustedFrom !== undefined
+                          ? "bg-red-100 ring-2 ring-inset ring-red-600 dark:bg-red-900/40"
+                          : !isPurchase && (prepStatuses[prepKeys[index]]?.state === "short" || prepStatuses[prepKeys[index]]?.state === "count")
                           ? "bg-red-50 ring-2 ring-inset ring-red-400 dark:bg-red-950/30"
                           : item.prepared ? "bg-emerald-50/70 dark:bg-emerald-950/20" : undefined
                       }
@@ -2789,6 +2794,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           {(() => {
                             // What the prep worker reported for this line.
                             const st = !isPurchase ? prepStatuses[prepKeys[index]] : undefined
+                            // Applied a worker's count: stays loud red so the cashier sees what changed.
+                            if (item.prepAdjustedFrom !== undefined && item.prepAdjustedFrom !== item.quantity) {
+                              return (
+                                <span className="rounded-md bg-red-700 px-1.5 py-0.5 text-[11px] font-black text-white">
+                                  ✎ تعدّل من {item.prepAdjustedFrom} إلى {item.quantity}
+                                </span>
+                              )
+                            }
                             if (!st) {
                               // Reopened invoice: the name saved with the line.
                               return item.prepared && item.preparedBy ? (
@@ -2797,7 +2810,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                                 </span>
                               ) : null
                             }
-                            return st.state === "short" ? (
+                            return st.state === "count" && (st.found ?? 0) > item.quantity ? (
+                              <span className="animate-pulse rounded-md bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white" title={`أبلغ عنه ${st.by}`}>
+                                🔢 زايد — جهّزوا {st.found} بدل {item.quantity}
+                              </span>
+                            ) : st.state !== "done" ? (
                               <span
                                 className="animate-pulse rounded-md bg-red-600 px-1.5 py-0.5 text-[11px] font-bold text-white"
                                 title={`أبلغ عنه ${st.by}`}

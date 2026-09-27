@@ -4501,7 +4501,7 @@ export async function getPrepLive() {
   const { data } = await api.get<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/live")
   return data.data ?? { live: null, orders: [] }
 }
-export async function markPrepLine(orderId: string, key: string, status: { state: "done" | "short"; found?: number } | null) {
+export async function markPrepLine(orderId: string, key: string, status: { state: "done" | "short" | "count"; found?: number } | null) {
   await api.post("/prep-screen/mark", { orderId, key, status })
 }
 export async function markPrepReady(orderId: string, ready: boolean) {
