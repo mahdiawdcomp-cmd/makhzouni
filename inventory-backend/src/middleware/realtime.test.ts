@@ -27,6 +27,9 @@ describe("resourceForPath", () => {
   test("the two public actions staff actually watch still publish", () => {
     assert.equal(resourceForPath("/api/public/catalog/orders"), "order-preparations");
     assert.equal(resourceForPath("/api/public/catalog/guest-orders"), "order-preparations");
+    // Prep screen publishes its own event — never the whole-cache "all".
+    assert.equal(resourceForPath("/api/prep-screen/live"), null);
+    assert.equal(resourceForPath("/api/prep-screen/send"), null);
     assert.equal(resourceForPath("/api/public/catalog/access/request"), "approvals");
     // «الكشك» — an order from the in-shop screen is a real order and the
     // owner's approvals screen has to see it arrive.

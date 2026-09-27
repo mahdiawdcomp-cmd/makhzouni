@@ -1,12 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { requirePermission } from "../middleware/permission.middleware";
+import { requireAnyPermission, requirePermission } from "../middleware/permission.middleware";
 import { asyncHandler } from "../utils/async-handler";
 import { getVapidPublicKey } from "../utils/push-notify";
 import {
   PREP_NOTIFY,
+  ackPrepOrder,
+  cancelPrepOrder,
   getPrepState,
+  listPrepWorkers,
+  sendPrepOrder,
   markPrepLine,
   markPrepReady,
   removeStaffSubscription,
@@ -66,6 +70,41 @@ router.post("/ready", (req, res) => {
   const ok = markPrepReady(orderId, ready, req.user!.name);
   res.status(ok ? 200 : 404).json({ success: ok, data: getPrepState() });
 });
+
+// ── «أرسل للتجهيز» — the cashier decides which invoices reach the phones ──
+const deskOnly = requireAnyPermission("MANAGE_INVOICES", "ACCESS_POS");
+
+router.post("/send", deskOnly, asyncHandler(async (req, res) => {
+  const body = z.object({
+    snapshot: snapshotSchema,
+    urgent: z.boolean().default(false),
+    note: z.string().max(300).nullable().optional(),
+    targetUserId: z.string().uuid().nullable().optional(),
+  }).parse(req.body);
+  const data = await sendPrepOrder(body.snapshot, {
+    urgent: body.urgent,
+    note: body.note ?? null,
+    targetUserId: body.targetUserId ?? null,
+  }, req.user!.name);
+  res.json({ success: true, data });
+}));
+
+router.post("/cancel", deskOnly, (req, res) => {
+  const { orderId } = z.object({ orderId: z.string().min(1).max(200) }).parse(req.body);
+  const ok = cancelPrepOrder(orderId, req.user!.name);
+  res.status(ok ? 200 : 404).json({ success: ok, data: getPrepState() });
+});
+
+// «استلمت» — the worker confirms he saw the order (stops the reminders).
+router.post("/ack", (req, res) => {
+  const { orderId } = z.object({ orderId: z.string().min(1).max(200) }).parse(req.body);
+  const ok = ackPrepOrder(orderId, req.user!.name);
+  res.status(ok ? 200 : 404).json({ success: ok, data: getPrepState() });
+});
+
+router.get("/workers", deskOnly, asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listPrepWorkers() });
+}));
 
 router.get("/vapid-key", (_req, res) => {
   res.json({ success: true, data: { publicKey: getVapidPublicKey() } });

@@ -37,6 +37,7 @@ import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoi
 import { calculateInvoiceFinancials, lineTotal, priceWithFils, roundMoney } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
 import { playPrepDing, prepLineKeys, prepOrderId, publishPrep } from "../utils/prepScreen"
+import { PrepSendControl } from "../components/prep/PrepSendControl"
 import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
@@ -732,6 +733,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const blocker = useUnsavedWarning(isDirty, savingRef)
 
   const prepPendingRef = useRef<Parameters<typeof putPrepLive>[0] | null>(null)
+  const prepLastRef = useRef<Parameters<typeof putPrepLive>[0] | null>(null)
   const hasLines = items.length > 0
   const prepId = useMemo(
     () => (isPurchase ? "" : editId ? (hasLines ? `edit-${editId}` : `idle-edit-${editId}`) : prepOrderId(draftKey, hasLines)),
@@ -755,6 +757,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       updatedAt: Date.now(),
     }
     publishPrep(snapshot)
+    prepLastRef.current = snapshot
     // Same snapshot to the server → workers' phones (and their push alert).
     prepPendingRef.current = snapshot
     const t = setTimeout(() => {
@@ -800,6 +803,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             description: st.found ? `لكوا ${st.found} بس من ${line?.quantity ?? "?"} — ${st.by}` : `ماكو ولا وحدة — ${st.by}`,
           })
         }
+        // «استلمت» — the worker confirmed he saw a sent order.
+        if (o.sent?.ack) {
+          const id = `${o.snapshot.draftId}|ack|${o.sent.ack.at}`
+          if (!seen.has(id)) {
+            seen.add(id)
+            if (!first) toast({ title: `👍 ${o.sent.ack.by} استلم الطلب`, description: o.snapshot.customerName ?? undefined })
+          }
+        }
         if (o.ready) {
           const id = `${o.snapshot.draftId}|ready|${o.ready.at}`
           if (!seen.has(id)) {
@@ -829,6 +840,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     refetchInterval: 2500,
     refetchIntervalInBackground: true,
   })
+  const prepOrder = useMemo(
+    () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId),
+    [prepQuery.data, prepId],
+  )
   const prepStatuses = useMemo(
     () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {},
     [prepQuery.data, prepId],
@@ -2403,6 +2418,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             >
               <Monitor className="h-3.5 w-3.5" /> شاشة التجهيز
             </button>
+          )}
+          {!isPurchase && (
+            <PrepSendControl getSnapshot={() => prepLastRef.current} order={prepOrder} hasLines={hasLines} />
           )}
           {isPurchase && (
             <button type="button" onClick={() => setOcrOpen(true)} className="inline-flex h-7 items-center gap-1.5 rounded border border-white/30 bg-white/20 px-2 text-xs font-medium text-white hover:bg-white/30">

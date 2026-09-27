@@ -4504,4 +4504,22 @@ export async function getPrepVapidKey() {
 }
 export async function subscribePrepPush(subscription: PushSubscriptionJSON) {
   await api.post("/prep-screen/subscribe", subscription)
+}export async function sendPrepOrder(payload: {
+  snapshot: import("../utils/prepScreen").PrepSnapshot
+  urgent: boolean
+  note: string | null
+  targetUserId: string | null
+}) {
+  const { data } = await api.post<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/send", payload)
+  return data.data
+}
+export async function cancelPrepOrder(orderId: string) {
+  await api.post("/prep-screen/cancel", { orderId })
+}
+export async function ackPrepOrder(orderId: string) {
+  await api.post("/prep-screen/ack", { orderId })
+}
+export async function getPrepWorkers() {
+  const { data } = await api.get<ApiEnvelope<Array<{ id: string; name: string }>>>("/prep-screen/workers")
+  return data.data ?? []
 }

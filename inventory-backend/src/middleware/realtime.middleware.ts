@@ -90,6 +90,10 @@ function resourceForPath(path: string): RealtimeResource | null {
   if (clean.startsWith("/api/catalog-categories")) return "catalog";
   if (clean.startsWith("/api/retail-catalog")) return "catalog";
   if (clean.startsWith("/api/order-preparations")) return "order-preparations";
+  // «شاشة التجهيز»: the cashier PUTs the live invoice on every keystroke. The
+  // service publishes its own narrow "prep-screen" event; falling through to
+  // "all" made every open screen refetch its whole cache per keystroke.
+  if (clean.startsWith("/api/prep-screen")) return null;
   if (clean.startsWith("/api/stocktake")) return "stocktake";
   if (clean.startsWith("/api/reports")) return "reports";
   // Matches both /api/whatsapp/* (send-invoice, send, send-invoice-image...)

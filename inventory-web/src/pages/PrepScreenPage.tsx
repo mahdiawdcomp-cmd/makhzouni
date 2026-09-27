@@ -9,7 +9,7 @@ import {
   type PrepSnapshot,
   type PrepState,
 } from "../utils/prepScreen"
-import { getPrepLive, getPrepVapidKey, markPrepLine, markPrepReady, subscribePrepPush } from "../api/endpoints"
+import { ackPrepOrder, getPrepLive, getPrepVapidKey, markPrepLine, markPrepReady, subscribePrepPush } from "../api/endpoints"
 
 // «شاشة التجهيز» — opened on the second monitor (/prep) or on a worker's phone.
 // Workers don't read Arabic, so everything they need is a picture + a big
@@ -41,6 +41,10 @@ function Thumb({ line, className, style }: { line: PrepLine; className: string; 
 
 function hasToken() {
   try { return !!localStorage.getItem("inventory_token") } catch { return false }
+}
+
+function readMyId(): string | null {
+  try { return (JSON.parse(localStorage.getItem("inventory_user") ?? "null") as { id?: string } | null)?.id ?? null } catch { return null }
 }
 
 function urlBase64ToUint8Array(base64: string) {
@@ -137,6 +141,12 @@ export function PrepScreenPage() {
   // so the OK / SHORT / ORDER READY buttons only appear on touch devices (the
   // workers' phones). The monitor still shows every mark the phones make.
   const [canAct] = useState(() => hasToken() && window.matchMedia("(pointer: coarse)").matches)
+  const [myId] = useState(readMyId)
+  // Cancelled orders this phone already OK'd.
+  const [dismissed, setDismissed] = useState<string[]>([])
+  const canActRef = useRef(canAct)
+  const myIdRef = useRef(myId)
+  const sentSeenRef = useRef<Map<string, string> | null>(null)
   const [pushState, setPushState] = useState<"off" | "on" | "busy">(() =>
     typeof Notification !== "undefined" && Notification.permission === "granted" ? "on" : "off")
   const [pushError, setPushError] = useState("")
@@ -157,9 +167,10 @@ export function PrepScreenPage() {
     })
     if (changed) {
       setFlashKey(changed.key)
-      if (startedRef.current) playPrepDing()
-      // A new order starting takes over the screen.
-      if (!sameDraft) setSelectedId(null)
+      // The monitor chimes on every line; phones chime only for sent orders (in refresh).
+      if (startedRef.current && !canActRef.current) playPrepDing()
+      // A new order starting takes over the monitor.
+      if (!sameDraft && !canActRef.current) setSelectedId(null)
     }
     liveRef.current = next
     setLive(next)
@@ -170,6 +181,28 @@ export function PrepScreenPage() {
   const refresh = useCallback(async () => {
     try {
       const s = await getPrepLive()
+      // Phone: a newly sent (or re-sent / cancelled) order for me rings and takes over.
+      if (canActRef.current) {
+        const known = sentSeenRef.current
+        const firstLoad = known === null
+        const next = new Map<string, string>()
+        let ring: "new" | "urgent" | "cancel" | null = null
+        let focus: string | null = null
+        for (const o of s.orders) {
+          if (!o.sent || (o.sent.targetUserId && o.sent.targetUserId !== myIdRef.current)) continue
+          const sig = `${o.sent.at}|${o.cancelled ? "x" : ""}`
+          next.set(o.snapshot.draftId, sig)
+          if (firstLoad || known?.get(o.snapshot.draftId) === sig) continue
+          if (o.cancelled) ring = ring ?? "cancel"
+          else { ring = o.sent.urgent ? "urgent" : ring === "urgent" ? ring : "new"; focus = o.snapshot.draftId }
+        }
+        sentSeenRef.current = next
+        if (ring && startedRef.current) {
+          if (ring === "cancel") playPrepDing([440, 330])
+          else { playPrepDing(); if (ring === "urgent") setTimeout(() => playPrepDing([1320, 1760]), 500) }
+        }
+        if (focus) setSelectedId(focus)
+      }
       setServer(s)
       if (s.live) apply(s.live)
     } catch { /* offline — try again */ }
@@ -195,19 +228,29 @@ export function PrepScreenPage() {
   }, [flashKey])
 
   // Unfinished orders, newest first. The live one uses the freshest snapshot.
+  // Monitor: every invoice the cashier opens. Phone: only what was SENT to
+  // this worker (or to all), urgent first; a cancelled one stays until OK'd.
   const openOrders = useMemo(() => {
-    const list = (server?.orders ?? [])
-      .filter((o) => !o.ready && o.snapshot.lines.length > 0)
+    let list = (server?.orders ?? [])
+      .filter((o) => !o.ready && (o.snapshot.lines.length > 0 || o.sent))
       .map((o) => (live && o.snapshot.draftId === live.draftId ? { ...o, snapshot: live } : o))
+    if (canAct) {
+      list = list
+        .filter((o) => o.sent && (!o.sent.targetUserId || o.sent.targetUserId === myId))
+        .filter((o) => !(o.cancelled && dismissed.includes(o.snapshot.draftId)))
+        .sort((a, b) => Number(Boolean(b.sent?.urgent && !b.cancelled)) - Number(Boolean(a.sent?.urgent && !a.cancelled)))
+      return list
+    }
+    list = list.filter((o) => !o.cancelled)
     if (live && live.lines.length > 0 && !list.some((o) => o.snapshot.draftId === live.draftId)
-      && !(server?.orders ?? []).some((o) => o.snapshot.draftId === live.draftId && o.ready)) {
-      list.unshift({ snapshot: live, statuses: {}, ready: null })
+      && !(server?.orders ?? []).some((o) => o.snapshot.draftId === live.draftId && (o.ready || o.cancelled))) {
+      list.unshift({ snapshot: live, statuses: {}, ready: null, sent: null, cancelled: null })
     }
     return list
-  }, [server, live])
+  }, [server, live, canAct, myId, dismissed])
 
   const view = (selectedId && openOrders.find((o) => o.snapshot.draftId === selectedId))
-    || (live && openOrders.find((o) => o.snapshot.draftId === live.draftId))
+    || (!canAct && live && openOrders.find((o) => o.snapshot.draftId === live.draftId))
     || openOrders[0]
     || null
   const viewId = view?.snapshot.draftId ?? null
@@ -270,7 +313,7 @@ export function PrepScreenPage() {
   function ActionButtons({ line, big }: { line: PrepLine; big?: boolean }) {
     const st = statusOf(line.key)
     const sz = big ? "h-16 text-2xl" : "h-14 text-xl"
-    if (!canAct) return null
+    if (!canAct || view?.cancelled) return null
     return (
       <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
         <button
@@ -342,6 +385,49 @@ export function PrepScreenPage() {
       </header>
 
       {actionError && <div className="bg-red-600 px-4 py-2 text-center text-lg font-bold">{actionError}</div>}
+
+      {/* Order banner: cancelled / urgent / sent-to / note / RECEIVED */}
+      {view?.cancelled ? (
+        <div className="flex flex-col items-center gap-3 bg-red-700 px-4 py-6 text-center">
+          <div className="text-4xl font-black">❌ CANCELLED — STOP</div>
+          <div className="text-lg text-white/80">Do not prepare this order</div>
+          {canAct && (
+            <button
+              type="button"
+              onClick={() => { setDismissed((d) => [...d, view.snapshot.draftId]); setSelectedId(null) }}
+              className="cursor-pointer rounded-2xl bg-white px-10 py-3 text-2xl font-black text-red-700"
+            >
+              OK
+            </button>
+          )}
+        </div>
+      ) : view?.sent && (
+        <div className="space-y-2 border-b border-white/10 bg-black/30 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2 text-base font-bold">
+            {view.sent.urgent && <span className="animate-pulse rounded-lg bg-orange-600 px-3 py-1 text-xl font-black">🔥 URGENT</span>}
+            <span className="rounded-lg bg-sky-700 px-2 py-1">🔔 {view.sent.targetName ?? "ALL"}</span>
+            {view.sent.ack && <span className="rounded-lg bg-emerald-700 px-2 py-1">👍 {view.sent.ack.by}</span>}
+          </div>
+          {view.sent.note && (
+            <div className="rounded-xl bg-amber-400 px-3 py-2 text-slate-900">
+              {view.sent.noteUr && <div dir="rtl" lang="ur" className="text-2xl font-black leading-snug" style={{ fontFamily: '"Noto Nastaliq Urdu", "Cairo", system-ui, sans-serif' }}>📝 {view.sent.noteUr}</div>}
+              <div dir="rtl" className={view.sent.noteUr ? "text-sm font-semibold opacity-70" : "text-xl font-black"}>{view.sent.noteUr ? view.sent.note : `📝 ${view.sent.note}`}</div>
+            </div>
+          )}
+          {canAct && !view.sent.ack && (
+            <button
+              type="button"
+              onClick={async () => {
+                try { await ackPrepOrder(view.snapshot.draftId); setActionError(""); void refresh() }
+                catch { setActionError("Not saved — check internet / sign in") }
+              }}
+              className="w-full cursor-pointer animate-pulse rounded-2xl bg-sky-500 py-4 text-3xl font-black hover:bg-sky-400"
+            >
+              👍 RECEIVED
+            </button>
+          )}
+        </div>
+      )}
 
       <main className="flex-1 overflow-y-auto p-3 sm:p-4">
         {lines.length === 0 ? (
@@ -424,7 +510,7 @@ export function PrepScreenPage() {
         )}
       </main>
 
-      {canAct && lines.length > 0 && (
+      {canAct && lines.length > 0 && !view?.cancelled && (
         <div className="border-t border-white/10 bg-black/60 p-2">
           <button
             type="button"

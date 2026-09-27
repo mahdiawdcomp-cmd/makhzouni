@@ -29,10 +29,27 @@ export interface PrepLineStatus {
   at: number
 }
 
+/** «أرسل للتجهيز» — set when the cashier sends the order to the workers' phones. */
+export interface PrepSent {
+  at: number
+  by: string
+  urgent: boolean
+  note: string | null
+  /** Urdu translation of the note (null until translated / if AI is off). */
+  noteUr: string | null
+  /** null = every worker. */
+  targetUserId: string | null
+  targetName: string | null
+  ack: { by: string; at: number } | null
+  reminders: number
+}
+
 export interface PrepOrder {
   snapshot: PrepSnapshot
   statuses: Record<string, PrepLineStatus>
   ready: { by: string; at: number } | null
+  sent: PrepSent | null
+  cancelled: { by: string; at: number } | null
 }
 
 export interface PrepState {
