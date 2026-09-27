@@ -94,6 +94,8 @@ function resourceForPath(path: string): RealtimeResource | null {
   // service publishes its own narrow "prep-screen" event; falling through to
   // "all" made every open screen refetch its whole cache per keystroke.
   if (clean.startsWith("/api/prep-screen")) return null;
+  // «سجل الصفحات» — one POST per navigation; nothing on screen changes.
+  if (clean.startsWith("/api/activity")) return null;
   if (clean.startsWith("/api/stocktake")) return "stocktake";
   if (clean.startsWith("/api/reports")) return "reports";
   // Matches both /api/whatsapp/* (send-invoice, send, send-invoice-image...)

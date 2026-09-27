@@ -198,8 +198,18 @@ function summarizeChanges(before: unknown, after: unknown, requestBody: unknown)
   return Object.keys(changes).length ? changes : undefined;
 }
 
+// Operational chatter, not business changes. «شاشة التجهيز» PUTs the live
+// invoice on every keystroke (and answers with the whole prep state), and
+// «سجل الصفحات» POSTs on every navigation — auditing them wrote a heavy row
+// per keystroke into the table that is already the database's size hog.
+// Who prepared what is kept on the invoice lines themselves.
+const UNAUDITED_PREFIXES = ["/api/prep-screen", "/api/activity"];
+export function isUnaudited(path: string) {
+  return UNAUDITED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
 export function auditLogMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.path.startsWith("/api") || !auditedMethods.has(req.method)) {
+  if (!req.path.startsWith("/api") || !auditedMethods.has(req.method) || isUnaudited(req.path)) {
     next();
     return;
   }

@@ -3189,3 +3189,17 @@ model PrepOrderState {
   @@index([updatedAt])
   @@map("prep_orders")
 }
+/// «سجل الصفحات» — which page each account opened, and when. Owner-only
+/// read; kept 90 days. Written by the web layout on every navigation.
+model PageView {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  userName  String   @map("user_name")
+  path      String
+  label     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("page_views")
+}

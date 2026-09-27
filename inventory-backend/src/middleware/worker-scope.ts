@@ -32,6 +32,7 @@ const ALLOW: Rule[] = [
   { prefix: "/license", methods: ["GET"] },
   { prefix: "/health", methods: ["GET"] },
   { prefix: "/tenant-info", methods: ["GET"] },
+  { prefix: "/activity/page-view", methods: ["POST"] },  // «سجل الصفحات» — his own navigation
 ];
 
 function matches(path: string, prefix: string) {
