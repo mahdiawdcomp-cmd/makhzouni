@@ -19,9 +19,11 @@ export function pushPermission(): NotificationPermission | "unsupported" {
 }
 
 export async function enablePrepPush(): Promise<string | null> {
-  if (!pushSupported()) return "This browser does not support notifications. Open the site in Chrome."
+  if (!pushSupported()) return "This browser does not support notifications. Open the site in Google Chrome."
   const perm = await Notification.requestPermission()
-  if (perm !== "granted") return "Notifications are blocked. Chrome → ⋮ → Settings → Site settings → Notifications → allow this site."
+  // "denied" comes from the BROWSER's per-site setting (or the phone's per-app
+  // setting) — it can be denied here even when the phone allows the app.
+  if (perm !== "granted") return "Blocked by the browser. Open the browser's Site settings → Notifications → allow this site, then try again."
   try {
     const key = await getPrepVapidKey()
     if (!key) return "Notifications are not configured on the server."
