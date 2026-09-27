@@ -76,6 +76,10 @@ export function CustomerDetailPage() {
     onError: () => toast({ title: "تعذر إعادة الحساب", variant: "destructive" }),
   })
   const isAdmin = useAuthStore((s) => s.isAdmin())
+  const canAuditProfit = useAuthStore((s) => {
+    const perms = s.user?.permissions ?? []
+    return !perms.includes("HIDE_PROFIT_REPORTS") && (s.isAdmin() || perms.includes("VIEW_REPORTS"))
+  })
   const customer = details.customerQuery.data
   const ratingsQuery = useQuery({ queryKey: ["customer-ratings"], queryFn: getCustomerRatings, staleTime: 5 * 60_000 })
   const myRating = ratingsQuery.data?.find((r) => r.id === id)?.rating ?? null
@@ -302,9 +306,12 @@ export function CustomerDetailPage() {
             <Send className={`h-4 w-4 text-sky-600 ${sendPortalLinkMutation.isPending ? "animate-pulse" : ""}`} />
             إرسال رابط العميل الإلكتروني
           </Button>
-          <Button variant="outline" onClick={() => setAuditOpen(true)}>
-            <TrendingUp className="h-4 w-4 text-amber-600" /> تدقيق الربح
-          </Button>
+          {/* Profit data — the server answers only report holders. */}
+          {canAuditProfit && (
+            <Button variant="outline" onClick={() => setAuditOpen(true)}>
+              <TrendingUp className="h-4 w-4 text-amber-600" /> تدقيق الربح
+            </Button>
+          )}
           <Button onClick={() => setReceiptOpen(true)}>سند قبض</Button>
         </div>
       </div>

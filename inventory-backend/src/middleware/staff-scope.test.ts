@@ -38,7 +38,10 @@ describe("staff API scope", () => {
     const p = staff("MANAGE_PRODUCTS");
     assert.ok(!ok(p, "GET", "/api/invoices"));
     assert.ok(!ok(p, "GET", "/api/invoices/abc"));
-    assert.ok(!ok(p, "GET", "/api/customers"));
+    // The bare list only (supplier picker in «الكلفة الواصلة») — no customer detail.
+    assert.ok(ok(p, "GET", "/api/customers"));
+    assert.ok(!ok(p, "GET", "/api/customers/abc"));
+    assert.ok(!ok(p, "GET", "/api/customers/abc/transactions"));
     assert.ok(!ok(p, "GET", "/api/vouchers"));
     assert.ok(!ok(p, "GET", "/api/reports/sales"));
     assert.ok(ok(p, "GET", "/api/reports/products/movement"));

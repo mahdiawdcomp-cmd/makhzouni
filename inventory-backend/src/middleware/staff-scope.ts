@@ -38,20 +38,24 @@ const RULES: Rule[] = [
   { prefix: "/invoices", any: INVOICE_DESK },
 
   // ── Vouchers ── the invoice screen creates/sends the payment receipt
-  { prefix: "/vouchers", methods: ["GET"], any: ["MANAGE_VOUCHERS", "MANAGE_CUSTOMERS", ...INVOICE_DESK] },
+  { prefix: "/vouchers", methods: ["GET"], any: ["MANAGE_VOUCHERS", "MANAGE_CUSTOMERS", "VIEW_REPORTS", ...INVOICE_DESK] },
   { prefix: "/vouchers/:id/send-whatsapp", methods: ["POST"], any: ["MANAGE_VOUCHERS", ...INVOICE_DESK] },
   { prefix: "/vouchers", methods: ["POST"], exact: true, any: ["MANAGE_VOUCHERS", ...INVOICE_DESK] },
   { prefix: "/vouchers", any: ["MANAGE_VOUCHERS"] },
 
   // ── Customers ── picked on every invoice; edits/deletes need the real permission
+  // The bare list: «الكلفة الواصلة» also picks the supplier (a Customer) from it.
+  { prefix: "/customers", methods: ["GET"], exact: true, any: [...READ_CUSTOMERS, "MANAGE_PRODUCTS", "VIEW_PURCHASE_PRICE"] },
   { prefix: "/customers", methods: ["GET"], any: READ_CUSTOMERS },
+  // The invoice screen updates the customer's phone/details inline.
+  { prefix: "/customers/:id", methods: ["PUT"], exact: true, any: ["MANAGE_CUSTOMERS", ...INVOICE_DESK] },
   { prefix: "/customers/:id/statement-pdf-whatsapp", methods: ["POST"], any: ["MANAGE_CUSTOMERS", "MANAGE_VOUCHERS", ...INVOICE_DESK] },
   { prefix: "/customers", methods: ["POST"], exact: true, any: ["MANAGE_CUSTOMERS", ...INVOICE_DESK] },
   { prefix: "/customers", any: ["MANAGE_CUSTOMERS"] },
 
   // ── Reports ── the dashboard is the home page of every account (unchanged)
   { prefix: "/reports/dashboard", methods: ["GET"], any: ["*"] },
-  { prefix: "/reports/products/movement", methods: ["GET"], any: ["VIEW_REPORTS", "MANAGE_PRODUCTS"] },
+  { prefix: "/reports/products/movement", methods: ["GET"], any: ["VIEW_REPORTS", "MANAGE_PRODUCTS", ...INVOICE_DESK] },
   // Report endpoints that other screens read (customer page, vouchers page, invoice).
   { prefix: "/reports/loyalty-points/:id", methods: ["GET"], any: ["VIEW_REPORTS", "MANAGE_CUSTOMERS", ...INVOICE_DESK] },
   { prefix: "/reports/loyalty-points/:id/exclude", any: ["VIEW_REPORTS", "MANAGE_CUSTOMERS"] },
@@ -59,7 +63,8 @@ const RULES: Rule[] = [
   { prefix: "/reports/customers/statements-export.html", any: ["VIEW_REPORTS", "MANAGE_CUSTOMERS", "MANAGE_VOUCHERS"] },
   { prefix: "/reports/customers/ratings", methods: ["GET"], any: ["VIEW_REPORTS", "MANAGE_CUSTOMERS"] },
   { prefix: "/reports/collections-summary", methods: ["GET"], any: ["VIEW_REPORTS", "MANAGE_VOUCHERS"] },
-  { prefix: "/reports/purchase-performance", methods: ["GET"], any: ["VIEW_REPORTS", "MANAGE_PRODUCTS"] },
+  { prefix: "/reports/purchase-performance", methods: ["GET"], any: ["VIEW_REPORTS", "MANAGE_PRODUCTS", ...INVOICE_DESK] },
+  { prefix: "/reports/loyalty-points", methods: ["GET"], exact: true, any: ["VIEW_REPORTS", "MANAGE_CUSTOMERS"] },
   { prefix: "/reports/debt-reminder", any: ["VIEW_REPORTS", "MANAGE_CUSTOMERS"] },
   { prefix: "/reports/inactive-reminder", any: ["VIEW_REPORTS", "MANAGE_CUSTOMERS"] },
   { prefix: "/reports", any: ["VIEW_REPORTS"] },
@@ -74,7 +79,7 @@ const RULES: Rule[] = [
 
   // ── Stock ──
   { prefix: "/stock-losses", any: ["MANAGE_PRODUCTS", "INVENTORY_MANAGE"] },
-  { prefix: "/product-reviews", any: ["MANAGE_PRODUCTS"] },
+  { prefix: "/product-reviews", any: ["MANAGE_PRODUCTS", "VIEW_REPORTS"] },
 
   // ── Tools ──
   { prefix: "/voice", any: INVOICE_DESK },
