@@ -83,9 +83,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const perms = user.permissions ?? []
     // Warehouse worker: staff whose permissions are ONLY the worker pair
     // (VIEW_WITHOUT_PRICES / REQUEST_TRANSFER). Mirrors isPosOnly above.
+    // PREP_NOTIFY («إشعارات التجهيز») is a worker capability too — without it
+    // here, ticking it silently promoted a worker to the full staff UI.
+    // It alone (no worker pair) must not make an account a worker.
+    const WORKER_PERMS = ["VIEW_WITHOUT_PRICES", "REQUEST_TRANSFER", "PREP_NOTIFY"]
     return (
-      perms.length > 0 &&
-      perms.every((p) => p === "VIEW_WITHOUT_PRICES" || p === "REQUEST_TRANSFER")
+      perms.some((p) => p !== "PREP_NOTIFY") &&
+      perms.every((p) => WORKER_PERMS.includes(p))
     )
   },
 }))
