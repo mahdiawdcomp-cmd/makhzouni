@@ -17,6 +17,7 @@ import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
 import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
 import { OnboardingWizard } from "../OnboardingWizard"
 import { AgentButton } from "../agent/AgentButton"
+import { MobileLogoutButton } from "./MobileLogoutButton"
 import { ErrorBoundary } from "../ErrorBoundary"
 import { toast } from "../ui/use-toast"
 import { LanguageSwitcher } from "./LanguageSwitcher"
@@ -366,6 +367,7 @@ export function AppLayout() {
               {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
             <LanguageSwitcher />
+            <MobileLogoutButton />
           </div>
         </div>
 
