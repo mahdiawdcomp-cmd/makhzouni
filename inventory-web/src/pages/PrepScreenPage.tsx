@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertTriangle, Bell, BellRing, Check, CheckCheck, ChevronLeft, ChevronRight, Hash, Maximize, Minus, Package, Plus, Volume2, X } from "lucide-react"
 import {
   playPrepDing,
+  markFromCount,
   playPrepSiren,
   readPrep,
   subscribePrep,
@@ -321,8 +322,7 @@ export function PrepScreenPage() {
 
   /** Worker's number → the right state: fewer = short, same = done, more = count. */
   function pickCount(line: PrepLine, n: number) {
-    const m: Mark = n === line.quantity ? { state: "done" } : n < line.quantity ? { state: "short", found: n } : { state: "count", found: n }
-    markAndNext(line.key, m)
+    markAndNext(line.key, markFromCount(line.quantity, n))
   }
 
   function onPadPick(n: number) {

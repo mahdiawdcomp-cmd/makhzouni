@@ -64,6 +64,9 @@ export interface PrepOrder {
   ready: { by: string; at: number } | null;
   sent: PrepSent | null;
   cancelled: { by: string; at: number } | null;
+  /** SERVER time of the last change. Age/TTL is measured with this — the
+   *  snapshot's updatedAt is the cashier PC's clock, which may be hours off. */
+  touchedAt?: number;
 }
 
 const MAX_ORDERS = 20;
@@ -133,7 +136,7 @@ export function ensurePrepLoaded() {
 function prune() {
   const cutoff = Date.now() - ORDER_TTL_MS;
   const drop = (id: string) => { orders.delete(id); persist(id); };
-  for (const [id, o] of orders) if (o.snapshot.updatedAt < cutoff) drop(id);
+  for (const [id, o] of orders) if ((o.touchedAt ?? o.snapshot.updatedAt) < cutoff) drop(id);
   // Over the cap: drop orders nobody was asked to prepare first, then the oldest.
   for (const [id, o] of orders) {
     if (orders.size <= MAX_ORDERS) break;
@@ -144,7 +147,11 @@ function prune() {
 
 /** Announce a change; with an order id, also save that order. */
 function changed(orderId?: string) {
-  if (orderId) persist(orderId);
+  if (orderId) {
+    const o = orders.get(orderId);
+    if (o) o.touchedAt = Date.now();
+    persist(orderId);
+  }
   publishRealtimeChange({ resource: "prep-screen", action: "updated" });
 }
 
@@ -171,6 +178,7 @@ function upsertOrder(snapshot: PrepSnapshot) {
     ready: existing?.ready ?? null,
     sent: existing?.sent ?? null,
     cancelled: existing?.cancelled ?? null,
+    touchedAt: Date.now(),
   };
   orders.set(snapshot.draftId, order);
   persist(snapshot.draftId);

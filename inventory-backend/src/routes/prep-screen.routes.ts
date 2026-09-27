@@ -47,14 +47,16 @@ const subscriptionSchema = z.object({
   keys: z.object({ p256dh: z.string(), auth: z.string() }),
 }).passthrough();
 
-// Same bar as creating an invoice (POST /invoices needs only a signed-in user):
-// the cashier polls this for the workers' ready/short marks, so a cashier
-// without MANAGE_INVOICES must not be locked out.
+// Read by every prep party: cashiers (workers' marks), the monitor and the
+// workers' phones — so any signed-in account may read it.
 router.get("/live", (_req, res) => {
   res.json({ success: true, data: getPrepState() });
 });
 
-router.put("/live", (req, res) => {
+// Only an invoice desk may publish the live invoice (saving one needs the same
+// permissions — addInvoice refuses STAFF without MANAGE_INVOICES). Open to any
+// account, a worker could post an empty snapshot and wipe/cancel orders.
+router.put("/live", requireAnyPermission("MANAGE_INVOICES", "ACCESS_POS"), (req, res) => {
   const data = setPrepLive(snapshotSchema.parse(req.body));
   res.json({ success: true, data });
 });

@@ -36,7 +36,7 @@ import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials, lineTotal, priceWithFils, roundMoney } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
-import { playPrepDing, prepLineKeys, prepOrderId, publishPrep } from "../utils/prepScreen"
+import { applyPrepCounts, playPrepDing, prepCountDiffs, prepLineKeys, prepOrderId, publishPrep } from "../utils/prepScreen"
 import { PrepSendControl } from "../components/prep/PrepSendControl"
 import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
@@ -104,6 +104,8 @@ interface DraftItem {
   /** Quantity before the cashier applied a prep worker's count — the row stays
    *  red with «تعدّل من X إلى Y» so the change is obvious. UI only. */
   prepAdjustedFrom?: number
+  /** Frozen «شاشة التجهيز» line key (see prepLineKeys) once a worker count was applied. */
+  prepKey?: string
 }
 
 function stockOf(product: Product) {
@@ -849,21 +851,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   )
   // Lines a worker marked SHORT with fewer found than invoiced — not yet applied.
   const prepShortLines = useMemo(() => {
-    const statuses = prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {}
-    const out: Array<{ index: number; found: number }> = []
-    items.forEach((it, i) => {
-      const st = statuses[prepKeys[i]]
-      if (!isPurchase && (st?.state === "short" || st?.state === "count") && (st.found ?? 0) !== it.quantity) out.push({ index: i, found: st.found ?? 0 })
-    })
-    return out
+    if (isPurchase) return []
+    return prepCountDiffs(items, prepKeys, prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {})
   }, [prepQuery.data, prepId, items, prepKeys, isPurchase])
   const [shortPrompt, setShortPrompt] = useState<{ resolve: (c: "apply" | "keep" | "back") => void } | null>(null)
   /** Set each short line to what was found; a line with none found is removed. */
   function applyPrepShortages() {
-    const byIndex = new Map(prepShortLines.map((s) => [s.index, s.found]))
-    setItems((cur) => cur
-      .map((it, i) => (byIndex.has(i) ? { ...it, quantity: byIndex.get(i)!, prepAdjustedFrom: it.prepAdjustedFrom ?? it.quantity } : it))
-      .filter((_it, i) => !(byIndex.has(i) && byIndex.get(i) === 0)))
+    setItems((cur) => applyPrepCounts(cur, prepShortLines, prepLineKeys(cur)))
   }
   const prepStatuses = useMemo(
     () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {},

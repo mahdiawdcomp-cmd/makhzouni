@@ -61,13 +61,17 @@ export interface PrepState {
 
 /** Stable per-line key: product + unit (+ occurrence when the same pair repeats),
  *  so a worker's mark survives lines being added/removed around it. */
-export function prepLineKeys(items: Array<{ product: { id: string }; unit: string }>) {
-  const seen = new Map<string, number>()
+export function prepLineKeys(items: Array<{ product: { id: string }; unit: string; prepKey?: string }>) {
+  // A line that already carries a key (frozen by applyPrepCounts) keeps it, so
+  // removing an earlier duplicate never hands its mark to the next one.
+  const used = new Set(items.map((it) => it.prepKey).filter((k): k is string => !!k))
   return items.map((it) => {
+    if (it.prepKey) return it.prepKey
     const base = `${it.product.id}-${it.unit}`
-    const n = seen.get(base) ?? 0
-    seen.set(base, n + 1)
-    return n === 0 ? base : `${base}#${n}`
+    let key = base
+    for (let n = 1; used.has(key); n++) key = `${base}#${n}`
+    used.add(key)
+    return key
   })
 }
 
@@ -163,4 +167,38 @@ export function playPrepSiren() {
     }
     setTimeout(() => void ctx.close(), 1400)
   } catch { /* ignore */ }
+}
+/** The worker's counted number → the mark it means: same = done, fewer = short, more = count. */
+export function markFromCount(quantity: number, n: number): { state: "done" | "short" | "count"; found?: number } {
+  if (n === quantity) return { state: "done" }
+  return n < quantity ? { state: "short", found: n } : { state: "count", found: n }
+}
+
+/** Lines whose worker count differs from the invoice (short or more), by index. */
+export function prepCountDiffs(
+  items: Array<{ quantity: number }>,
+  keys: string[],
+  statuses: Record<string, PrepLineStatus>,
+): Array<{ index: number; found: number }> {
+  const out: Array<{ index: number; found: number }> = []
+  items.forEach((it, i) => {
+    const st = statuses[keys[i]]
+    if ((st?.state === "short" || st?.state === "count") && (st.found ?? 0) !== it.quantity) out.push({ index: i, found: st.found ?? 0 })
+  })
+  return out
+}
+
+/** Apply worker counts to invoice lines: quantity := found (0 removes the line),
+ *  remembering the original quantity once so the row can show «تعدّل من X إلى Y». */
+export function applyPrepCounts<T extends { quantity: number; prepAdjustedFrom?: number; prepKey?: string }>(
+  items: T[],
+  diffs: Array<{ index: number; found: number }>,
+  /** Current keys — frozen onto every line so a removal can't shift them. */
+  keys?: string[],
+): T[] {
+  const byIndex = new Map(diffs.map((d) => [d.index, d.found]))
+  return items
+    .map((it, i) => (keys ? { ...it, prepKey: keys[i] } : it))
+    .map((it, i) => (byIndex.has(i) ? { ...it, quantity: byIndex.get(i)!, prepAdjustedFrom: it.prepAdjustedFrom ?? it.quantity } : it))
+    .filter((_it, i) => !(byIndex.has(i) && byIndex.get(i) === 0))
 }
