@@ -844,6 +844,24 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId),
     [prepQuery.data, prepId],
   )
+  // Lines a worker marked SHORT with fewer found than invoiced — not yet applied.
+  const prepShortLines = useMemo(() => {
+    const statuses = prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {}
+    const out: Array<{ index: number; found: number }> = []
+    items.forEach((it, i) => {
+      const st = statuses[prepKeys[i]]
+      if (!isPurchase && st?.state === "short" && (st.found ?? 0) < it.quantity) out.push({ index: i, found: st.found ?? 0 })
+    })
+    return out
+  }, [prepQuery.data, prepId, items, prepKeys, isPurchase])
+  const [shortPrompt, setShortPrompt] = useState<{ resolve: (c: "apply" | "keep" | "back") => void } | null>(null)
+  /** Set each short line to what was found; a line with none found is removed. */
+  function applyPrepShortages() {
+    const byIndex = new Map(prepShortLines.map((s) => [s.index, s.found]))
+    setItems((cur) => cur
+      .map((it, i) => (byIndex.has(i) ? { ...it, quantity: byIndex.get(i)! } : it))
+      .filter((_it, i) => !(byIndex.has(i) && byIndex.get(i) === 0)))
+  }
   const prepStatuses = useMemo(
     () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {},
     [prepQuery.data, prepId],
@@ -2011,6 +2029,18 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     if (savedInvoiceId) return savedInvoiceId
     if (!selectedCustomer || items.length === 0 || hasInvalidTotal) return null
     if (missingPurchasePrice) return null
+    // A prep worker reported a line short and the cashier hasn't applied it:
+    // ask before invoicing goods that are not on the shelf.
+    if (prepShortLines.length > 0) {
+      const choice = await new Promise<"apply" | "keep" | "back">((resolve) => setShortPrompt({ resolve }))
+      setShortPrompt(null)
+      if (choice === "back") return null
+      if (choice === "apply") {
+        applyPrepShortages()
+        toast({ title: "تعدّلت الأعداد حسب الموجود", description: "راجع الإجمالي واحفظ مرة ثانية" })
+        return null
+      }
+    }
     // ── Edit mode: PUT the updated invoice; no draft/receipt/WhatsApp side-effects.
     if (isEdit && editId) {
       savingRef.current = true
@@ -2642,6 +2672,39 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             rule in index.css. Adding a line focuses its quantity input, and the
             browser scrolls it only just inside the scrollport, which put the new
             row UNDERNEATH the sticky save bar. */}
+        {/* «شاشة التجهيز» shortages the worker reported — one tap fixes the invoice. */}
+        {prepShortLines.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-red-200 bg-red-50 px-3 py-2 text-sm dark:border-red-900 dark:bg-red-950/30">
+            <span className="font-bold text-red-700 dark:text-red-300">❗ نقص من التجهيز:</span>
+            {prepShortLines.map((s) => (
+              <span key={s.index} className="rounded-md bg-white px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-200 dark:bg-slate-900 dark:ring-red-900">
+                {items[s.index]?.product.name} — {s.found ? `لكوا ${s.found} من ${items[s.index]?.quantity}` : "ماكو"}
+              </span>
+            ))}
+            <Button size="sm" className="ms-auto h-7 bg-red-600 text-xs hover:bg-red-500" onClick={applyPrepShortages}>
+              عدّل الفاتورة حسب الموجود
+            </Button>
+          </div>
+        )}
+        {shortPrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" dir="rtl">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900">
+              <div className="mb-2 text-lg font-bold text-red-700 dark:text-red-300">❗ اكو نقص ما تطبّق</div>
+              <ul className="mb-4 space-y-1 text-sm">
+                {prepShortLines.map((s) => (
+                  <li key={s.index}>
+                    • {items[s.index]?.product.name}: مطلوب {items[s.index]?.quantity}، {s.found ? `لكوا ${s.found}` : "ماكو ولا وحدة"}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-col gap-2">
+                <Button className="bg-red-600 hover:bg-red-500" onClick={() => shortPrompt.resolve("apply")}>عدّل حسب الموجود (وراجع قبل الحفظ)</Button>
+                <Button variant="outline" onClick={() => shortPrompt.resolve("keep")}>احفظ هيج بدون تعديل</Button>
+                <Button variant="ghost" onClick={() => shortPrompt.resolve("back")}>رجوع</Button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className={cn("invoice-rows overflow-x-auto px-1 py-1", dz.td, dz.text)}>
             <Table>
               <THead>
