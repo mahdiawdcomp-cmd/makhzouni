@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Bell, BellRing, Flame, Loader2, X } from "lucide-react"
+import { Bell, BellRing, Flame, Loader2, Printer, X } from "lucide-react"
+import { printPrepSlip } from "../../utils/printPrepSlip"
 import { cancelPrepOrder, getPrepWorkers, sendPrepOrder } from "../../api/endpoints"
 import type { PrepOrder, PrepSnapshot } from "../../utils/prepScreen"
 import { toast } from "../ui/use-toast"
@@ -105,6 +106,21 @@ export function PrepSendControl({ getSnapshot, order, hasLines }: {
         {sent?.urgent && <Flame className="h-3.5 w-3.5 text-orange-200" />}
         {label}
         <kbd className="rounded bg-black/20 px-1 text-[10px] font-normal">F9</kbd>
+      </button>
+      <button
+        type="button"
+        title="اطبع ورقة تجهيز (صور وأعداد، بدون أسعار) — تشتغل حتى بدون إنترنت"
+        disabled={!hasLines}
+        onClick={() => {
+          const s = getSnapshot()
+          if (!s || s.lines.length === 0) return
+          if (!printPrepSlip(s, { note: sent?.note ?? null, urgent: sent?.urgent })) {
+            toast({ variant: "destructive", title: "المتصفح منع نافذة الطباعة", description: "اسمح بالنوافذ المنبثقة لهذا الموقع" })
+          }
+        }}
+        className="inline-flex h-7 items-center gap-1 rounded border border-white/30 bg-white/20 px-2 text-xs font-medium text-white hover:bg-white/30 disabled:opacity-40"
+      >
+        <Printer className="h-3.5 w-3.5" /> ورقة تجهيز
       </button>
 
       {open && (
