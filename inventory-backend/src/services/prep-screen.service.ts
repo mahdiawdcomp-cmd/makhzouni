@@ -74,18 +74,75 @@ let live: PrepSnapshot | null = null;
 // Insertion-ordered: oldest first. Re-inserted on every update.
 const orders = new Map<string, PrepOrder>();
 
+// ── Persistence ────────────────────────────────────────────────────────────
+// Orders live in memory for speed and are written through to prep_orders
+// (debounced), so a redeploy or crash doesn't wipe orders the workers are on.
+// Routes await ensurePrepLoaded() once after a boot. `live` (the unsent
+// keystroke mirror) is not persisted — the cashier's next keystroke restores it.
+
+const dirty = new Set<string>();
+let flushTimer: NodeJS.Timeout | null = null;
+
+function persist(id: string) {
+  dirty.add(id);
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => { flushTimer = null; void flush(); }, 800);
+  flushTimer.unref?.();
+}
+
+async function flush() {
+  const ids = [...dirty];
+  dirty.clear();
+  for (const id of ids) {
+    const o = orders.get(id);
+    try {
+      if (o) {
+        await prisma.prepOrderState.upsert({
+          where: { id },
+          create: { id, data: o as unknown as object },
+          update: { data: o as unknown as object },
+        });
+      } else {
+        await prisma.prepOrderState.deleteMany({ where: { id } });
+      }
+    } catch {
+      dirty.add(id); // retry with the next change
+    }
+  }
+}
+
+let loaded: Promise<void> | null = null;
+export function ensurePrepLoaded() {
+  loaded ??= (async () => {
+    try {
+      const rows = await prisma.prepOrderState.findMany({
+        where: { updatedAt: { gt: new Date(Date.now() - ORDER_TTL_MS) } },
+        orderBy: { updatedAt: "asc" },
+      });
+      for (const r of rows) if (!orders.has(r.id)) orders.set(r.id, r.data as unknown as PrepOrder);
+      await prisma.prepOrderState.deleteMany({ where: { updatedAt: { lte: new Date(Date.now() - ORDER_TTL_MS) } } });
+    } catch {
+      loaded = null; // DB hiccup — try again on the next request
+    }
+  })();
+  return loaded;
+}
+
 function prune() {
   const cutoff = Date.now() - ORDER_TTL_MS;
-  for (const [id, o] of orders) if (o.snapshot.updatedAt < cutoff) orders.delete(id);
+  const drop = (id: string) => { orders.delete(id); persist(id); };
+  for (const [id, o] of orders) if (o.snapshot.updatedAt < cutoff) drop(id);
   // Over the cap: drop orders nobody was asked to prepare first, then the oldest.
   for (const [id, o] of orders) {
     if (orders.size <= MAX_ORDERS) break;
-    if (!o.sent) orders.delete(id);
+    if (!o.sent) drop(id);
   }
-  while (orders.size > MAX_ORDERS) orders.delete(orders.keys().next().value as string);
+  while (orders.size > MAX_ORDERS) drop(orders.keys().next().value as string);
 }
 
-function changed() {
+/** Announce a change; with an order id, also save that order. */
+function changed(orderId?: string) {
+  if (orderId) persist(orderId);
   publishRealtimeChange({ resource: "prep-screen", action: "updated" });
 }
 
@@ -114,6 +171,7 @@ function upsertOrder(snapshot: PrepSnapshot) {
     cancelled: existing?.cancelled ?? null,
   };
   orders.set(snapshot.draftId, order);
+  persist(snapshot.draftId);
   return order;
 }
 
@@ -136,7 +194,7 @@ export function markPrepLine(orderId: string, key: string, status: { state: "don
   else delete order.statuses[key];
   // Doing work on an order is receiving it.
   if (order.sent && !order.sent.ack) order.sent.ack = { by, at: Date.now() };
-  changed();
+  changed(orderId);
   return true;
 }
 
@@ -145,7 +203,7 @@ export function markPrepReady(orderId: string, ready: boolean, by: string) {
   if (!order) return false;
   order.ready = ready ? { by, at: Date.now() } : null;
   if (ready && order.sent && !order.sent.ack) order.sent.ack = { by, at: Date.now() };
-  changed();
+  changed(orderId);
   return true;
 }
 
@@ -179,7 +237,7 @@ export async function sendPrepOrder(
     reminders: 0,
     lastPushAt: now,
   };
-  changed();
+  changed(order.snapshot.draftId);
   void pushToWorkers(order, opts.urgent ? "🔥 URGENT ORDER" : "🔔 NEW ORDER");
   if (note && !order.sent.noteUr) void translateNote(order.snapshot.draftId, note);
   return getPrepState();
@@ -189,7 +247,7 @@ export function ackPrepOrder(orderId: string, by: string) {
   const order = orders.get(orderId);
   if (!order?.sent) return false;
   if (!order.sent.ack) order.sent.ack = { by, at: Date.now() };
-  changed();
+  changed(orderId);
   return true;
 }
 
@@ -197,7 +255,7 @@ export function cancelPrepOrder(orderId: string, by: string) {
   const order = orders.get(orderId);
   if (!order?.sent) return false;
   order.cancelled = { by, at: Date.now() };
-  changed();
+  changed(orderId);
   void pushToWorkers(order, "❌ ORDER CANCELLED", "Stop preparing this order");
   return true;
 }
@@ -224,7 +282,7 @@ async function translateNote(orderId: string, note: string) {
     const order = orders.get(orderId);
     if (text && order?.sent && order.sent.note === note) {
       order.sent.noteUr = text;
-      changed();
+      changed(orderId);
     }
   } catch {
     // No translation — the workers still see the original note.
@@ -240,6 +298,7 @@ const reminderTimer = setInterval(() => {
     if (s.reminders >= MAX_REMINDERS || now - s.lastPushAt < REMIND_AFTER_MS) continue;
     s.reminders += 1;
     s.lastPushAt = now;
+    persist(order.snapshot.draftId);
     void pushToWorkers(order, s.urgent ? "🔥⏰ URGENT — NOT RECEIVED" : "⏰ ORDER WAITING");
   }
 }, 30_000);

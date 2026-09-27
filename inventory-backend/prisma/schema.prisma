@@ -3178,3 +3178,14 @@ model StaffPushSubscription {
   @@index([userId])
   @@map("staff_push_subscriptions")
 }
+/// «شاشة التجهيز» — open prep orders (snapshot + worker marks + send state) as
+/// one JSON blob, so a redeploy/restart doesn't wipe orders the workers are on.
+/// A mirror, not a record: rows older than a few hours are pruned.
+model PrepOrderState {
+  id        String   @id
+  data      Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([updatedAt])
+  @@map("prep_orders")
+}

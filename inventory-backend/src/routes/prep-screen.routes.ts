@@ -8,6 +8,7 @@ import {
   PREP_NOTIFY,
   ackPrepOrder,
   cancelPrepOrder,
+  ensurePrepLoaded,
   getPrepState,
   listPrepWorkers,
   sendPrepOrder,
@@ -21,6 +22,8 @@ import {
 // «شاشة التجهيز» — live sale-invoice mirror for the prep workers' phones.
 const router = Router();
 router.use(authMiddleware);
+// After a restart, reload the open orders from prep_orders before answering.
+router.use((_req, _res, next) => { ensurePrepLoaded().then(() => next(), () => next()); });
 
 const snapshotSchema = z.object({
   draftId: z.string().min(1).max(200),
