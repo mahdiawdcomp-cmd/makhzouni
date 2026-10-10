@@ -96,7 +96,7 @@ export async function getStocktakeSession(id: string) {
       items: {
         include: {
           product: {
-            select: { id: true, name: true, category: true, imageUrl: true },
+            select: { id: true, name: true, category: true, imageUrl: true, costPrice: true, purchasePrice: true },
           },
         },
       },
@@ -105,18 +105,28 @@ export async function getStocktakeSession(id: string) {
 
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
 
-  const items = session.items.map((item) => ({
-    id: item.id,
-    productId: item.productId,
-    productName: item.productName,
-    category: item.product.category,
-    systemQty: item.systemQty,
-    actualQty: item.actualQty,
-    variance: item.variance,
-    notes: item.notes,
-    approvalStatus: item.approvalStatus ?? StocktakeApprovalStatus.PENDING,
-    hasError: item.variance !== null && item.variance !== 0,
-  }));
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const items = session.items.map((item) => {
+    // Same cost basis recordStockAdjustmentVariance books on approval:
+    // costPrice, falling back to purchasePrice.
+    const cost = Number(item.product.costPrice ?? 0);
+    const unitCost = cost > 0 ? cost : Number(item.product.purchasePrice ?? 0);
+    return {
+      id: item.id,
+      productId: item.productId,
+      productName: item.productName,
+      category: item.product.category,
+      systemQty: item.systemQty,
+      actualQty: item.actualQty,
+      variance: item.variance,
+      notes: item.notes,
+      approvalStatus: item.approvalStatus ?? StocktakeApprovalStatus.PENDING,
+      hasError: item.variance !== null && item.variance !== 0,
+      unitCost,
+      varianceValue: item.variance !== null ? round2(item.variance * unitCost) : null,
+    };
+  });
 
   // Sort: errors first, then uncounted, then matching
   items.sort((a, b) => {
@@ -129,6 +139,13 @@ export async function getStocktakeSession(id: string) {
 
   const filled = items.filter((i) => i.actualQty !== null).length;
   const errors = items.filter((i) => i.hasError).length;
+  let shortageValue = 0;
+  let overageValue = 0;
+  for (const i of items) {
+    if (i.varianceValue === null) continue;
+    if (i.varianceValue < 0) shortageValue -= i.varianceValue;
+    else overageValue += i.varianceValue;
+  }
 
   return {
     id: session.id,
@@ -139,7 +156,14 @@ export async function getStocktakeSession(id: string) {
     closedAt: session.closedAt?.toISOString() ?? null,
     creator: session.creator,
     branch: session.branch,
-    stats: { total: items.length, filled, errors },
+    stats: {
+      total: items.length,
+      filled,
+      errors,
+      shortageValue: round2(shortageValue),
+      overageValue: round2(overageValue),
+      netVarianceValue: round2(overageValue - shortageValue),
+    },
     items,
   };
 }

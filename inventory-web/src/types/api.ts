@@ -392,8 +392,17 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
     approvalStatus: "PENDING" | "APPROVED" | "REJECTED"
     approvedQty: number | null
     hasError?: boolean
+    unitCost?: number
+    varianceValue?: number | null
   }>
-  stats?: { filled: number; total: number }
+  stats?: {
+    filled: number
+    total: number
+    errors?: number
+    shortageValue?: number
+    overageValue?: number
+    netVarianceValue?: number
+  }
   unresolvedCount?: number
 }
 

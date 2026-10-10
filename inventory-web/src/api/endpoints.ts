@@ -3192,8 +3192,8 @@ export async function closeStocktakeSession(id: string, force?: boolean) {
   return data.data!
 }
 
-export async function archiveStocktakeSession(id: string) {
-  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/stocktake/${id}/archive`)
+export async function archiveStocktakeSession(id: string, force?: boolean) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/stocktake/${id}/archive`, force ? { force: true } : undefined)
   return data.data
 }
 
