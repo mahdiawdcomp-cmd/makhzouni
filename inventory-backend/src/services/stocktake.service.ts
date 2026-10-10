@@ -365,6 +365,7 @@ export async function getPublicSession(token: string) {
             select: {
               id: true,
               name: true,
+              itemNumber: true,
               category: true,
               qrCode: true,
               cartonQrCode: true,
@@ -390,6 +391,8 @@ export async function getPublicSession(token: string) {
       id: item.id,
       productId: item.productId,
       productName: item.productName,
+      // Lets the worker search by the code printed on the shelf/carton.
+      itemNumber: item.product.itemNumber,
       category: item.product.category,
       qrCode: item.product.qrCode,
       cartonQrCode: item.product.cartonQrCode,
