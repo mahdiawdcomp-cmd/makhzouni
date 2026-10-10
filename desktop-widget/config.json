@@ -1,0 +1,14 @@
+{
+  "refreshSeconds": 60,
+  "services": [
+    { "name": "الموقع الرئيسي", "url": "https://mazbwoni.com" },
+    { "name": "Backend API", "url": "https://inventory-backend-production-7e85.up.railway.app/health" },
+    { "name": "Admin API", "url": "https://admin-api.mazbwoni.com/health" },
+    { "name": "Web (Vercel)", "url": "https://inventory-web-six-kohl.vercel.app" }
+  ],
+  "domains": [ "mazbwoni.com" ],
+  "subscriptions": [
+    { "name": "Railway", "renews": "2026-11-01" },
+    { "name": "Vercel", "renews": "2026-11-01" }
+  ]
+}

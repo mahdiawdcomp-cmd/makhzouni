@@ -1,5 +1,14 @@
 # Project Map
 
+## Sales-agent image-only grid — 2026-09-17 (local, not published)
+- The rep's catalog grid, category choices, and thumbnail-batch IDs now exclude products whose existing `hasImage` flag is false. Existing cart drafts are not deleted; server product data and stock are unchanged. Fixture product 12 has no image and browser tests assert it stays hidden on phone and iPad.
+- Verified: targeted ESLint, 61 web unit tests, web build, 4 browser tests. No commit, push, or deploy for this follow-up.
+
+## Sales-agent catalog UI — 2026-09-17 (published in `0ac1c2b`)
+- Web-only change in `inventory-web/src/pages/SalesAgentPage.tsx` and scoped motion in `src/index.css`: rep can choose 2/3/4 product photos per row, stored per device in `sales-agent-catalog-columns`; search stays visible, category/new/offer/sort live in a collapsible filter panel. Product pricing, draft and order flow are unchanged.
+- Uses existing theme variables and CSS transitions, no new UI dependency; honors `prefers-reduced-motion`. Browser fixture test checks layouts, filters and persistence on phone 390x844 and iPad 1024x768 in `tests/sales-agent-offline.spec.mjs`.
+- Verified locally: 61 web unit tests, 4 browser tests, web build, targeted ESLint and TypeScript. Scoped three-file commit `0ac1c2b` pushed to `origin/master`; Vercel and both auto-triggered Railway deployment statuses succeeded. The project map remains a local note, not part of that commit.
+
 ## Sales-agent third pass: eight gaps — 2026-09-14 (released in `b43c69f`, pushed 2026-09-16)
 - Web + backend only; no desktop/Android edits. Shipped as commit `b43c69f` and pushed to `master` on 2026-09-16 (63 files; four unrelated old `docs/*.md` rode along, documentation only). DEPLOY IS NOT VERIFIED: run `docs/sales-agent-preflight-20260914.sql` against production and confirm `btree_gist` plus the three new tables and the `sales_agent_offers_no_overlap` constraint. The concurrent «الموظف الذكي» commit `a8f30bc` and its edits to `schemas.ts` / `types/api.ts` are preserved untouched.
 - OWNER's visit-plan screen built: `inventory-web/src/pages/sales-agent/AdminVisitPlanPanel.tsx`, rendered inside `/sales-agents` (AdminRoute + `adminOnly` on the server). Pick rep → date → search/area → add many → reorder with «فوق»/«جوه» (no drag-and-drop) → edit note → cancel/restore. Cancelling the INTENTION never deletes a real visit, and each row shows «أنتجت طلباً» or «نتيجة يدوية بدون طلب».

@@ -1,0 +1,26 @@
+[mcp_servers.context7]
+command = "npx"
+args = [
+    "-y",
+    "@upstash/context7-mcp",
+]
+
+[mcp_servers.memory-keeper]
+command = "node"
+args = ['D:\fullstak app new\.claude\mcp-tools\node_modules\mcp-memory-keeper\dist\index.js']
+
+[mcp_servers.memory-keeper.env]
+DATA_DIR = 'D:\fullstak app new\.claude\memory-keeper'
+
+[mcp_servers.serena]
+command = 'C:\Users\IRAQ CELL\AppData\Roaming\Python\Python314\Scripts\uvx.exe'
+args = [
+    "--from",
+    "git+https://github.com/oraios/serena",
+    "serena",
+    "start-mcp-server",
+    "--context",
+    "ide-assistant",
+    "--project",
+    'D:\fullstak app new',
+]
