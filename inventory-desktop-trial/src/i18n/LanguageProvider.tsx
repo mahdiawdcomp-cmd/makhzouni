@@ -87,7 +87,28 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   useEffect(() => {
-    if (language !== "ar" && !dictionary) return
+    // Always set the HTML dir/lang attributes so the layout stays RTL for Arabic.
+    const activeLanguage = !isAdministrationPath() ? "ar" : language
+    // Direction stays RTL in every language.
+    //
+    // The UI is built almost entirely from PHYSICAL Tailwind utilities — 75
+    // ml-/mr- against 2 logical, 117 text-left/right against 0 logical, plus
+    // 113 left-N/right-N and the drawer and dialog close button pinned to
+    // fixed sides. None of those flip with `dir`, so setting dir="ltr" for
+    // English inverted the text direction while every margin, absolute
+    // position and panel edge stayed put: a visibly scrambled layout.
+    //
+    // English here is a TEXT translation, not a mirrored layout. Latin text
+    // renders correctly inside an RTL document (bidi is per-paragraph), so
+    // keeping RTL is coherent; flipping was not. Revisit only after migrating
+    // to logical properties (ms/me, ps/pe, text-start/end, inset-inline).
+    document.documentElement.lang = activeLanguage
+    document.documentElement.dir = "rtl"
+    document.documentElement.dataset.adminLanguage = language
+
+    // Arabic is the native language — no DOM translation or observer needed.
+    if (language === "ar") return
+    if (!dictionary) return
     const textSources = new WeakMap<Node, string>()
     const textLastApplied = new WeakMap<Node, string>()
     const attributeSources = new WeakMap<Element, Map<string, string>>()

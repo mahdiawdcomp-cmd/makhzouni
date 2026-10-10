@@ -154,7 +154,8 @@ export function InvoicesPage() {
   const urlFrom = searchParams.get("from") ?? ""
   const urlTo = searchParams.get("to") ?? ""
 
-  // In the URL like the other filters on this page already are.
+  // In the URL like the other filters on this page already are, so a refresh
+  // keeps the search term instead of only the date/type filters.
   const [query, setQuery] = useUrlState("q")
   const debouncedQuery = useDebounce(query, 250)
   const [draftFrom, setDraftFrom] = useState(urlFrom)

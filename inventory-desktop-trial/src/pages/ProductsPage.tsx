@@ -4,6 +4,7 @@ import { useDebounce } from "../hooks/useDebounce"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { getBranches, getCatalogCategories, getDeletedProducts, getProduct, restoreProduct, republishProductInTelegramChannel } from "../api/endpoints"
+import { useAuthStore } from "../store/authStore"
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -12,27 +13,27 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { ArchiveX, PackageOpen, ArrowLeftRight, Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, RefreshCw, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
+import { Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, RefreshCw, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productCartonSheetPdfUrl, productPieceLabelPngObjectUrl, productPieceLabelPngUrl } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
-import { toast } from "../components/ui/use-toast"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
+import { useToast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
 import { AdjustStockModal } from "../components/AdjustStockModal"
-import { useAuthStore } from "../store/authStore"
 import { deliverLabel } from "../utils/download"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { matchProduct, stockState, depotPiecesOf } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
-import { useClampedTablePageIndex } from "../hooks/useClampedPageIndex"
+import { useClampedPageIndex } from "../hooks/useClampedPageIndex"
 import { useUrlState } from "../hooks/useUrlState"
 
 // Accounting unit cost for stock valuation: WAC costPrice first, falling back
@@ -94,8 +95,12 @@ function readFileAsDataUrl(file: Blob): Promise<string> {
   })
 }
 
-// Remote image URLs taint the canvas; fetch them to a data URL first so the
-// crop editor can read pixels.
+/**
+ * Return a source the crop editor can safely draw to canvas: data URLs are
+ * returned as-is; remote URLs are fetched and converted to a data URL so the
+ * canvas is never "tainted" (which would block cropping/saving). If the fetch
+ * fails (e.g. CORS), the original URL is returned and the editor handles it.
+ */
 async function toEditableSrc(src: string): Promise<string> {
   if (src.startsWith("data:")) return src
   try {
@@ -139,9 +144,19 @@ async function compressProductImage(file: Blob): Promise<string> {
 
 
 function ProductThumb({ product, className = "" }: { product: Pick<Product, "name" | "imageUrl" | "thumbnailUrl" | "itemNumber">; className?: string }) {
+  // Prefer the lightweight thumbnail; fall back to the full image only if a
+  // product has no thumbnail yet (legacy items before backfill).
   const src = product.thumbnailUrl || product.imageUrl
   if (src) {
-    return <img src={src} alt={product.name} loading="lazy" decoding="async" className={`h-11 w-11 rounded-lg object-cover ring-1 ring-slate-200 ${className}`} />
+    return (
+      <img
+        src={src}
+        alt={product.name}
+        loading="lazy"
+        decoding="async"
+        className={`h-11 w-11 rounded-lg object-cover ring-1 ring-slate-200 ${className}`}
+      />
+    )
   }
   return (
     <div className={`grid h-11 w-11 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200 ${className}`}>
@@ -389,6 +404,9 @@ export function ProductsPage() {
   usePageTitle("المخزن")
   const readOnly = useReadOnly()
   const navigate = useNavigate()
+  // Staff without this permission must never see purchase/cost price — the
+  // backend already strips it from the API response; this just avoids
+  // rendering "NaN"/"0" for the missing field.
   const canViewPurchasePrice = useAuthStore((s) => s.hasPermission("VIEW_PURCHASE_PRICE"))
 
   // Handle Esc key for lightbox
@@ -400,6 +418,7 @@ export function ProductsPage() {
     return () => window.removeEventListener("keydown", handler)
   }, [])
   const [searchParams, setSearchParams] = useSearchParams()
+  const { toast } = useToast()
   const { productsQuery, createMutation, updateMutation, deleteMutation } = useProducts()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQuery.data ?? []
@@ -409,9 +428,6 @@ export function ProductsPage() {
     branchId ? branches.find((branch) => branch.id === branchId)?.name ?? "مخزن غير معروف" : "المخزن الرئيسي"
   // In the URL, so a refresh (or an accidental F5 mid-search) keeps the term.
   const [query, setQuery] = useUrlState("q")
-  // Hardware barcode gun: a scan fills the search with the clean ASCII code
-  // (rebuilt from physical keys), so it works under an Arabic keyboard too.
-  useBarcodeScanner({ onScan: (code) => setQuery(code) })
   const debouncedQuery = useDebounce(query, 250)
   const [category, setCategory] = useState("all")
   const [warehouseFilter, setWarehouseFilter] = useState<string>("all")
@@ -426,7 +442,6 @@ export function ProductsPage() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
   const [showCategories, setShowCategories] = useState(false)
-  const [adjustTarget, setAdjustTarget] = useState<Product | null>(null)
   // Optional opening-stock split across warehouses (pieces per warehouse), used
   // on initial product entry only.
   const [dist, setDist] = useState<Record<string, number>>({})
@@ -438,15 +453,17 @@ export function ProductsPage() {
   const [qtyDirty, setQtyDirty] = useState(false)
   const [closeProductConfirm, setCloseProductConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
-  // Trash / restore (48h window) for deleted products
+  const [adjustTarget, setAdjustTarget] = useState<Product | null>(null)
   const [restoreConfirm, setRestoreConfirm] = useState<Product | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
   const qc = useQueryClient()
+
   const deletedProductsQuery = useQuery({
     queryKey: ["products", "deleted"],
     queryFn: getDeletedProducts,
     staleTime: 30_000,
   })
+
   const restoreProductMutation = useMutation({
     mutationFn: (id: string) => restoreProduct(id),
     onSuccess: () => {
@@ -466,16 +483,16 @@ export function ProductsPage() {
     },
     onError: (err: Error) => toast({ title: err.message ?? "تعذرت إعادة النشر", variant: "destructive" }),
   })
-
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
   // Shows the "carton changed but manual box count kept" warning in the form.
   const [cartonChangedWhileManualBox, setCartonChangedWhileManualBox] = useState(false)
-  // The list no longer carries the full imageUrl — only resend it on save if the
-  // user actually changed it, otherwise we'd overwrite the full image.
+  // True only when the user actually changed the image in this edit session.
+  // The list no longer carries the full imageUrl, so we must NOT resend it on
+  // save unless it was touched — otherwise we'd overwrite the full image.
   const [imageDirty, setImageDirty] = useState(false)
-  const [cropSrc, setCropSrc] = useState<string | null>(null)
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
   const products = productsQuery.data ?? []
   const categories = Array.from(new Set(products.map((item) => item.category).filter(Boolean) as string[]))
 
@@ -584,21 +601,54 @@ export function ProductsPage() {
     [navigate, readOnly, republishMutation],
   )
 
+  const [pagination, setPagination] = useState<{ pageIndex: number; pageSize: number }>(() => {
+    // Restore the page the user was on so returning from a product detail
+    // doesn't jump back to page 1.
+    try {
+      const saved = sessionStorage.getItem("products-pagination")
+      if (saved) {
+        const p = JSON.parse(saved) as { pageIndex?: number; pageSize?: number }
+        if (typeof p.pageIndex === "number" && typeof p.pageSize === "number") {
+          return { pageIndex: p.pageIndex, pageSize: p.pageSize }
+        }
+      }
+    } catch { /* ignore malformed storage */ }
+    return { pageIndex: 0, pageSize: 10 }
+  })
+
+  // Persist the current page across navigation so returning from a product
+  // detail lands on the same page. Scroll position within the page is restored
+  // globally by AppLayout's per-route scroll memory.
+  useEffect(() => {
+    sessionStorage.setItem("products-pagination", JSON.stringify(pagination))
+  }, [pagination])
+
+  // Hardware barcode gun: a scan fills the search with the clean ASCII code
+  // (rebuilt from physical keys, so it works under an Arabic keyboard) and jumps
+  // to page 1 so the matching item shows up immediately.
+  useBarcodeScanner({
+    onScan: (code) => {
+      setQuery(code)
+      setPagination((p) => ({ ...p, pageIndex: 0 }))
+    },
+  })
+
+  // autoResetPageIndex is deliberately false below; without this the page
+  // index can point past the end of a narrowed list and the table renders
+  // nothing at all.
+  useClampedPageIndex(sortedProducts.length, pagination, setPagination)
+
   const table = useReactTable({
     data: sortedProducts,
     columns,
-    state: { sorting },
+    state: { sorting, pagination },
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
     autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
   })
-
-  // autoResetPageIndex is false above and this table keeps its pagination
-  // internally, so nothing pulls the page index back when a filter shrinks
-  // the list — the table would just render nothing.
-  useClampedTablePageIndex(table)
 
   function startCreate() {
     setEditing(null)
@@ -634,6 +684,9 @@ export function ProductsPage() {
     }
     setDist(initialDist)
     setQtyDirty(false)
+    // The list payload no longer carries the full imageUrl (only thumbnailUrl).
+    // Show the thumbnail immediately, then fetch the full image so the editor
+    // has the real picture AND saving never wipes it with a null imageUrl.
     setForm({
       itemNumber: product.itemNumber,
       name: product.name,
@@ -654,6 +707,7 @@ export function ProductsPage() {
       hiddenUnits: product.hiddenUnits ?? [],
       purchasePrice: product.purchasePrice,
       salePrice: product.salePrice,
+      retailPrice: product.retailPrice,
       cartonPiecePrice: product.cartonPiecePrice ?? null,
       minStock: product.minStock,
       branchId: product.branchId ?? "",
@@ -664,7 +718,11 @@ export function ProductsPage() {
     // Fetch the full-resolution image in the background and swap it in.
     if (product.id && product.id !== "__optimistic__") {
       void getProduct(product.id)
-        .then((full) => { if (full?.imageUrl) setForm((f) => ({ ...f, imageUrl: full.imageUrl ?? f.imageUrl })) })
+        .then((full) => {
+          if (full?.imageUrl) {
+            setForm((f) => ({ ...f, imageUrl: full.imageUrl ?? f.imageUrl }))
+          }
+        })
         .catch(() => {})
     }
   }
@@ -672,8 +730,6 @@ export function ProductsPage() {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!form.name) return
-    // The server refuses a carton price above the wholesale piece price; say
-    // so here instead of letting the save come back as a bare 400.
     if (form.cartonPiecePrice != null && (form.cartonPiecePrice <= 0 || form.cartonPiecePrice > Number(form.salePrice ?? 0))) {
       alert("سعر القطعة بالكارتون يجب أن يكون أكبر من صفر ولا يتجاوز سعر الجملة")
       return
@@ -689,7 +745,8 @@ export function ProductsPage() {
       storageLocation: form.storageLocation?.trim() || null,
       branchId: form.branchId?.trim() || undefined,
     }
-    // On edit, only send the image if the user actually changed it.
+    // On edit, only send the image if the user actually changed it — the list
+    // payload no longer carries the full image, so resending would downgrade it.
     if (editing && !imageDirty) {
       delete payload.imageUrl
     }
@@ -733,7 +790,9 @@ export function ProductsPage() {
     const mutation = editing
       ? updateMutation.mutateAsync({ id: editing.id, payload })
       : createMutation.mutateAsync(payload)
-    mutation.then(() => setOpen(false))
+    mutation
+      .then(() => setOpen(false))
+      .catch((e: Error) => toast({ title: e.message ?? "تعذر الحفظ", variant: "destructive" }))
   }
 
   const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
@@ -756,6 +815,18 @@ export function ProductsPage() {
           <Button variant="outline" asChild>
             <Link to="/inventory/low-stock">المخزون الناقص</Link>
           </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/variety">تحويل إلى متنوع</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/stale">المواد الراكدة</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/missing-carton-price">بدون سعر كارتون</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/negative-stock">تعديل المخزون</Link>
+          </Button>
           <Button
             variant="outline"
             onClick={() => exportInventoryCsv(products, !canViewPurchasePrice)}
@@ -773,26 +844,6 @@ export function ProductsPage() {
           <Button variant="outline" asChild>
             <Link to="/inventory/stocktake">
               <FileText className="h-4 w-4" /> الجرد الدوري
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/inventory/variety">
-              <Boxes className="h-4 w-4" /> تحويل إلى متنوع
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/inventory/stale">
-              <ArchiveX className="h-4 w-4" /> المواد الراكدة
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/inventory/missing-carton-price">
-              <PackageOpen className="h-4 w-4" /> بدون سعر كارتون
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/inventory/negative-stock">
-              <ArrowLeftRight className="h-4 w-4" /> تعديل المخزون
             </Link>
           </Button>
           <Button variant="outline" onClick={() => setShowCategories((v) => !v)}>
@@ -936,13 +987,27 @@ export function ProductsPage() {
                           : "border-slate-200 dark:border-slate-800"
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/inventory/${p.id}`)}
-                    className="flex w-full items-start gap-3 p-3 text-right"
-                  >
-                    <ProductThumb product={p} className="h-16 w-16 shrink-0 rounded-xl" />
-                    <div className="min-w-0 flex-1">
+                  <div className="flex w-full items-start gap-3 p-3 text-right">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const src = p.thumbnailUrl || p.imageUrl
+                        if (!src) return
+                        setLightboxImage({ url: src, title: p.name })
+                        void getProduct(p.id).then((full) => {
+                          if (full?.imageUrl) setLightboxImage({ url: full.imageUrl, title: p.name })
+                        }).catch(() => {})
+                      }}
+                      className="shrink-0 cursor-zoom-in"
+                    >
+                      <ProductThumb product={p} className="h-16 w-16 rounded-xl" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/inventory/${p.id}`)}
+                      className="min-w-0 flex-1 text-right"
+                    >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h3 className="truncate text-base font-bold text-slate-900 dark:text-slate-100">{p.name}</h3>
@@ -966,8 +1031,8 @@ export function ProductsPage() {
                           </span>
                         ))}
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                  </div>
 
                   <div className={`grid border-y border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/60 ${canViewPurchasePrice ? "grid-cols-3" : "grid-cols-2"}`}>
                     <div className="p-2.5 text-center">
@@ -1090,6 +1155,8 @@ export function ProductsPage() {
                             <button
                               type="button"
                               onClick={async () => {
+                                // Show the thumbnail instantly, then swap in the
+                                // full-resolution image once it loads.
                                 setLightboxImage({ url: (p.thumbnailUrl || p.imageUrl)!, title: p.name })
                                 try {
                                   const full = await getProduct(p.id)
@@ -1191,11 +1258,20 @@ export function ProductsPage() {
               </tfoot>
             </table>
           </div>
-          <div className="flex items-center justify-between gap-2 pb-20 md:pb-0">
-
-            <Button variant="outline" className="px-3" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
-            <span className="text-center text-xs text-slate-500 md:text-sm">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
-            <Button variant="outline" className="px-3" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-20 md:pb-0">
+            <div className="flex items-center gap-1">
+              {[10, 50, 100].map((n) => (
+                <Button key={n} size="sm" variant={pagination.pageSize === n ? "default" : "outline"}
+                  onClick={() => setPagination({ pageIndex: 0, pageSize: n })}>
+                  {n}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" className="px-3" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
+              <span className="text-center text-xs text-slate-500 md:text-sm">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
+              <Button variant="outline" className="px-3" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+            </div>
           </div>
           </>
           )}
@@ -1238,8 +1314,9 @@ export function ProductsPage() {
             <Field label="اسم المنتج *">
               <Input required placeholder="مثلاً: سيارة بطارية" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
             </Field>
-            <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+            <div className="col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex flex-wrap items-center gap-3">
+                {/* Preview */}
                 {form.imageUrl ? (
                   <button
                     type="button"
@@ -1255,11 +1332,13 @@ export function ProductsPage() {
                 ) : (
                   <div className="grid h-20 w-20 place-items-center rounded-xl bg-white text-xs font-bold text-slate-400 ring-1 ring-slate-200 dark:bg-slate-950">صورة</div>
                 )}
+
                 <div className="flex-1 space-y-2">
                   <div className="text-sm font-semibold">صورة المادة</div>
                   <div className="text-xs text-slate-500">بعد الالتقاط تظهر لك شاشة التعديل للاقتصاص والتدوير.</div>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" asChild>
+                    {/* Camera */}
+                    <Button type="button" variant="outline" asChild className="gap-1.5">
                       <label className="cursor-pointer">
                         📷 كاميرا
                         <input
@@ -1277,7 +1356,9 @@ export function ProductsPage() {
                         />
                       </label>
                     </Button>
-                    <Button type="button" variant="outline" asChild>
+
+                    {/* File picker */}
+                    <Button type="button" variant="outline" asChild className="gap-1.5">
                       <label className="cursor-pointer">
                         📁 اختيار صورة
                         <input
@@ -1294,15 +1375,22 @@ export function ProductsPage() {
                         />
                       </label>
                     </Button>
+
+                    {/* Edit existing */}
                     {form.imageUrl && (
                       <Button type="button" variant="outline" className="gap-1.5 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
                         onClick={async () => setCropSrc(await toEditableSrc(form.imageUrl!))}>
                         ✂️ تعديل الصورة
                       </Button>
                     )}
-                    {form.imageUrl ? (
-                      <Button type="button" variant="outline" className="text-red-500 hover:bg-red-50 border-red-200" onClick={() => { setImageDirty(true); setForm({ ...form, imageUrl: null }) }}>🗑️ حذف</Button>
-                    ) : null}
+
+                    {/* Delete */}
+                    {form.imageUrl && (
+                      <Button type="button" variant="outline" className="text-red-500 hover:bg-red-50 border-red-200"
+                        onClick={() => { setImageDirty(true); setForm({ ...form, imageUrl: null }) }}>
+                        🗑️ حذف
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1527,14 +1615,16 @@ export function ProductsPage() {
                 <p className="text-[11px] text-slate-500">سعر الشراء والجملة والمفرد للقطعة الواحدة.</p>
               </div>
             </div>
-            <Field label="سعر الشراء (للقطعة)">
-              <Input type="number" value={form.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, purchasePrice: Number(event.target.value) })} />
-            </Field>
+            {canViewPurchasePrice && (
+              <Field label="سعر الشراء (للقطعة)">
+                <Input type="number" value={form.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, purchasePrice: Number(event.target.value) })} />
+              </Field>
+            )}
             <Field label="سعر البيع (جملة — للقطعة)">
               <Input type="number" value={form.salePrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, salePrice: Number(event.target.value) })} />
             </Field>
             <Field label="سعر المفرد (تجزئة — اختياري)">
-              <Input type="number" value={form.retailPrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, retailPrice: Number(event.target.value) })} />
+              <Input type="number" min="0" step="0.01" value={form.retailPrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, retailPrice: Number(event.target.value) })} />
             </Field>
             <Field label="سعر القطعة بالكارتون (اختياري)">
               <Input type="number" min="0.01" step="0.01" max={Number(form.salePrice ?? 0)} value={form.cartonPiecePrice ?? ""} placeholder="فارغ = سعر الجملة" onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, cartonPiecePrice: event.target.value === "" ? null : Number(event.target.value) })} />
@@ -1621,7 +1711,7 @@ export function ProductsPage() {
             )
           })()}
 
-          {/* Edit mode: editable per-warehouse distribution */}
+          {/* Edit mode: editable per-warehouse quantity in cartons + loose pieces */}
           {editing && branches.filter((b) => b.isActive).length > 1 && (() => {
             const ppc = Math.max(1, Number(form.pcsPerCarton) || 1)
             const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
@@ -1636,9 +1726,9 @@ export function ProductsPage() {
                     const pieces = Number(dist[b.id] ?? 0)
                     const cartons = Math.floor(pieces / ppc)
                     const loose = pieces - cartons * ppc
-                    const setQty = (cc: number, l: number) => {
+                    const setQty = (c: number, l: number) => {
                       setQtyDirty(true)
-                      setDist({ ...dist, [b.id]: Math.max(0, cc) * ppc + Math.max(0, l) })
+                      setDist({ ...dist, [b.id]: Math.max(0, c) * ppc + Math.max(0, l) })
                     }
                     return (
                       <div key={b.id} className="rounded-lg border border-sky-100 bg-white/60 p-2 dark:border-sky-900 dark:bg-slate-900/40">
@@ -1700,7 +1790,7 @@ export function ProductsPage() {
           </div>
         </form>
 
-        {/* Image editor — rendered INSIDE the dialog so the modal pointer-events
+        {/* Image editor — rendered INSIDE the dialog so Radix's modal pointer-events
             lock doesn't swallow clicks on the crop/save controls */}
         {cropSrc && (
           <ImageCropModal
@@ -1710,12 +1800,14 @@ export function ProductsPage() {
               setCropSrc(null)
               setImageDirty(true)
               try {
+                // compress the cropped result before saving to form
                 const resp = await fetch(croppedDataUrl)
                 const blob = await resp.blob()
                 const file = new File([blob], "cropped.jpg", { type: "image/jpeg" })
                 const imageUrl = await compressProductImage(file)
                 setForm((f) => ({ ...f, imageUrl }))
               } catch {
+                // If compression fails for any reason, still keep the cropped image.
                 setForm((f) => ({ ...f, imageUrl: croppedDataUrl }))
               }
             }}
@@ -1736,6 +1828,19 @@ export function ProductsPage() {
         </Button>
       ) : null}
 
+      <ConfirmDialog
+        open={closeProductConfirm}
+        title="خروج بدون حفظ؟"
+        description="لم تحفظ المادة بعد."
+        confirmLabel="خروج"
+        onConfirm={() => { setCloseProductConfirm(false); setForm(emptyForm); setOpen(false) }}
+        onCancel={() => setCloseProductConfirm(false)}
+      />
+
+      {adjustTarget && (
+        <AdjustStockModal product={adjustTarget} onClose={() => setAdjustTarget(null)} />
+      )}
+
       {scanTarget && (
         <CameraScanModal
           title={scanTarget === "search" ? "مسح مادة بالكاميرا" : "مسح الباركود"}
@@ -1755,26 +1860,17 @@ export function ProductsPage() {
       )}
 
       <ConfirmDialog
-        open={closeProductConfirm}
-        title="خروج بدون حفظ؟"
-        description="لم تحفظ المادة بعد."
-        confirmLabel="خروج"
-        onConfirm={() => { setCloseProductConfirm(false); setForm(emptyForm); setOpen(false) }}
-        onCancel={() => setCloseProductConfirm(false)}
-      />
-
-      {adjustTarget && (
-        <AdjustStockModal product={adjustTarget} onClose={() => setAdjustTarget(null)} />
-      )}
-
-      <ConfirmDialog
         open={!!deleteConfirm}
         title={`حذف "${deleteConfirm?.name ?? ""}"؟`}
         description="ستُحذف المادة من قائمة المواد لكنها تبقى مسجّلة في الفواتير القديمة."
         confirmLabel="حذف"
+        loading={deleteMutation.isPending}
         onConfirm={() => {
           if (!deleteConfirm) return
-          deleteMutation.mutate(deleteConfirm.id, { onSuccess: () => setDeleteConfirm(null) })
+          deleteMutation.mutate(deleteConfirm.id, {
+            onSuccess: () => setDeleteConfirm(null),
+            onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحذف"), variant: "destructive" }),
+          })
         }}
         onCancel={() => setDeleteConfirm(null)}
       />
@@ -1843,6 +1939,7 @@ export function ProductsPage() {
           </div>
         </div>
       )}
+
     </div>
   )
 }

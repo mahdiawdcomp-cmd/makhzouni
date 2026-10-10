@@ -8,6 +8,9 @@ import { fmt, fmtD } from "./fmt"
 
 type Item = StocktakeSessionDetail["items"][number]
 
+// Excel only reads a CSV as UTF-8 (Arabic intact) when it starts with a BOM.
+const BOM = String.fromCharCode(0xfeff)
+
 const APPROVAL: Record<Item["approvalStatus"], string> = {
   PENDING: "بانتظار المراجعة",
   APPROVED: "موافق",
@@ -29,7 +32,8 @@ function approvalLabel(item: Item) {
   return item.actualQty === null ? "لم يُحسب" : APPROVAL[item.approvalStatus]
 }
 
-export function exportStocktakeCsv(session: StocktakeSessionDetail) {
+/** Resolves to where the file went (a filename on the web). */
+export async function exportStocktakeCsv(session: StocktakeSessionDetail): Promise<string> {
   const cell = (v: string | number | null | undefined) => {
     const s = v === null || v === undefined ? "" : String(v)
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
@@ -46,14 +50,16 @@ export function exportStocktakeCsv(session: StocktakeSessionDetail) {
     approvalLabel(i),
   ])
   const csv = [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n")
-  const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }))
+  const filename = `${fileBase(session)}.csv`
+  const url = URL.createObjectURL(new Blob([BOM + csv], { type: "text/csv;charset=utf-8" }))
   const a = document.createElement("a")
   a.href = url
-  a.download = `${fileBase(session)}.csv`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  return filename
 }
 
 export function printStocktake(session: StocktakeSessionDetail) {

@@ -581,7 +581,7 @@ export function ProductsPage() {
             <Button variant="outline" className="h-8 px-2" title="عرض" onClick={() => navigate(`/inventory/${row.original.id}`)}>
               <Eye className="h-4 w-4" />
             </Button>
-            <Button variant="outline" className="h-8 px-2" title="تعديل" onClick={() => startEdit(row.original)}>
+            <Button variant="outline" className="h-8 px-2" title={readOnly ? READ_ONLY_MESSAGE : "تعديل"} disabled={readOnly} onClick={() => startEdit(row.original)}>
               <Edit className="h-4 w-4" />
             </Button>
             <Button variant="outline" className="h-8 px-2" title="طباعة رمز القطعة (2×2 سم)" onClick={() => void printPiece(row.original.id)}>

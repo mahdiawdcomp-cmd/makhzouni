@@ -10,11 +10,12 @@
  *   - work out what to pay them at the end of a month
  */
 import { useMemo, useRef, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { api } from "../api/client"
+import { AdminVisitPlanPanel } from "./sales-agent/AdminVisitPlanPanel"
 import { AgentControlPanel } from "./sales-agent/AgentControlPanel"
 import { AgentActivityPanel } from "./sales-agent/AgentActivityPanel"
 import { AgentSettingsPanel } from "./sales-agent/AgentSettingsPanel"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "../api/client"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import { Card, CardContent } from "../components/ui/card"
@@ -135,8 +136,8 @@ export function SalesAgentAdminPage() {
         </Card>
       ) : (
         <>
-          {/* «إشعارات المندوبين» first — where anything needing a decision
-              shows up, with the same unread count the iPad shows. */}
+          {/* «إشعارات المندوبين» leads: it is where anything needing the
+              owner's decision surfaces, with the one honest unread count. */}
           <AgentActivityPanel agents={agents.map((a) => ({ id: a.agentId, name: a.name }))} />
           <HandoverPanel
             agents={agents}
@@ -146,10 +147,13 @@ export function SalesAgentAdminPage() {
               void qc.invalidateQueries({ queryKey: ["sales-agent-admin", "handovers"] })
             }}
           />
-          {/* «متابعة المندوب» — the owner reads a rep's day here too. Reports
+          {/* «متابعة المندوب» — the day, the comparison, the areas. Reports
               only; it writes nothing. */}
           <AgentControlPanel agents={agents.map((a) => ({ id: a.agentId, name: a.name }))} />
           <AgentSettingsPanel />
+          {/* «خطة زيارات المندوب» — the owner assigning the round. Lives in its
+              own file so this page does not keep growing. */}
+          <AdminVisitPlanPanel agents={agents} />
           <CommissionPanel agents={agents} />
           <LiabilityHealthPanel />
           <IssueReportsPanel />

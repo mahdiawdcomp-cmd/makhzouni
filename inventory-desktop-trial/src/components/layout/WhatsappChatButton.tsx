@@ -39,23 +39,35 @@ function playWhatsappChime() {
 // the browser doesn't support Notification or the user never grants it.
 function notifyNewWhatsappMessage(onClick: () => void) {
   if (!("Notification" in window)) return
+  // Some mobile browsers (e.g. Chrome on Android) throw "Illegal constructor"
+  // from `new Notification()` once a service worker controls the page — they
+  // require ServiceWorkerRegistration.showNotification() instead. This crashed
+  // the whole app on any inbound WhatsApp message. Never let it propagate.
   const show = () => {
-    const n = new Notification("رسالة واتساب جديدة", {
-      body: "وصلتك رسالة جديدة — اضغط للفتح",
-      icon: "/pwa-icon.svg",
-      tag: "whatsapp-chat", // collapses rapid-fire notifications into one
-    })
-    n.onclick = () => {
-      window.focus()
-      onClick()
-      n.close()
+    try {
+      const n = new Notification("رسالة واتساب جديدة", {
+        body: "وصلتك رسالة جديدة — اضغط للفتح",
+        icon: "/pwa-icon.svg",
+        tag: "whatsapp-chat", // collapses rapid-fire notifications into one
+      })
+      n.onclick = () => {
+        window.focus()
+        onClick()
+        n.close()
+      }
+    } catch {
+      // Unsupported in this browser context — chime/badge already covered it.
     }
   }
-  if (Notification.permission === "granted") show()
-  else if (Notification.permission === "default") {
-    Notification.requestPermission().then((perm) => {
-      if (perm === "granted") show()
-    })
+  try {
+    if (Notification.permission === "granted") show()
+    else if (Notification.permission === "default") {
+      Notification.requestPermission().then((perm) => {
+        if (perm === "granted") show()
+      })
+    }
+  } catch {
+    // Same as above.
   }
 }
 

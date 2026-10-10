@@ -116,7 +116,7 @@ const SOUND_COOLDOWN_MS = 10_000
 /**
  * The legacy feed, WITH the server's own unread count and «seen» marker.
  *
- * Both used to be worked out here, from a timestamp in this machine's
+ * Both used to be worked out here, from a timestamp in this browser's
  * localStorage and from the 30 rows this call returned: every device kept its
  * own marker and showed its own number, and the number could never pass 30.
  */
@@ -231,9 +231,8 @@ export function NotificationsBell() {
     return () => document.removeEventListener("mousedown", onClick)
   }, [openSeverity])
 
-  // Legacy "unread" = anything newer than the last-seen timestamp (localStorage).
-  // Counted by the server against the user's own «seen» marker there, so this
-  // machine and the iPad show the same number. `seenAt` only highlights rows.
+  // Legacy "unread" comes from the server, counted against the user's own
+  // «seen» marker there. `seenAt` is kept only to highlight the new rows.
   const seenAt = legacyFeed?.seenAt ?? 0
   const legacyUnread = legacyFeed?.unreadCount ?? 0
   const markLegacySeen = useMutation({
@@ -285,8 +284,8 @@ export function NotificationsBell() {
 
   function markSeenForPanel(sev: AppSeverity) {
     markAllSeverity.mutate(sev)
-    // The NORMAL panel also carries the legacy feed → clear its local seen marker.
-    // Cleared on the server, so every device clears together.
+    // The NORMAL panel also carries the legacy feed → clear its seen marker ON
+    // THE SERVER, so the iPad and the desktop clear together.
     if (sev === "NORMAL") markLegacySeen.mutate()
   }
 

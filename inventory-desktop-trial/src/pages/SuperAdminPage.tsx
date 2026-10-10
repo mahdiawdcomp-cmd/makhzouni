@@ -42,8 +42,10 @@ function vercelDeployUrl(slug: string) {
   return `https://vercel.com/new/clone?${p}`
 }
 
+// Never put credentials in this template: it shipped the SAME default
+// password to every tenant, in cleartext, over WhatsApp. Send them separately.
 function buildWaMsg(c: LicensedClient) {
-  return `🎉 أهلاً ${c.name}،\n\nتم إعداد نظام مخزوني الخاص بكم بنجاح.\n\n🌐 رابط النظام: ${c.frontendUrl ?? "قريباً"}\n🔑 ينتهي الترخيص: ${c.expiresAt?.slice(0, 10)}\n\n📌 بيانات الدخول الافتراضية:\n   المستخدم: admin\n   كلمة المرور: admin123\n\n⚠️ يُرجى تغيير كلمة المرور فور أول تسجيل دخول.\n\nللدعم الفني: تواصل معنا 🤝`.trim()
+  return `🎉 أهلاً ${c.name}،\n\nتم إعداد نظام مخزوني الخاص بكم بنجاح.\n\n🌐 رابط النظام: ${c.frontendUrl ?? "قريباً"}\n🔑 ينتهي الترخيص: ${c.expiresAt?.slice(0, 10)}\n\n📌 بيانات الدخول تُرسل لكم في رسالة منفصلة.\n\n⚠️ يُرجى تغيير كلمة المرور فور أول تسجيل دخول.\n\nللدعم الفني: تواصل معنا 🤝`.trim()
 }
 
 function buildRenewalMsg(c: { name: string; expiresAt: string; daysLeft: number }) {

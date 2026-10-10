@@ -173,12 +173,13 @@ export function AnalyzedErrorsPage() {
     onError: () => toast({ title: "تعذّر تحليل الحالة", variant: "destructive" }),
   })
 
-  const health = healthQuery.data
-  const rows: ErrorLog[] = logsQuery.data?.rows ?? []
   // Batch 12B — the SaaS `aiErrorAnalysis` entitlement gates the AI button
   // alongside the existing GROQ_API_KEY check; the plain error/health list
   // above stays visible either way (it's core, not premium).
   const saasAiAllowed = useFeatureEnabled("aiErrorAnalysis")
+
+  const health = healthQuery.data
+  const rows: ErrorLog[] = logsQuery.data?.rows ?? []
   const groqConfigured = logsQuery.data?.aiEnabled ?? false
   const aiEnabled = groqConfigured && saasAiAllowed
   const aiDisabledReason = !saasAiAllowed

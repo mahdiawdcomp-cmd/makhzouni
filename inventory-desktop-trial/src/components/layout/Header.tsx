@@ -10,10 +10,15 @@ import { WhatsappChatButton } from "./WhatsappChatButton"
 import { LanguageSwitcher } from "./LanguageSwitcher"
 import { SyncStatus } from "../SyncStatus"
 
-function useCurrentPageLabel(): string {
+export function useCurrentPageLabel(): string {
   const { pathname, search } = useLocation()
 
   if (pathname === "/") return "الرئيسية"
+  if (pathname.startsWith("/worker")) return "صفحة العامل"
+  if (pathname.startsWith("/losses")) return "التالف"
+  if (pathname.startsWith("/activity-log")) return "سجل الصفحات"
+  if (pathname.startsWith("/invoices/") && pathname.endsWith("/edit")) return "تعديل فاتورة"
+  if (/^\/invoices\/[^/]+$/.test(pathname) && pathname !== "/invoices/new" && pathname !== "/invoices/returns") return "عرض فاتورة"
   if (pathname.startsWith("/inventory/transfers")) return "التحويلات"
   if (pathname.startsWith("/inventory/low-stock")) return "مخزون منخفض"
   if (pathname.startsWith("/inventory")) return "المخزن"
@@ -41,6 +46,7 @@ function useCurrentPageLabel(): string {
   if (pathname.startsWith("/audit-logs")) return "سجل التدقيق"
   if (pathname.startsWith("/branches")) return "الفروع"
   if (pathname.startsWith("/coupons")) return "الكوبونات"
+  if (pathname.startsWith("/customer-offers")) return "عروض الزبائن"
   return "مخزوني"
 }
 
@@ -116,6 +122,7 @@ export function Header({ darkMode, onToggleTheme }: HeaderProps) {
         <SyncStatus />
 
         <LanguageSwitcher />
+
         <WhatsappChatButton />
 
         <NotificationsBell />

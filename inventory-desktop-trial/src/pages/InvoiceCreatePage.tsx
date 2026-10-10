@@ -2,11 +2,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, Users, X } from "lucide-react"
+import { AlertTriangle, Camera, Download, ImageDown, Monitor, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, Users, X } from "lucide-react"
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getLoyaltyBalance, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall, getLoyaltyBalance, getPrepLive, putPrepLive } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
@@ -36,10 +36,15 @@ import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials, lineTotal, priceWithFils, roundMoney } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
+import { applyPrepCounts, playPrepDing, prepCountDiffs, prepLineKeys, prepOrderId, publishPrep } from "../utils/prepScreen"
+import { PrepSendControl } from "../components/prep/PrepSendControl"
 import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { UNIT_LABELS, cartonBreakdown, piecesPerUnit, unitToPieces, visibleUnits } from "../utils/units"
+
+import { piecePriceFor, PRICE_MODE_LABELS } from "../utils/salePricing"
+import type { PriceMode } from "../types/api"
 
 type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -92,8 +97,15 @@ interface DraftItem {
   /** «تم تجهيز» — ticked by whoever pulled this line off the shelf. Saved with
    *  the invoice, so reopening it shows what is still outstanding. */
   prepared?: boolean
+  /** Who ticked it — a prep worker's name (from «شاشة التجهيز») or the cashier. */
+  preparedBy?: string
   /** Depot pull: move a WHOLE CARTON to المحل, not just the pieces sold. */
   transferWholeCarton?: boolean
+  /** Quantity before the cashier applied a prep worker's count — the row stays
+   *  red with «تعدّل من X إلى Y» so the change is obvious. UI only. */
+  prepAdjustedFrom?: number
+  /** Frozen «شاشة التجهيز» line key (see prepLineKeys) once a worker count was applied. */
+  prepKey?: string
 }
 
 function stockOf(product: Product) {
@@ -422,10 +434,11 @@ function getDraftKey(userId: string | undefined, type: InvoiceType) {
 }
 
 interface PersistedDraft {
+  priceMode?: PriceMode
   customerId: string | null
   date: string
   paymentMode: PaymentMode
-  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string; warehouseName?: string; allowNegativeStock?: boolean; notes?: string; prepared?: boolean }>
+  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string; warehouseName?: string; allowNegativeStock?: boolean; notes?: string; prepared?: boolean; preparedBy?: string }>
   discount: number
   paidAmount: number
   invoiceNotes?: string
@@ -486,6 +499,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const readOnly = useReadOnly()
 
   const userId = useAuthStore((s) => s.user?.id)
+  const userName = useAuthStore((s) => s.user?.name)
   const uid = userId ?? "anon"
   const permissions = useAuthStore((s) => s.user?.permissions ?? [])
   const hidePrice = !isPurchase && permissions.includes("VIEW_WITHOUT_PRICES" as never)
@@ -581,22 +595,20 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const [productHighlight, setProductHighlight] = useState(0)
   const [showPurchase, setShowPurchase] = useState(false)
   const [showStock, setShowStock] = useState(false)
-  const [useRetailPrice, setUseRetailPrice] = useState(false)
+  const [priceMode, setPriceMode] = useState<PriceMode>("WHOLESALE")
   const [rowDensity, setRowDensityRaw] = useState<RowDensity>(loadRowDensity)
   const setRowDensity = (d: RowDensity) => { setRowDensityRaw(d); saveRowDensity(d) }
   const dz = ROW_DENSITY[rowDensity]
   // When the clerk flips جملة/مفرد while rows already exist we ask what to do
   // with the existing lines. Holds the *target* useRetailPrice value, or null.
-  const [priceModePrompt, setPriceModePrompt] = useState<boolean | null>(null)
+  const [priceModePrompt, setPriceModePrompt] = useState<PriceMode | null>(null)
 
   // ---- totals state ----
   const [discount, setDiscount] = useState(0)
-  const [couponCode, setCouponCode] = useState("")
-  const [couponMessage, setCouponMessage] = useState("")
-  // True while the current `discount` value came from an applied coupon (not a
-  // manual entry). Lets us (a) warn when a coupon replaces a manual discount and
-  // (b) clear the stale "coupon applied" note the moment the clerk edits discount.
-  const [couponApplied, setCouponApplied] = useState(false)
+  // «نقاط الولاء» — points to spend on this invoice. Sent with it and deducted
+  // in its own transaction, so a balance cannot be spent twice and a failed
+  // save never leaves points gone with no invoice to show for them. The value
+  // is added to the discount server-side, from the server's own rate.
   const [redeemPoints, setRedeemPoints] = useState(0)
   // «عروض القائمة» this order earned on the storefront. Held here rather than
   // written straight into the discount field on purpose: the staff edit
@@ -616,9 +628,19 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const loyalty = loyaltyQuery.data
   // Redeeming is per-customer — a number typed for one must never carry over
   // to whichever customer ends up selected next, silently or otherwise.
-  useEffect(() => {
+  // Reset while rendering (React's "adjust state when a prop changes"), not
+  // in an effect, so the stale number never reaches a single render.
+  const [redeemCustomerId, setRedeemCustomerId] = useState(selectedCustomer?.id)
+  if (redeemCustomerId !== selectedCustomer?.id) {
+    setRedeemCustomerId(selectedCustomer?.id)
     setRedeemPoints(0)
-  }, [selectedCustomer?.id])
+  }
+  const [couponCode, setCouponCode] = useState("")
+  const [couponMessage, setCouponMessage] = useState("")
+  // True while the current `discount` value came from an applied coupon (not a
+  // manual entry). Lets us (a) warn when a coupon replaces a manual discount and
+  // (b) clear the stale "coupon applied" note the moment the clerk edits discount.
+  const [couponApplied, setCouponApplied] = useState(false)
   // The applied coupon's rule (kept separately from `discount` so the amount
   // can be recomputed whenever the cart changes — see the effect below).
   const [appliedCoupon, setAppliedCoupon] = useState<{ discountType: "PERCENT" | "AMOUNT"; discountValue: number } | null>(null)
@@ -672,6 +694,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     setSelectedCustomer(null)
     setCustomerQuery("")
     setInvoiceNotes("")
+    setPriceMode("WHOLESALE")
     setItems([])
     setDiscount(0)
     setCouponCode("")
@@ -711,6 +734,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const serializeEditState = () =>
     JSON.stringify({
       customerId: selectedCustomer?.id ?? null,
+      priceMode,
       discount,
       paidAmount,
       paymentMode,
@@ -721,6 +745,134 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     ? editReady && !savedInvoiceId && serializeEditState() !== editSnapshotRef.current
     : (!!selectedCustomer || items.length > 0 || discount > 0 || paidAmount > 0 || !!couponCode.trim()) && !savedInvoiceId
   const blocker = useUnsavedWarning(isDirty, savingRef)
+
+  const prepPendingRef = useRef<Parameters<typeof putPrepLive>[0] | null>(null)
+  const prepLastRef = useRef<Parameters<typeof putPrepLive>[0] | null>(null)
+  const hasLines = items.length > 0
+  const prepId = useMemo(
+    () => (isPurchase ? "" : editId ? (hasLines ? `edit-${editId}` : `idle-edit-${editId}`) : prepOrderId(draftKey, hasLines)),
+    [isPurchase, editId, draftKey, hasLines],
+  )
+  const prepKeys = useMemo(() => prepLineKeys(items), [items])
+  // «شاشة التجهيز» — mirror sale lines live to the prep window (second monitor).
+  useEffect(() => {
+    if (isPurchase) return
+    const snapshot = {
+      draftId: prepId,
+      customerName: selectedCustomer?.name ?? null,
+      lines: items.map((it, i) => ({
+        key: prepKeys[i],
+        name: it.product.name,
+        imageUrl: it.product.thumbnailUrl || it.product.imageUrl || null,
+        quantity: it.quantity,
+        unit: it.unit,
+        notes: it.notes,
+      })),
+      updatedAt: Date.now(),
+    }
+    publishPrep(snapshot)
+    prepLastRef.current = snapshot
+    // Same snapshot to the server → workers' phones (and their push alert).
+    prepPendingRef.current = snapshot
+    const t = setTimeout(() => {
+      prepPendingRef.current = null
+      putPrepLive(snapshot).catch(() => {})
+    }, 400)
+    return () => clearTimeout(t)
+  }, [items, prepKeys, prepId, selectedCustomer?.name, isPurchase])
+  // Saving clears the lines and usually navigates away within the debounce
+  // window — flush that last (empty) snapshot so the phones stop showing it as live.
+  useEffect(() => () => {
+    if (prepPendingRef.current) putPrepLive(prepPendingRef.current).catch(() => {})
+  }, [])
+
+  // Workers' replies: ✔ ticks the line's «جهز» box; ❗ short shows a red badge
+  // on the line and a toast; «order ready» toasts even after the invoice was saved.
+  // Runs on every fetch (poll or realtime push), outside render: ticks lines,
+  // plays the chime and toasts. First fetch only records what already exists.
+  const prepSeenRef = useRef<Set<string> | null>(null)
+  const prepIdRef = useRef(prepId)
+  useEffect(() => { prepIdRef.current = prepId }, [prepId])
+  const prepQuery = useQuery({
+    queryKey: ["prep-screen"],
+    queryFn: async () => {
+      const state = await getPrepLive()
+      const first = prepSeenRef.current === null
+      const seen = prepSeenRef.current ?? new Set<string>()
+      prepSeenRef.current = seen
+      const currentId = prepIdRef.current
+      const toTick = new Map<string, string>() // line key → worker name
+      for (const o of state.orders) {
+        for (const [key, st] of Object.entries(o.statuses)) {
+          const id = `${o.snapshot.draftId}|${key}|${st.state}|${st.found ?? ""}|${st.at}`
+          if (seen.has(id)) continue
+          seen.add(id)
+          if (st.state === "done" && o.snapshot.draftId === currentId) toTick.set(key, st.by)
+          if (first || st.state !== "short") continue
+          const line = o.snapshot.lines.find((l) => l.key === key)
+          playPrepDing([660, 440])
+          toast({
+            variant: "destructive",
+            title: `❗ نقص: ${line?.name ?? "صنف"}`,
+            description: st.found ? `لكوا ${st.found} بس من ${line?.quantity ?? "?"} — ${st.by}` : `ماكو ولا وحدة — ${st.by}`,
+          })
+        }
+        // «استلمت» — the worker confirmed he saw a sent order.
+        if (o.sent?.ack) {
+          const id = `${o.snapshot.draftId}|ack|${o.sent.ack.at}`
+          if (!seen.has(id)) {
+            seen.add(id)
+            if (!first) toast({ title: `👍 ${o.sent.ack.by} استلم الطلب`, description: o.snapshot.customerName ?? undefined })
+          }
+        }
+        if (o.ready) {
+          const id = `${o.snapshot.draftId}|ready|${o.ready.at}`
+          if (!seen.has(id)) {
+            seen.add(id)
+            if (!first) {
+              playPrepDing([1046, 1568])
+              toast({
+                title: "✅ الطلب جاهز",
+                description: `${o.snapshot.customerName ?? `${o.snapshot.lines.length} أصناف`} — ${o.ready.by}`,
+              })
+            }
+          }
+        }
+      }
+      if (toTick.size) {
+        setItems((cur) => {
+          const keys = prepLineKeys(cur)
+          return cur.map((it, i) => {
+            const by = toTick.get(keys[i])
+            return by !== undefined ? { ...it, prepared: true, preparedBy: by } : it
+          })
+        })
+      }
+      return state
+    },
+    enabled: !isPurchase,
+    refetchInterval: 2500,
+    refetchIntervalInBackground: true,
+  })
+  const prepOrder = useMemo(
+    () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId),
+    [prepQuery.data, prepId],
+  )
+  // Lines a worker marked SHORT with fewer found than invoiced — not yet applied.
+  const prepShortLines = useMemo(() => {
+    if (isPurchase) return []
+    return prepCountDiffs(items, prepKeys, prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {})
+  }, [prepQuery.data, prepId, items, prepKeys, isPurchase])
+  const [shortPrompt, setShortPrompt] = useState<{ resolve: (c: "apply" | "keep" | "back") => void } | null>(null)
+  /** Set each short line to what was found; a line with none found is removed. */
+  function applyPrepShortages() {
+    setItems((cur) => applyPrepCounts(cur, prepShortLines, prepLineKeys(cur)))
+  }
+  const prepStatuses = useMemo(
+    () => prepQuery.data?.orders.find((o) => o.snapshot.draftId === prepId)?.statuses ?? {},
+    [prepQuery.data, prepId],
+  )
+
 
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
@@ -848,15 +1000,15 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   // Per-unit price for an explicit retail/wholesale mode (used when re-pricing
   // existing rows after the جملة/مفرد toggle, where the state flag hasn't flipped yet).
-  function unitPriceForMode(product: Product, unit: Unit, retail: boolean) {
+  function unitPriceForMode(product: Product, unit: Unit, mode: PriceMode) {
     const base = isPurchase
       ? product.purchasePrice
-      : (retail && product.retailPrice > 0 ? product.retailPrice : product.salePrice)
+      : piecePriceFor(product, mode)
     return base * piecesPerUnit(unit, product)
   }
 
   function unitPriceFor(product: Product, unit: Unit) {
-    return unitPriceForMode(product, unit, useRetailPrice)
+    return unitPriceForMode(product, unit, priceMode)
   }
 
   // Items selling below purchase price — compare in the SAME unit as unitPrice
@@ -986,6 +1138,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         // Reopening an invoice must show what was already picked, so the tick
         // comes back from the saved line rather than resetting to unticked.
         prepared: Boolean(it.prepared),
+        preparedBy: it.preparedBy ?? undefined,
       }
     })
 
@@ -998,10 +1151,12 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       setSelectedCustomer(cust)
       setCustomerQuery(cust.name)
     }
+    setPriceMode(inv.priceMode ?? "WHOLESALE")
     setItems(nextItems)
     // Snapshot AFTER init — the unsaved-warning fires only on real changes.
     editSnapshotRef.current = JSON.stringify({
       customerId: cust?.id ?? null,
+      priceMode: inv.priceMode ?? "WHOLESALE",
       discount: nextDiscount,
       paidAmount: nextPaid,
       paymentMode: nextPaymentMode,
@@ -1048,9 +1203,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       let dropped = 0
       for (const it of draft.items) {
         const p = products.find((x) => x.id === it.productId)
-        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes, prepared: it.prepared })
+        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes, prepared: it.prepared, preparedBy: it.preparedBy })
         else dropped += 1
       }
+      setPriceMode(draft.priceMode ?? "WHOLESALE")
       setItems(restoredItems)
       // A line can only vanish now if its product was really deleted — say so
       // instead of letting the row disappear without a word.
@@ -1081,6 +1237,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     if (!prep) return                 // already prepared/cancelled or unknown id
 
     prefillAppliedRef.current = true
+    setPriceMode(prep.priceMode ?? "WHOLESALE")
     if (prep.tierDiscount > 0 || prep.isFreeDelivery) {
       setOrderOffer({
         discount: prep.tierDiscount,
@@ -1117,7 +1274,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const activeWhs = allWhs.filter((ws) => ws.quantityPieces > 0)
 
       // Fall back to the product's catalog price when the order didn't carry one.
-      const linePrice = (pi.unitPrice ?? 0) > 0 ? pi.unitPrice! : unitPriceFor(product, unit)
+      const linePrice = pi.unitPrice != null ? pi.unitPrice : unitPriceForMode(product, unit, prep.priceMode ?? "WHOLESALE")
 
       if (activeWhs.length <= 1) {
         // Single warehouse (or no warehouse data) — one row
@@ -1201,6 +1358,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       if (invoiceSavedRef.current) return
       if (items.length === 0 && !selectedCustomer) return
       const draft: PersistedDraft = {
+        priceMode,
         customerId: selectedCustomer?.id ?? null,
         date,
         paymentMode,
@@ -1214,6 +1372,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
           allowNegativeStock: i.allowNegativeStock,
           notes: i.notes,
           prepared: i.prepared,
+          preparedBy: i.preparedBy,
         })),
         discount,
         paidAmount,
@@ -1244,7 +1403,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     }, 3000)
     return () => window.clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, selectedCustomer, date, paymentMode, paidAmount, discount, invoiceNotes, draftKey, savedInvoiceId, activeTid, uid, invoiceType, isEdit, draftLoaded])
+  }, [items, selectedCustomer, date, paymentMode, paidAmount, discount, invoiceNotes, draftKey, savedInvoiceId, activeTid, uid, invoiceType, isEdit, draftLoaded, priceMode])
 
   function clearDraft() {
     try { localStorage.removeItem(draftKey) } catch {}
@@ -1881,6 +2040,18 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     if (savedInvoiceId) return savedInvoiceId
     if (!selectedCustomer || items.length === 0 || hasInvalidTotal) return null
     if (missingPurchasePrice) return null
+    // A prep worker reported a line short and the cashier hasn't applied it:
+    // ask before invoicing goods that are not on the shelf.
+    if (prepShortLines.length > 0) {
+      const choice = await new Promise<"apply" | "keep" | "back">((resolve) => setShortPrompt({ resolve }))
+      setShortPrompt(null)
+      if (choice === "back") return null
+      if (choice === "apply") {
+        applyPrepShortages()
+        toast({ title: "تعدّلت الأعداد حسب الموجود", description: "راجع الإجمالي واحفظ مرة ثانية" })
+        return null
+      }
+    }
     // ── Edit mode: PUT the updated invoice; no draft/receipt/WhatsApp side-effects.
     if (isEdit && editId) {
       savingRef.current = true
@@ -1889,6 +2060,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       try {
         await updateInvoice(editId, {
           type: invoiceType,
+          priceMode,
           customerId: selectedCustomer.id,
           discount,
           tax: 0,
@@ -1903,6 +2075,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             warehouseId: item.warehouseId,
             notes: item.notes?.trim() || undefined,
             prepared: Boolean(item.prepared),
+            preparedBy: item.prepared ? item.preparedBy : undefined,
             transferWholeCarton: item.transferWholeCarton || undefined,
           })),
         })
@@ -1930,6 +2103,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const response = await createMutation.mutateAsync({
       customerId: selectedCustomer.id,
       type: invoiceType,
+      priceMode,
       date,
       clientRequestId: clientRequestIdRef.current,
       // ONLY send a coupon that was actually applied (✓ pressed). The raw
@@ -1952,6 +2126,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         warehouseId: item.warehouseId,
         notes: item.notes?.trim() || undefined,
         prepared: Boolean(item.prepared),
+        preparedBy: item.prepared ? item.preparedBy : undefined,
         transferWholeCarton: item.transferWholeCarton || undefined,
         // Every SALE line is authorized to go below zero. allowNegative only
         // *permits* a deficit, it never creates one, and the shortage is still
@@ -2119,10 +2294,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   // ---- جملة/مفرد (wholesale/retail) price-mode toggle ----
   // If rows already exist we ask the clerk what to do; otherwise flip silently.
-  function requestPriceModeToggle() {
-    const target = !useRetailPrice
+  function requestPriceModeToggle(target: PriceMode) {
     if (items.length > 0) setPriceModePrompt(target)
-    else setUseRetailPrice(target)
+    else setPriceMode(target)
   }
 
   // Resolve the prompt. scope: "all" reprices existing rows to the new mode
@@ -2131,7 +2305,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     const target = priceModePrompt
     setPriceModePrompt(null)
     if (target === null || scope === "cancel") return
-    setUseRetailPrice(target)
+    setPriceMode(target)
     if (scope === "all") {
       setItems((current) =>
         current.map((item) => ({ ...item, unitPrice: unitPriceForMode(item.product, item.unit, target) })),
@@ -2276,6 +2450,19 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         </div>
         <div className="mr-auto flex items-center gap-1.5">
           <VoiceInvoiceButton compact />
+          {!isPurchase && (
+            <button
+              type="button"
+              title="فتح شاشة التجهيز بنافذة منفصلة — اسحبها للشاشة الثانية"
+              onClick={() => window.open("/prep", "prep-screen", "popup,width=1280,height=800")?.focus()}
+              className="inline-flex h-7 items-center gap-1.5 rounded border border-white/30 bg-white/20 px-2 text-xs font-medium text-white hover:bg-white/30"
+            >
+              <Monitor className="h-3.5 w-3.5" /> شاشة التجهيز
+            </button>
+          )}
+          {!isPurchase && (
+            <PrepSendControl getSnapshot={() => prepLastRef.current} order={prepOrder} hasLines={hasLines} />
+          )}
           {isPurchase && (
             <button type="button" onClick={() => setOcrOpen(true)} className="inline-flex h-7 items-center gap-1.5 rounded border border-white/30 bg-white/20 px-2 text-xs font-medium text-white hover:bg-white/30">
               <Camera className="h-3.5 w-3.5" /> صورة
@@ -2431,13 +2618,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
               <Camera className="h-3.5 w-3.5" /> 📷 باركود
             </button>
             {!isPurchase && (
-              <button
-                type="button"
-                className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", useRetailPrice ? "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")}
-                onClick={requestPriceModeToggle}
-              >
-                {useRetailPrice ? "مفرد" : "جملة"}
-              </button>
+              <select aria-label="نوع التسعير" className="rounded border px-2 py-1 text-sm dark:bg-slate-900" value={priceMode} onChange={(e) => requestPriceModeToggle(e.target.value as PriceMode)}>
+                {Object.entries(PRICE_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
             )}
             {canViewPurchasePrice && (
               <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showPurchase ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowPurchase((v) => !v)}>شراء</button>
@@ -2500,6 +2683,39 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             rule in index.css. Adding a line focuses its quantity input, and the
             browser scrolls it only just inside the scrollport, which put the new
             row UNDERNEATH the sticky save bar. */}
+        {/* «شاشة التجهيز» shortages the worker reported — one tap fixes the invoice. */}
+        {prepShortLines.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-red-200 bg-red-50 px-3 py-2 text-sm dark:border-red-900 dark:bg-red-950/30">
+            <span className="font-bold text-red-700 dark:text-red-300">❗ العامل غيّر العدد:</span>
+            {prepShortLines.map((s) => (
+              <span key={s.index} className="rounded-md bg-white px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-200 dark:bg-slate-900 dark:ring-red-900">
+                {items[s.index]?.product.name} — {s.found === 0 ? "ماكو" : s.found > (items[s.index]?.quantity ?? 0) ? `زايد: جهّزوا ${s.found} بدل ${items[s.index]?.quantity}` : `لكوا ${s.found} من ${items[s.index]?.quantity}`}
+              </span>
+            ))}
+            <Button size="sm" className="ms-auto h-7 bg-red-600 text-xs hover:bg-red-500" onClick={applyPrepShortages}>
+              عدّل الفاتورة حسب الموجود
+            </Button>
+          </div>
+        )}
+        {shortPrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" dir="rtl">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900">
+              <div className="mb-2 text-lg font-bold text-red-700 dark:text-red-300">❗ اكو نقص ما تطبّق</div>
+              <ul className="mb-4 space-y-1 text-sm">
+                {prepShortLines.map((s) => (
+                  <li key={s.index}>
+                    • {items[s.index]?.product.name}: مطلوب {items[s.index]?.quantity}، {s.found ? `لكوا ${s.found}` : "ماكو ولا وحدة"}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-col gap-2">
+                <Button className="bg-red-600 hover:bg-red-500" onClick={() => shortPrompt.resolve("apply")}>عدّل حسب الموجود (وراجع قبل الحفظ)</Button>
+                <Button variant="outline" onClick={() => shortPrompt.resolve("keep")}>احفظ هيج بدون تعديل</Button>
+                <Button variant="ghost" onClick={() => shortPrompt.resolve("back")}>رجوع</Button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className={cn("invoice-rows overflow-x-auto px-1 py-1", dz.td, dz.text)}>
             <Table>
               <THead>
@@ -2554,7 +2770,15 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                     <Fragment key={index}>
                     {/* A prepared line is tinted green so a picker can see the
                         remaining work without reading every checkbox. */}
-                    <TR className={item.prepared ? "bg-emerald-50/70 dark:bg-emerald-950/20" : undefined}>
+                    <TR
+                      className={
+                        item.prepAdjustedFrom !== undefined
+                          ? "bg-red-100 ring-2 ring-inset ring-red-600 dark:bg-red-900/40"
+                          : !isPurchase && (prepStatuses[prepKeys[index]]?.state === "short" || prepStatuses[prepKeys[index]]?.state === "count")
+                          ? "bg-red-50 ring-2 ring-inset ring-red-400 dark:bg-red-950/30"
+                          : item.prepared ? "bg-emerald-50/70 dark:bg-emerald-950/20" : undefined
+                      }
+                    >
                       <TD className="text-center">
                         <input
                           type="checkbox"
@@ -2562,7 +2786,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           checked={Boolean(item.prepared)}
                           title="تم تجهيز المادة"
                           aria-label={`تم تجهيز ${item.product.name}`}
-                          onChange={(event) => updateItem(index, { prepared: event.target.checked })}
+                          onChange={(event) => updateItem(index, { prepared: event.target.checked, preparedBy: event.target.checked ? userName : undefined })}
                         />
                       </TD>
                       <TD
@@ -2575,6 +2799,42 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         <div className={cn("flex flex-nowrap items-center whitespace-nowrap cursor-context-menu", dz.gap, dz.text)}>
                           <ProductThumb product={item.product} size={dz.thumb} />
                           <span className="font-medium">{item.product.name}</span>
+                          {(() => {
+                            // What the prep worker reported for this line.
+                            const st = !isPurchase ? prepStatuses[prepKeys[index]] : undefined
+                            // Applied a worker's count: stays loud red so the cashier sees what changed.
+                            if (item.prepAdjustedFrom !== undefined && item.prepAdjustedFrom !== item.quantity) {
+                              return (
+                                <span className="rounded-md bg-red-700 px-1.5 py-0.5 text-[11px] font-black text-white">
+                                  ✎ تعدّل من {item.prepAdjustedFrom} إلى {item.quantity}
+                                </span>
+                              )
+                            }
+                            if (!st) {
+                              // Reopened invoice: the name saved with the line.
+                              return item.prepared && item.preparedBy ? (
+                                <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                  ✔ {item.preparedBy}
+                                </span>
+                              ) : null
+                            }
+                            return st.state === "count" && (st.found ?? 0) > item.quantity ? (
+                              <span className="animate-pulse rounded-md bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white" title={`أبلغ عنه ${st.by}`}>
+                                🔢 زايد — جهّزوا {st.found} بدل {item.quantity}
+                              </span>
+                            ) : st.state !== "done" ? (
+                              <span
+                                className="animate-pulse rounded-md bg-red-600 px-1.5 py-0.5 text-[11px] font-bold text-white"
+                                title={`أبلغ عنه ${st.by}`}
+                              >
+                                ❗ {st.found ? `ناقص — لكوا ${st.found} من ${item.quantity}` : "ماكو بالمخزن"}
+                              </span>
+                            ) : (
+                              <span className="rounded-md bg-emerald-600 px-1.5 py-0.5 text-[11px] font-bold text-white" title={`جهّزه ${st.by}`}>
+                                ✔ {st.by || "تجهّز"}
+                              </span>
+                            )
+                          })()}
                           {/* Item number: the number people call the product by
                               on the phone and on the shelf. It used to be on the
                               line and its absence made rows hard to identify. */}
@@ -3316,10 +3576,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       <Dialog open={priceModePrompt !== null} onOpenChange={(open) => { if (!open) setPriceModePrompt(null) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>تغيير التسعير إلى {priceModePrompt ? "المفرد" : "الجملة"}</DialogTitle>
+            <DialogTitle>تغيير التسعير إلى {priceModePrompt ? PRICE_MODE_LABELS[priceModePrompt] : ""}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            يوجد {items.length} صنف بالفاتورة. كيف تريد تطبيق سعر {priceModePrompt ? "المفرد" : "الجملة"}؟
+            يوجد {items.length} صنف بالفاتورة. كيف تريد تطبيق سعر {priceModePrompt ? PRICE_MODE_LABELS[priceModePrompt] : ""}؟
           </p>
           <div className="mt-3 flex flex-col gap-2">
             <Button onClick={() => resolvePriceMode("all")}>تطبيق على كل الأصناف الحالية</Button>

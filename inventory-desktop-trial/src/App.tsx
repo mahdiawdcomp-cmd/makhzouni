@@ -2,7 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react"
 import { useTenantConfig } from "./hooks/useTenantConfig"
 import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage"
 import DesktopPlatformDisabledPage from "./pages/DesktopPlatformDisabledPage"
-import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
+import { createBrowserRouter, Link, Navigate, RouterProvider } from "react-router-dom"
 import { AdminRoute, PermissionRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
 import { PosLayout } from "./components/layout/PosLayout"
@@ -16,6 +16,8 @@ const lazyPage = <T extends Record<string, unknown>>(
 ) => lazy(() => loader().then((m) => ({ default: m[name] as React.ComponentType })))
 
 const ApprovalsPage = lazyPage(() => import("./pages/ApprovalsPage"), "ApprovalsPage")
+const ActivityLogPage = lazyPage(() => import("./pages/ActivityLogPage"), "ActivityLogPage")
+const PersonalDebtsPage = lazyPage(() => import("./pages/PersonalDebtsPage"), "PersonalDebtsPage")
 const AuditLogsPage = lazyPage(() => import("./pages/AuditLogsPage"), "AuditLogsPage")
 const AnalyzedErrorsPage = lazyPage(() => import("./pages/AnalyzedErrorsPage"), "AnalyzedErrorsPage")
 const BranchesPage = lazyPage(() => import("./pages/BranchesPage"), "BranchesPage")
@@ -24,9 +26,9 @@ const CustomerDetailPage = lazyPage(() => import("./pages/CustomerDetailPage"), 
 const ClientPortalPage = lazyPage(() => import("./pages/ClientPortalPage"), "ClientPortalPage")
 const PublicInvoicePage = lazyPage(() => import("./pages/PublicInvoicePage"), "PublicInvoicePage")
 const CouponsPage = lazyPage(() => import("./pages/CouponsPage"), "CouponsPage")
+const CustomerOffersPage = lazyPage(() => import("./pages/CustomerOffersPage"), "CustomerOffersPage")
 const CustomersPage = lazyPage(() => import("./pages/CustomersPage"), "CustomersPage")
 const CustomerBroadcastPage = lazyPage(() => import("./pages/CustomerBroadcastPage"), "CustomerBroadcastPage")
-const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "CampaignsPage")
 const AccountLookupPage = lazyPage(() => import("./pages/AccountLookupPage"), "AccountLookupPage")
 const DashboardPage = lazyPage(() => import("./pages/DashboardPage"), "DashboardPage")
 const InvoiceDetailPage = lazyPage(() => import("./pages/InvoiceDetailPage"), "InvoiceDetailPage")
@@ -39,17 +41,14 @@ const ProductDetailPage = lazyPage(() => import("./pages/ProductDetailPage"), "P
 const PublicCatalogPage = lazyPage(() => import("./pages/PublicCatalogPage"), "PublicCatalogPage")
 const QuotationsPage = lazyPage(() => import("./pages/QuotationsPage"), "QuotationsPage")
 const POSPage = lazyPage(() => import("./pages/PosPage"), "POSPage")
+const SalesAgentPage = lazyPage(() => import("./pages/SalesAgentPage"), "SalesAgentPage")
+const SalesAgentAdminPage = lazyPage(() => import("./pages/SalesAgentAdminPage"), "SalesAgentAdminPage")
 const ProductsPage = lazyPage(() => import("./pages/ProductsPage"), "ProductsPage")
 const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage")
 const PurchasePerformancePage = lazyPage(() => import("./pages/PurchasePerformancePage"), "PurchasePerformancePage")
 const AuctionsPage = lazyPage(() => import("./pages/AuctionsPage"), "AuctionsPage")
 const PublicAuctionPage = lazyPage(() => import("./pages/PublicAuctionPage"), "PublicAuctionPage")
 const KioskPage = lazyPage(() => import("./pages/KioskPage"), "KioskPage")
-const DataHealthPage = lazyPage(() => import("./pages/DataHealthPage"), "DataHealthPage")
-const RequestedProductsPage = lazyPage(() => import("./pages/RequestedProductsPage"), "RequestedProductsPage")
-const CustomerOffersPage = lazyPage(() => import("./pages/CustomerOffersPage"), "CustomerOffersPage")
-const MissingCartonPricePage = lazyPage(() => import("./pages/MissingCartonPricePage"), "MissingCartonPricePage")
-const WholesaleInstagramPage = lazyPage(() => import("./pages/WholesaleInstagramPage"), "WholesaleInstagramPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage")
 const AreasPage = lazyPage(() => import("./pages/AreasPage"), "AreasPage")
@@ -60,15 +59,16 @@ const VouchersPage = lazyPage(() => import("./pages/VouchersPage"), "VouchersPag
 const TransfersPage = lazyPage(() => import("./pages/TransfersPage"), "TransfersPage")
 const VarietyConvertPage = lazyPage(() => import("./pages/VarietyConvertPage"), "VarietyConvertPage")
 const StaleProductsPage = lazyPage(() => import("./pages/StaleProductsPage"), "StaleProductsPage")
+const MissingCartonPricePage = lazyPage(() => import("./pages/MissingCartonPricePage"), "MissingCartonPricePage")
+const DataHealthPage = lazyPage(() => import("./pages/DataHealthPage"), "DataHealthPage")
 const NegativeStockPage = lazyPage(() => import("./pages/NegativeStockPage"), "NegativeStockPage")
 const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPage"), "CatalogManagementPage")
-const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
-// Desktop parity with inventory-web: the backend routes were already shared,
-// only these four screens were missing from the desktop shell.
-const InstagramPage = lazyPage(() => import("./pages/InstagramPage"), "InstagramPage")
+const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "CampaignsPage")
 const WhatsappChatPage = lazyPage(() => import("./pages/WhatsappChatPage"), "WhatsappChatPage")
-const PersonalDebtsPage = lazyPage(() => import("./pages/PersonalDebtsPage"), "PersonalDebtsPage")
-const WorkerPage = lazyPage(() => import("./pages/WorkerPage"), "WorkerPage")
+const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
+const InstagramPage = lazyPage(() => import("./pages/InstagramPage"), "InstagramPage")
+const WholesaleInstagramPage = lazyPage(() => import("./pages/WholesaleInstagramPage"), "WholesaleInstagramPage")
+const RequestedProductsPage = lazyPage(() => import("./pages/RequestedProductsPage"), "RequestedProductsPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
 const CycleCountPage = lazyPage(() => import("./pages/CycleCountPage"), "CycleCountPage")
@@ -78,10 +78,24 @@ const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage")
 const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage"), "PublicCycleCountPage")
 const PublicInvoiceCountPage = lazyPage(() => import("./pages/PublicInvoiceCountPage"), "PublicInvoiceCountPage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
-const SalesAgentAdminPage = lazyPage(() => import("./pages/SalesAgentAdminPage"), "SalesAgentAdminPage")
-const SalesAgentPage = lazyPage(() => import("./pages/SalesAgentPage"), "SalesAgentPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
+const PrepScreenPage = lazyPage(() => import("./pages/PrepScreenPage"), "PrepScreenPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
+const WorkerPage = lazyPage(() => import("./pages/WorkerPage"), "WorkerPage")
+// TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
+// The wizard page file (pages/BalanceMigrationPage.tsx) is kept intact but is
+// no longer routed. /balance-migration now shows a disabled notice.
+// const BalanceMigrationPage = lazyPage(() => import("./pages/BalanceMigrationPage"), "BalanceMigrationPage")
+
+function BalanceMigrationDisabled() {
+  return (
+    <div className="mx-auto flex h-[60vh] max-w-md flex-col items-center justify-center gap-3 p-6 text-center" dir="rtl">
+      <h1 className="text-lg font-bold">أداة نقل الأرصدة معطّلة</h1>
+      <p className="text-sm text-muted-foreground">تم تعطيل أداة نقل الأرصدة بعد اكتمال العملية.</p>
+      <Link to="/" className="text-sm text-indigo-600 underline">العودة إلى الرئيسية</Link>
+    </div>
+  )
+}
 
 function PageLoader() {
   return (
@@ -104,6 +118,7 @@ const router = createBrowserRouter([
   // ── Public routes ──
   { path: "/login", element: s(<LoginPage />) },
   { path: "/display", element: s(<DisplayPage />) },
+  { path: "/prep", element: s(<PrepScreenPage />) },
   { path: "/catalog", element: s(<PublicCatalogPage />) },
   { path: "/shop", element: f("retailShop", "متجر المفرد", <RetailShopPage />) },
   { path: "/client/:token", element: s(<ClientPortalPage />) },
@@ -149,14 +164,14 @@ const router = createBrowserRouter([
           { path: "vouchers/:id", element: s(<VoucherDetailPage />) },
           { path: "losses", element: s(<LossesPage />) },
           { path: "customers", element: s(<CustomersPage />) },
-          { path: "customers/broadcast", element: s(<CustomerBroadcastPage />) },
+          { path: "customers/broadcast", element: f("whatsappCampaigns", "حملات واتساب", <CustomerBroadcastPage />) },
           { path: "campaigns", element: f("whatsappCampaigns", "الحملات", <CampaignsPage />) },
+          { path: "whatsapp", element: f("whatsappCampaigns", "محادثات واتساب", <WhatsappChatPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },
           { path: "account", element: s(<AccountLookupPage />) },
           { path: "catalog-management", element: f("catalogWholesale", "كتلوگ الجملة", <CatalogManagementPage />) },
           { path: "retail-catalog", element: f("retailShop", "متجر المفرد", <RetailCatalogPage />) },
           { path: "instagram", element: f("retailShop", "إدارة إنستغرام", <InstagramPage />) },
-          { path: "whatsapp", element: f("whatsappCampaigns", "محادثات واتساب", <WhatsappChatPage />) },
           { path: "wholesale-instagram", element: s(<WholesaleInstagramPage />) },
           { path: "requested-products", element: s(<RequestedProductsPage />) },
           { path: "reports", element: s(<ReportsPage />) },
@@ -169,16 +184,17 @@ const router = createBrowserRouter([
             element: <PermissionRoute permission="MANAGE_SETTINGS" />,
             children: [
               { path: "settings", element: s(<SettingsPage />) },
-              // Same place as the web: behind MANAGE_SETTINGS, because one
-              // curated area list is the whole point of the table.
+              // Behind MANAGE_SETTINGS with the rest of the shop's own setup:
+              // one curated area list is the whole point, and a second person
+              // editing it re-creates the duplicate spellings it exists to stop.
               { path: "areas", element: s(<AreasPage />) },
               { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
             ],
           },
           // «عروض خاصة بالزبون» — deciding what a customer pays. Behind an
           // explicit permission (ADMIN passes by role) so it is never something
-          // a rep has by default, and the URL enforces the same rule the
-          // sidebar shows.
+          // a rep has by default, and the URL enforces the same rule the sidebar
+          // shows.
           {
             element: <PermissionRoute permission="MANAGE_CUSTOMER_OFFERS" />,
             children: [{ path: "customer-offers", element: s(<CustomerOffersPage />) }],
@@ -188,14 +204,19 @@ const router = createBrowserRouter([
             children: [
               { path: "users", element: s(<UsersPage />) },
               { path: "approvals", element: s(<ApprovalsPage />) },
+          { path: "activity-log", element: s(<ActivityLogPage />) },
               { path: "personal-debts", element: s(<PersonalDebtsPage />) },
               { path: "audit-logs", element: f("auditLog", "سجل التدقيق", <AuditLogsPage />) },
               { path: "error-logs", element: s(<AnalyzedErrorsPage />) },
               { path: "branches", element: s(<BranchesPage />) },
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
-              { path: "coupons", element: s(<CouponsPage />) },
-              { path: "sales-agents", element: s(<SalesAgentAdminPage />) },
+              { path: "coupons", element: f("retailCoupons", "كوبونات المفرد", <CouponsPage />) },
               { path: "super-admin", element: s(<SuperAdminPage />) },
+              // «المندوب» — owner side. Under AdminRoute because commission and
+              // another rep's liability are figures a rep must never reach.
+              { path: "sales-agents", element: s(<SalesAgentAdminPage />) },
+              // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
+              { path: "balance-migration", element: <BalanceMigrationDisabled /> },
             ],
           },
         ],
@@ -207,9 +228,9 @@ const router = createBrowserRouter([
         children: [{ path: "pos", element: f("pos", "نقطة البيع", <POSPage />) }],
       },
 
-      // «المندوب»: fullscreen too, but for the opposite reason to POS — this
-      // one is used one-handed in the street, so a sidebar would eat the
-      // width the product grid needs and put controls out of thumb reach.
+      // «المندوب»: fullscreen too, but for the opposite reason to POS — this one
+      // is used one-handed in the street, so a sidebar would eat the width the
+      // product grid needs and put controls out of thumb reach.
       { path: "sales-agent", element: s(<SalesAgentPage />) },
     ],
   },
@@ -220,10 +241,6 @@ const router = createBrowserRouter([
 export default function App() {
   const { data: tenant } = useTenantConfig()
 
-  // «السيرفر ما يرد» is handled by OutageGate in main.tsx, above the login
-  // gate — during an outage nobody can sign in, so this component never
-  // mounts and a check here would never run for the person who needs it.
-
   // SUSPENDED is a hard stop. EXPIRED deliberately is NOT: the backend already
   // enforces read-only (423 on writes, reads/exports/prints allowed), and
   // returning here instead took the whole router down with it — including
@@ -231,6 +248,10 @@ export default function App() {
   // lost the public storefront. ReadOnlySaasBanner in AppLayout is the
   // intended treatment and was dead code for this case.
   if (tenant?.isSuspended) return <SubscriptionExpiredPage suspended />
+
+  // «السيرفر ما يرد» is handled by OutageGate in main.tsx, above the login
+  // gate — during an outage nobody can sign in, so this component never
+  // mounts and a check here would never run for the person who needs it.
 
   // Platform entitlement, mirroring inventory-web. The backend enforces this
   // too (X-Client-Platform + enforcePlatformMiddleware); this is the readable

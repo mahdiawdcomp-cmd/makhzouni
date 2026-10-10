@@ -1,12 +1,17 @@
 import type { StocktakeSessionDetail } from "../types/api"
 import { fmt, fmtD } from "./fmt"
+import { saveGeneratedTextFile } from "./download"
 
 // Export / print for a stocktake session's results. Self-contained (no xlsx
-// dependency) so the same file works in the web build and the Tauri desktop
-// build: CSV with a UTF-8 BOM opens in Excel with Arabic intact, and printing
-// goes through a hidden iframe because window.open is unreliable in WebView2.
+// dependency). CSV with a UTF-8 BOM opens in Excel with Arabic intact. Desktop
+// copy: an <a download> click is a no-op inside WebView2, so the file goes
+// through saveGeneratedTextFile (straight to the Downloads folder); printing
+// goes through a hidden iframe because window.open is unreliable there.
 
 type Item = StocktakeSessionDetail["items"][number]
+
+// Excel only reads a CSV as UTF-8 (Arabic intact) when it starts with a BOM.
+const BOM = String.fromCharCode(0xfeff)
 
 const APPROVAL: Record<Item["approvalStatus"], string> = {
   PENDING: "بانتظار المراجعة",
@@ -29,7 +34,8 @@ function approvalLabel(item: Item) {
   return item.actualQty === null ? "لم يُحسب" : APPROVAL[item.approvalStatus]
 }
 
-export function exportStocktakeCsv(session: StocktakeSessionDetail) {
+/** Resolves to where the file went (a filename on the web). */
+export async function exportStocktakeCsv(session: StocktakeSessionDetail): Promise<string> {
   const cell = (v: string | number | null | undefined) => {
     const s = v === null || v === undefined ? "" : String(v)
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
@@ -46,14 +52,7 @@ export function exportStocktakeCsv(session: StocktakeSessionDetail) {
     approvalLabel(i),
   ])
   const csv = [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n")
-  const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }))
-  const a = document.createElement("a")
-  a.href = url
-  a.download = `${fileBase(session)}.csv`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  return saveGeneratedTextFile(`${fileBase(session)}.csv`, BOM + csv, "text/csv;charset=utf-8")
 }
 
 export function printStocktake(session: StocktakeSessionDetail) {

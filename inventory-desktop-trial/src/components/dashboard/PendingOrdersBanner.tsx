@@ -19,6 +19,7 @@ import { cn } from "../../utils/cn"
 function unitAr(unit: string) {
   if (unit === "CARTON") return "كرتونة"
   if (unit === "DOZEN") return "درزن"
+  if (unit === "BOX") return "علبة"
   return "قطعة"
 }
 

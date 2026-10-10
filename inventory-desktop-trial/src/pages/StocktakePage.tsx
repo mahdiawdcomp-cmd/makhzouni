@@ -481,7 +481,16 @@ function SessionView({
           </p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => exportStocktakeCsv(session)} title="تصدير إلى Excel (CSV)">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              exportStocktakeCsv(session)
+                .then((where) => toast({ title: "تم تصدير ملف Excel", description: where }))
+                .catch((err) => showError(err, "تعذر حفظ الملف"))
+            }}
+            title="تصدير إلى Excel (CSV)"
+          >
             <Download className="h-4 w-4" /> Excel
           </Button>
           <Button

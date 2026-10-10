@@ -4,23 +4,23 @@ import { useLocation, useNavigate } from "react-router-dom"
 export interface ShortcutDef {
   id: string
   label: string
-  defaultKey: string   // e.g. "n", ","
+  defaultKey: string
   defaultMod: "ctrl" | "ctrl+shift"
   action: "navigate"
-  target: string       // route path
+  target: string
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutDef[] = [
-  { id: "new-invoice",   label: "فاتورة جديدة",      defaultKey: "n",   defaultMod: "ctrl",       action: "navigate", target: "/invoices/new" },
-  { id: "pos",           label: "كاشير POS",          defaultKey: "p",   defaultMod: "ctrl+shift", action: "navigate", target: "/pos" },
-  { id: "inventory",     label: "المخزون",            defaultKey: "m",   defaultMod: "ctrl",       action: "navigate", target: "/inventory" },
-  { id: "account",       label: "كشف حساب",           defaultKey: "k",   defaultMod: "ctrl",       action: "navigate", target: "/account" },
-  { id: "home",          label: "الرئيسية",           defaultKey: "h",   defaultMod: "ctrl",       action: "navigate", target: "/" },
-  { id: "settings",      label: "الإعدادات",          defaultKey: ",",   defaultMod: "ctrl",       action: "navigate", target: "/settings" },
-  { id: "customers",     label: "الزبائن",            defaultKey: "b",   defaultMod: "ctrl",       action: "navigate", target: "/customers" },
-  { id: "reports",       label: "التقارير",           defaultKey: "r",   defaultMod: "ctrl",       action: "navigate", target: "/reports" },
-  { id: "vouchers",      label: "السندات",            defaultKey: "v",   defaultMod: "ctrl",       action: "navigate", target: "/vouchers" },
-  { id: "transfers",     label: "التحويلات",          defaultKey: "t",   defaultMod: "ctrl",       action: "navigate", target: "/transfers" },
+  { id: "new-invoice", label: "فاتورة جديدة",    defaultKey: "n", defaultMod: "ctrl",       action: "navigate", target: "/invoices/new" },
+  { id: "pos",         label: "كاشير POS",        defaultKey: "p", defaultMod: "ctrl+shift", action: "navigate", target: "/pos" },
+  { id: "inventory",   label: "المخزون",          defaultKey: "m", defaultMod: "ctrl",       action: "navigate", target: "/inventory" },
+  { id: "customers",   label: "الزبائن",          defaultKey: "b", defaultMod: "ctrl",       action: "navigate", target: "/customers" },
+  { id: "account",     label: "كشف حساب",         defaultKey: "k", defaultMod: "ctrl",       action: "navigate", target: "/account" },
+  { id: "reports",     label: "التقارير",         defaultKey: "r", defaultMod: "ctrl",       action: "navigate", target: "/reports" },
+  { id: "vouchers",    label: "السندات",          defaultKey: "v", defaultMod: "ctrl",       action: "navigate", target: "/vouchers" },
+  { id: "transfers",   label: "التحويلات",        defaultKey: "t", defaultMod: "ctrl",       action: "navigate", target: "/transfers" },
+  { id: "home",        label: "الرئيسية",         defaultKey: "h", defaultMod: "ctrl",       action: "navigate", target: "/" },
+  { id: "settings",    label: "الإعدادات",        defaultKey: ",", defaultMod: "ctrl",       action: "navigate", target: "/settings" },
 ]
 
 const STORAGE_KEY = "makhzouni_shortcuts"
@@ -80,7 +80,9 @@ export function useGlobalShortcuts() {
         if (!keyMatch || !modMatch) continue
 
         e.preventDefault()
-        navigate(sc.target)
+        if (location.pathname !== sc.target) {
+          navigate(sc.target)
+        }
         break
       }
     }

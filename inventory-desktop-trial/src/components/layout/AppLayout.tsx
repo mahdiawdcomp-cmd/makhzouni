@@ -9,14 +9,16 @@ import { useDesktopDisabled, useTenantConfig } from "../../hooks/useTenantConfig
 import { Header } from "./Header"
 import { Sidebar, SidebarTopBar } from "./Sidebar"
 import { useUiStore } from "../../store/uiStore"
-import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
 import { PwaStatusBar } from "../PwaStatusBar"
 import { SystemHealthBar } from "../SystemHealthBar"
 import { MissingImageBanner } from "../MissingImageBanner"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
+import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
 import { OnboardingWizard } from "../OnboardingWizard"
 import { AgentButton } from "../agent/AgentButton"
+import { MobileLogoutButton } from "./MobileLogoutButton"
+import { PageViewTracker } from "./PageViewTracker"
 import { ErrorBoundary } from "../ErrorBoundary"
 import { toast } from "../ui/use-toast"
 import { LanguageSwitcher } from "./LanguageSwitcher"
@@ -110,6 +112,7 @@ function ReadOnlySaasBanner() {
 
 export function AppLayout() {
   const isPosOnly = useAuthStore((s) => s.isPosOnly())
+  const isWorkerOnly = useAuthStore((s) => s.isWorkerOnly())
   const refreshUser = useAuthStore((s) => s.refreshUser)
   const token = useAuthStore((s) => s.token)
   const [darkMode, setDarkMode] = useState(
@@ -120,6 +123,7 @@ export function AppLayout() {
   const pwa = usePwaStatus()
   const qc = useQueryClient()
   useGlobalShortcuts()
+  useGlobalBarcodeScanner()
 
   useEffect(() => {
     if (pwa.lastSyncAt) {
@@ -154,8 +158,6 @@ export function AppLayout() {
   const mainRef = useRef<HTMLElement>(null)
   const { pathname } = useLocation()
   const invoiceDraftOpen = pathname === "/invoices/new"
-  // Global USB/Bluetooth barcode-gun listener — works from any page.
-  useGlobalBarcodeScanner()
 
   function keepInvoiceOpen(event: MouseEvent<HTMLDivElement>) {
     if (!invoiceDraftOpen || event.defaultPrevented || event.button !== 0) return
@@ -176,8 +178,67 @@ export function AppLayout() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Per-route scroll memory: remember where the user was on each route so that
+  // returning to it (e.g. back from a product/invoice detail) restores the same
+  // scroll position instead of always jumping to the top.
+  // Kept in sessionStorage rather than a ref: a ref dies with the page, so a
+  // browser refresh while reading row 400 dropped the user back at the top.
+  const SCROLL_KEY = "scroll-positions"
+  const scrollPositions = useRef<Record<string, number>>(
+    (() => {
+      try {
+        return JSON.parse(sessionStorage.getItem(SCROLL_KEY) ?? "{}") as Record<string, number>
+      } catch {
+        return {}
+      }
+    })(),
+  )
+
   useEffect(() => {
-    mainRef.current?.scrollTo(0, 0)
+    const el = mainRef.current
+    if (!el) return
+    let writeTimer: number | undefined
+    const onScroll = () => {
+      scrollPositions.current[pathname] = el.scrollTop
+      // Throttled: writing to sessionStorage on every scroll event would be a
+      // JSON.stringify per frame.
+      window.clearTimeout(writeTimer)
+      writeTimer = window.setTimeout(() => {
+        try {
+          sessionStorage.setItem(SCROLL_KEY, JSON.stringify(scrollPositions.current))
+        } catch {
+          // private mode / quota — scroll memory is a convenience, never a must
+        }
+      }, 250)
+    }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      window.clearTimeout(writeTimer)
+      el.removeEventListener("scroll", onScroll)
+    }
+  }, [pathname])
+
+  useEffect(() => {
+    const el = mainRef.current
+    if (!el) return
+    const saved = scrollPositions.current[pathname] ?? 0
+    if (saved <= 0) return
+    // The page is SHORT until its data arrives, so a single scrollTo would be
+    // clamped to near-zero and the position lost anyway. Keep trying while the
+    // content grows, and stop as soon as it fits (or after a couple of seconds,
+    // so a genuinely short page doesn't spin).
+    let raf = 0
+    const deadline = Date.now() + 2500
+    const attempt = () => {
+      if (el.scrollHeight - el.clientHeight >= saved) {
+        el.scrollTo(0, saved)
+        return
+      }
+      if (Date.now() > deadline) return
+      raf = requestAnimationFrame(attempt)
+    }
+    raf = requestAnimationFrame(attempt)
+    return () => cancelAnimationFrame(raf)
   }, [pathname])
 
   useEffect(() => {
@@ -189,6 +250,16 @@ export function AppLayout() {
   // «المندوب» is bounced to its own screen by ProtectedRoute, not here: /pos
   // renders under a sibling layout this component never sees.
   if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
+  // Warehouse worker: locked to his two pages — worker + losses. Any other URL
+  // (dashboard, customers, invoices, designer, ...) bounces back to /worker.
+  if (
+    isWorkerOnly &&
+    pathname !== "/worker" &&
+    pathname !== "/losses" &&
+    !pathname.startsWith("/losses/")
+  ) {
+    return <Navigate to="/worker" replace />
+  }
 
   return (
     <div
@@ -249,6 +320,8 @@ export function AppLayout() {
           onSync={pwa.syncNow}
         />
 
+        <PageViewTracker />
+
         {/* Mobile top bar */}
         <div
           className="glass flex h-14 items-center gap-3 px-4 lg:hidden"
@@ -283,6 +356,7 @@ export function AppLayout() {
               {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
             <LanguageSwitcher />
+            <MobileLogoutButton />
           </div>
         </div>
 

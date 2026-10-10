@@ -9,12 +9,35 @@ WEB="$SCRIPT_DIR/../inventory-web/src"
 DESK="$SCRIPT_DIR/../inventory-desktop-trial/src"
 
 # These files have legitimate desktop-specific differences — do NOT overwrite.
+# Most of them exist because WebView2 ignores <a target=_blank>, <a download>
+# and blob downloads: the desktop opens links via openExternalUrl() and saves
+# files via saveGeneratedTextFile()/deliverLabel() instead. Merge a web change
+# into these by hand.
 DESKTOP_ONLY=(
-  "main.tsx"                  # wraps app with DesktopTrialGate + imports desktop CSS
+  "main.tsx"                  # wraps app with DesktopTrialGate/OutageGate + desktop CSS
   "pwa/usePwaStatus.ts"       # no service-worker in desktop build
   "DesktopTrialGate.tsx"      # desktop-only component
   "desktop-trial.css"         # desktop-only CSS
   "styles.css"                # desktop-only CSS
+  "App.tsx"                   # DesktopPlatformDisabledPage (desktopEnabled) instead of the web gate
+  "api/client.ts"             # X-Client-Platform: desktop
+  "api/endpoints.ts"          # extra absolute label URLs (product*PdfUrl / CartonLabelPngUrl)
+  "utils/download.ts"         # Tauri open_external / save_text_file commands
+  "utils/stocktakeExport.ts"  # CSV saved through saveGeneratedTextFile
+  "hooks/useTenantConfig.ts"  # read-only when platforms.desktopEnabled=false
+  "components/layout/AppLayout.tsx"   # desktop-disabled banner, no web-disabled banner
+  "components/layout/Header.tsx"      # SyncStatus (offline sync indicator)
+  "components/GenerateFullStatementDialog.tsx"  # native save
+  "components/KioskSettingsCard.tsx"  # openExternalUrl
+  "components/wholesale-instagram/WholesaleInstagramPrepareModal.tsx"  # openExternalUrl
+  "pages/SettingsPage.tsx"    # «ربط السيرفر» tab
+  "pages/ProductDetailPage.tsx"   # deliverLabel
+  "pages/ProductsPage.tsx"    # deliverLabel
+  "pages/AuctionsPage.tsx"    # openExternalUrl
+  "pages/WholesaleInstagramPage.tsx"  # openExternalUrl
+  "pages/RequestedProductsPage.tsx"   # openExternalUrl
+  "pages/sales-agent/VisitsScreen.tsx"     # openExternalUrl
+  "pages/sales-agent/CustomersScreen.tsx"  # openExternalUrl
 )
 
 is_desktop_only() {

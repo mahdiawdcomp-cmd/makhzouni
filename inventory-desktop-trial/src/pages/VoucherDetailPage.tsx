@@ -32,6 +32,7 @@ import { apiErrorMessage } from "../utils/apiError"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import type { Voucher } from "../types/api"
 import { useSettings } from "../hooks/useSettings"
+import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
@@ -40,7 +41,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
-import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 
 function money(value: number | undefined) {
   return fmt(value)
@@ -56,7 +56,7 @@ const typeMeta: Record<Voucher["type"], { label: string; bg: string; icon: typeo
 const UNKNOWN_BALANCE = "␀UNKNOWN␀"
 
 const DEFAULT_TEMPLATE =
-  "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nشكراً، {{storeName}}."
+  "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nحسابكم السابق: {{previousBalance}} {{currency}}\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}."
 
 export function VoucherDetailPage() {
   const { id } = useParams()

@@ -624,6 +624,7 @@ function PromoCodesTab() {
   // no longer uses (phone+code login replaced it) — filtering on it here
   // left this dropdown permanently empty for every customer onboarded since,
   // so a customer-specific coupon could never be issued to them.
+
   const { data: couponReport } = useQuery({ queryKey: ["first-order-coupon-report"], queryFn: getFirstOrderCouponReport })
 
   return (

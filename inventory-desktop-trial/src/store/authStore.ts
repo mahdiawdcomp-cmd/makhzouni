@@ -13,6 +13,7 @@ interface AuthState {
   hasPermission: (permission: UserPermission) => boolean
   canViewProfitReports: () => boolean
   isPosOnly: () => boolean
+  isWorkerOnly: () => boolean
   isSalesAgent: () => boolean
 }
 
@@ -75,5 +76,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isSalesAgent: () => {
     const user = get().user
     return Boolean(user?.permissions?.includes("SALES_AGENT"))
+  },
+  isWorkerOnly: () => {
+    const user = get().user
+    if (!user || user.role === "ADMIN") return false
+    const perms = user.permissions ?? []
+    // Warehouse worker: staff whose permissions are ONLY the worker pair
+    // (VIEW_WITHOUT_PRICES / REQUEST_TRANSFER). Mirrors isPosOnly above.
+    // PREP_NOTIFY («إشعارات التجهيز») is a worker capability too — without it
+    // here, ticking it silently promoted a worker to the full staff UI.
+    // It alone (no worker pair) must not make an account a worker.
+    const WORKER_PERMS = ["VIEW_WITHOUT_PRICES", "REQUEST_TRANSFER", "PREP_NOTIFY"]
+    return (
+      perms.some((p) => p !== "PREP_NOTIFY") &&
+      perms.every((p) => WORKER_PERMS.includes(p))
+    )
   },
 }))

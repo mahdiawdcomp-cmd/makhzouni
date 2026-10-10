@@ -18,11 +18,14 @@ export type UserPermission =
   | "MANAGE_TRANSFERS"
   | "INVENTORY_MANAGE"
   | "VARIETY_CONVERT"
-    | "ACCESS_WHATSAPP_CHAT"
-// DENY marker: when present, hides profit & financial reports even from an ADMIN.
+  // DENY marker: when present, hides profit & financial reports even from an ADMIN.
   | "HIDE_PROFIT_REPORTS"
+  | "ACCESS_WHATSAPP_CHAT"
   | "MANAGE_INSTAGRAM"
   | "PUBLISH_INSTAGRAM"
+  // «إنستغرام الجملة» — independent from the two above (retail/كتلوك المفرد).
+  | "MANAGE_WHOLESALE_INSTAGRAM"
+  | "PUBLISH_WHOLESALE_INSTAGRAM"
   // «المندوب». Both a power and a RESTRICTION: it opens the rep screen and, on
   // the server, confines the account to its own customers. Never give it to an
   // owner account.
@@ -37,6 +40,8 @@ export type UserPermission =
   // a customer pays must never be something a rep has by default. ADMIN passes
   // by role, as with every other permission.
   | "MANAGE_CUSTOMER_OFFERS"
+  // «شاشة التجهيز» — phone push + live prep screen for the warehouse workers.
+  | "PREP_NOTIFY"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -112,6 +117,38 @@ export interface Approval {
   }
 }
 
+// «الديون الشخصية» — unrelated to shop customers/accounting (e.g. cash lent
+// to a friend). See PersonalDebt model in inventory-backend/prisma/schema.prisma.
+export type PersonalDebtStatus = "PENDING" | "OVERDUE" | "PAID"
+
+export interface PersonalDebt {
+  id: string
+  personName: string
+  amount: number
+  dueDate: string
+  status: "PENDING" | "PAID"
+  computedStatus: PersonalDebtStatus
+  notes?: string | null
+  paidAt?: string | null
+  createdAt: string
+  updatedAt: string
+  creator?: { id: string; name: string } | null
+}
+
+export interface CreatePersonalDebtPayload {
+  personName: string
+  amount: number
+  dueDate: string
+  notes?: string
+}
+
+export interface UpdatePersonalDebtPayload {
+  personName?: string
+  amount?: number
+  dueDate?: string
+  notes?: string
+}
+
 export interface PagedResponse<T> {
   success: boolean
   data: T[]
@@ -135,7 +172,6 @@ export interface WarehouseStock {
 export type PriceMode = "WHOLESALE" | "RETAIL" | "CARTON"
 
 export interface Product {
-  /** سعر القطعة لمن يشتري كارتون كامل — فارغ يعني سعر الجملة نفسه. */
   cartonPiecePrice?: number | null
   id: string
   itemNumber: string
@@ -208,27 +244,6 @@ export interface CrossSellPair {
 export interface SearchMissRow {
   query: string
   count: number
-}
-
-// بند ٦ — جدول القمع لكل صيغة رسالة.
-export interface CampaignFunnelVariantStats {
-  variant: string
-  /** بند ٦ — نفس نص الصيغة ممكن يتكرر بأكثر من حملة؛ العدد يوضّح إذا الصف مجمّع. */
-  campaignCount: number
-  sent: number
-  replied: number
-  boughtChoice: number
-  registered: number
-  openedCatalog: number
-  firstOrder: number
-}
-
-export interface CampaignFunnelReport {
-  from: string | null
-  to: string | null
-  tag: string | null
-  totals: Omit<CampaignFunnelVariantStats, "variant">
-  byVariant: CampaignFunnelVariantStats[]
 }
 
 export interface WarehouseComparisonRow {
@@ -435,6 +450,164 @@ export interface CycleCountSessionDetail extends Omit<CycleCountSessionSummary, 
   unresolvedCount?: number
 }
 
+export type ProspectStatus = "NEW" | "CONVERTED"
+
+export interface Prospect {
+  id: string
+  name: string
+  phone: string
+  address?: string | null
+  source?: string | null
+  status: ProspectStatus
+  lastSentAt?: string | null
+  createdAt: string
+}
+
+export interface ProspectListResult {
+  items: Prospect[]
+  total: number
+  newCount: number
+  convertedCount: number
+}
+
+export type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE"
+export type CampaignRecipientStatus =
+  | "PENDING"
+  | "SENDING"
+  | "API_ACCEPTED"
+  | "DELIVERED"
+  | "FAILED"
+  | "SKIPPED"
+  | "UNCONFIRMED"
+  | "SENT" // legacy
+
+export interface Campaign {
+  id: string
+  name: string
+  status: CampaignStatus
+  messages: string[]
+  productIds: string[]
+  includeCatalogLink: boolean
+  offerRegistrationChoices: boolean
+  minDelaySec: number
+  maxDelaySec: number
+  dailyMin: number
+  dailyMax: number
+  activeStartHour: number
+  activeEndHour: number
+  useTemplate: boolean
+  templateName?: string | null
+  templateLanguage?: string | null
+  templateBodyParams?: string[]
+  sentToday: number
+  dailyCapToday: number
+  lastSentAt?: string | null
+  nextSendAt?: string | null
+  createdAt: string
+  total?: number
+  counts?: Partial<Record<CampaignRecipientStatus, number>>
+  processed?: number
+}
+
+// بند ٦ — جدول القمع لكل صيغة رسالة.
+export interface CampaignFunnelVariantStats {
+  variant: string
+  /** بند ٦ — نفس نص الصيغة ممكن يتكرر بأكثر من حملة؛ العدد يوضّح إذا الصف مجمّع. */
+  campaignCount: number
+  sent: number
+  replied: number
+  boughtChoice: number
+  registered: number
+  openedCatalog: number
+  firstOrder: number
+}
+
+export interface CampaignFunnelReport {
+  from: string | null
+  to: string | null
+  tag: string | null
+  totals: Omit<CampaignFunnelVariantStats, "variant">
+  byVariant: CampaignFunnelVariantStats[]
+}
+
+export type HealthLevel = "ok" | "warn" | "down" | "unknown"
+
+export interface SystemHealth {
+  checkedAt: string
+  db: { level: HealthLevel; latencyMs: number | null }
+  whatsapp: { level: HealthLevel; provider: string; state: string | null; detail: string | null }
+  campaigns: { level: HealthLevel; running: number; failed24h: number }
+  cron: { level: HealthLevel; lastCampaignTickAt: string | null; ageSec: number | null }
+  backup: {
+    level: HealthLevel
+    tracked: boolean
+    detail: string
+    lastSuccessAt: string | null
+    lastAttemptAt: string | null
+    lastOk: boolean | null
+    lastError: string | null
+    sizeBytes: number | null
+  }
+}
+
+export type ErrorLogSource = "CAMPAIGN" | "WHATSAPP" | "CRON" | "BACKUP" | "DATABASE" | "API" | "OTHER"
+export type ErrorLogLevel = "INFO" | "WARN" | "ERROR" | "CRITICAL"
+
+export interface ErrorLog {
+  id: string
+  source: ErrorLogSource
+  level: ErrorLogLevel
+  code: string | null
+  message: string
+  context: unknown
+  count: number
+  firstSeenAt: string
+  lastSeenAt: string
+  resolvedAt: string | null
+  createdAt: string
+}
+
+export interface ErrorAnalysis {
+  summary: string
+  likelyCause: string
+  suggestedFix: string
+  severity: string
+}
+
+export interface CampaignRecipient {
+  id: string
+  phone: string
+  name?: string | null
+  status: CampaignRecipientStatus
+  sentAt?: string | null
+  error?: string | null
+  variantUsed?: string | null
+  createdAt: string
+}
+
+export interface CampaignDetail extends Campaign {
+  recipients: CampaignRecipient[]
+}
+
+export interface CampaignPayload {
+  name: string
+  messages: string[]
+  productIds?: string[]
+  includeCatalogLink?: boolean
+  /** بند ٥ — appends "رد 1 للشراء / 2 للكروب" to the text body. */
+  offerRegistrationChoices?: boolean
+  minDelaySec?: number
+  maxDelaySec?: number
+  dailyMin?: number
+  dailyMax?: number
+  activeStartHour?: number
+  activeEndHour?: number
+  useTemplate?: boolean
+  templateName?: string
+  templateLanguage?: string
+  templateBodyParams?: string[]
+}
+
 export interface PublicCatalogProduct {
   cartonPiecePrice?: number | null
   purchaseMode?: "WHOLESALE" | "CARTON"
@@ -498,6 +671,13 @@ export interface CatalogSession {
   firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
 }
 
+export interface FirstOrderCouponReport {
+  issued: number
+  used: number
+  salesCount: number
+  salesTotal: number
+}
+
 export interface CatalogOrderPayload {
   priceMode?: "WHOLESALE" | "CARTON"
   customerName: string
@@ -518,7 +698,6 @@ export interface CatalogOrderPayload {
 export type GuestCatalogOrderPayload = Omit<CatalogOrderPayload, "promoCode">
 
 export interface ProductPayload {
-  /** سعر القطعة لمن يشتري كارتون كامل — فارغ يعني سعر الجملة نفسه. */
   cartonPiecePrice?: number | null
   // Only `name` is required; the server will auto-generate item number / QR codes if omitted.
   name: string
@@ -585,11 +764,11 @@ export interface Customer {
   creditLimit?: number | null
   isSupplier?: boolean
   isBoth?: boolean
-  portalLinkEnabled?: boolean
   lastTransactionAt?: string | null
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null
+  portalLinkEnabled?: boolean
   loyaltyPoints?: number
   province?: string | null
   businessType?: CustomerBusinessType | null
@@ -721,6 +900,7 @@ export interface PublicInvoiceDetail {
   items: Array<{
     id: string
     productName: string
+    itemNumber?: string | null
     quantity: number
     unitPrice: number
     totalPrice: number
@@ -737,6 +917,7 @@ export interface LastTransaction {
 }
 
 export interface Invoice {
+  priceMode?: PriceMode
   id: string
   invoiceNumber: string
   type?: InvoiceType
@@ -775,6 +956,7 @@ export interface InvoiceItem {
   notes?: string | null
   /** «تم تجهيز» — the picker's tick on this line. */
   prepared?: boolean
+  preparedBy?: string | null
   /** Carried by the read endpoints so the carton column can be computed. */
   product?: { id: string; name: string; itemNumber?: string | null; pcsPerCarton: number; boxPieces?: number | null }
 }
@@ -817,6 +999,7 @@ export interface StockLoss {
 }
 
 export interface CreateInvoicePayload {
+  priceMode?: PriceMode
   customerId: string
   type?: InvoiceType
   date?: string
@@ -1254,146 +1437,6 @@ export interface BotRule {
   builtin?: boolean
 }
 
-/* ── Prospects (الزبائن المحتملين) ── */
-export type ProspectStatus = "NEW" | "CONVERTED"
-
-export interface Prospect {
-  id: string
-  name: string
-  phone: string
-  address?: string | null
-  source?: string | null
-  status: ProspectStatus
-  lastSentAt?: string | null
-  createdAt: string
-}
-
-export interface ProspectListResult {
-  items: Prospect[]
-  total: number
-  newCount: number
-  convertedCount: number
-}
-
-/* ── Campaigns (الحملات) ── */
-export type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE"
-export type CampaignRecipientStatus =
-  | "PENDING"
-  | "SENDING"
-  | "API_ACCEPTED"
-  | "DELIVERED"
-  | "FAILED"
-  | "SKIPPED"
-  | "UNCONFIRMED"
-  | "SENT" // legacy
-
-export interface Campaign {
-  id: string
-  name: string
-  status: CampaignStatus
-  messages: string[]
-  productIds: string[]
-  includeCatalogLink: boolean
-  offerRegistrationChoices: boolean
-  minDelaySec: number
-  maxDelaySec: number
-  dailyMin: number
-  dailyMax: number
-  activeStartHour: number
-  activeEndHour: number
-  useTemplate: boolean
-  templateName?: string | null
-  templateLanguage?: string | null
-  templateBodyParams?: string[]
-  sentToday: number
-  dailyCapToday: number
-  lastSentAt?: string | null
-  nextSendAt?: string | null
-  createdAt: string
-  total?: number
-  counts?: Partial<Record<CampaignRecipientStatus, number>>
-  processed?: number
-}
-
-export type HealthLevel = "ok" | "warn" | "down" | "unknown"
-
-export interface SystemHealth {
-  checkedAt: string
-  db: { level: HealthLevel; latencyMs: number | null }
-  whatsapp: { level: HealthLevel; provider: string; state: string | null; detail: string | null }
-  campaigns: { level: HealthLevel; running: number; failed24h: number }
-  cron: { level: HealthLevel; lastCampaignTickAt: string | null; ageSec: number | null }
-  backup: {
-    level: HealthLevel
-    tracked: boolean
-    detail: string
-    lastSuccessAt: string | null
-    lastAttemptAt: string | null
-    lastOk: boolean | null
-    lastError: string | null
-    sizeBytes: number | null
-  }
-}
-
-export type ErrorLogSource = "CAMPAIGN" | "WHATSAPP" | "CRON" | "BACKUP" | "DATABASE" | "API" | "OTHER"
-export type ErrorLogLevel = "INFO" | "WARN" | "ERROR" | "CRITICAL"
-
-export interface ErrorLog {
-  id: string
-  source: ErrorLogSource
-  level: ErrorLogLevel
-  code: string | null
-  message: string
-  context: unknown
-  count: number
-  firstSeenAt: string
-  lastSeenAt: string
-  resolvedAt: string | null
-  createdAt: string
-}
-
-export interface ErrorAnalysis {
-  summary: string
-  likelyCause: string
-  suggestedFix: string
-  severity: string
-}
-
-export interface CampaignRecipient {
-  id: string
-  phone: string
-  name?: string | null
-  status: CampaignRecipientStatus
-  sentAt?: string | null
-  error?: string | null
-  variantUsed?: string | null
-  createdAt: string
-}
-
-export interface CampaignDetail extends Campaign {
-  recipients: CampaignRecipient[]
-}
-
-export interface CampaignPayload {
-  name: string
-  messages: string[]
-  productIds?: string[]
-  includeCatalogLink?: boolean
-  /** بند ٥ — appends "رد 1 للشراء / 2 للكروب" to the text body. */
-  offerRegistrationChoices?: boolean
-  minDelaySec?: number
-  maxDelaySec?: number
-  dailyMin?: number
-  dailyMax?: number
-  activeStartHour?: number
-  activeEndHour?: number
-  useTemplate?: boolean
-  templateName?: string
-  templateLanguage?: string
-  templateBodyParams?: string[]
-}
-
-/* ── Inbound messages (الرسائل الواردة) ── */
 export type InboundMessageSource = "CUSTOMER_UNMATCHED" | "PROSPECT" | "UNKNOWN"
 export type InboundMessageStatus = "UNREAD" | "READ" | "REPLIED"
 
@@ -1409,6 +1452,51 @@ export interface InboundMessage {
   /** بند ٥ — set when the sender asked to talk to a human ("أريد أحچي مع موظف"). */
   urgent?: boolean
   createdAt: string
+}
+
+export type WhatsappMessageDirection = "IN" | "OUT"
+
+export interface WhatsappConversation {
+  id: string
+  phone: string
+  contactName?: string | null
+  customerId?: string | null
+  lastMessageAt: string
+  lastMessageText?: string | null
+  lastDirection: WhatsappMessageDirection
+  unreadCount: number
+  isArchived?: boolean
+  isPinned?: boolean
+  internalNotes?: string | null
+  createdAt: string
+}
+
+export type WhatsappMediaType = "IMAGE" | "DOCUMENT" | "AUDIO" | "VIDEO" | "STICKER" | "LOCATION"
+
+export interface WhatsappChatMessage {
+  id: string
+  conversationId: string
+  direction: WhatsappMessageDirection
+  text: string
+  mediaType?: WhatsappMediaType | null
+  mediaDataUrl?: string | null
+  mediaFilename?: string | null
+  mediaMimeType?: string | null
+  waMessageId?: string | null
+  status: string
+  statusError?: string | null
+  replyToWaMessageId?: string | null
+  replyToText?: string | null
+  reactionEmoji?: string | null
+  createdAt: string
+}
+
+export interface WhatsappQuickReply {
+  id: string
+  name: string
+  body: string
+  isActive: boolean
+  createdAt?: string
 }
 
 export interface MessageTemplate {
@@ -1504,6 +1592,7 @@ export interface BranchPayload {
 }
 
 export interface OrderPreparation {
+  priceMode?: PriceMode
   id: string
   /** «عروض القائمة» this order earned, in dinars. 0 when it earned nothing. */
   tierDiscount: number
@@ -1764,87 +1853,4 @@ export interface BranchSummary {
   vouchers: { receipts: number; payments: number; expenses: number }
   stock: { lowStock: number; totalPieces?: number; openingPieces: number; cartons: number }
   transfers: { out: number; in: number }
-}
-
-
-/* ── Ported from inventory-web for desktop parity ─────────────────────────
-   Types for personal debts, the WhatsApp messenger screen and Instagram
-   auto-publish. Keep byte-identical to the web copies. */
-
-export interface WhatsappConversation {
-  id: string
-  phone: string
-  contactName?: string | null
-  customerId?: string | null
-  lastMessageAt: string
-  lastMessageText?: string | null
-  lastDirection: WhatsappMessageDirection
-  unreadCount: number
-  isArchived?: boolean
-  isPinned?: boolean
-  internalNotes?: string | null
-  createdAt: string
-}
-
-export interface WhatsappChatMessage {
-  id: string
-  conversationId: string
-  direction: WhatsappMessageDirection
-  text: string
-  mediaType?: WhatsappMediaType | null
-  mediaDataUrl?: string | null
-  mediaFilename?: string | null
-  mediaMimeType?: string | null
-  waMessageId?: string | null
-  status: string
-  statusError?: string | null
-  replyToWaMessageId?: string | null
-  replyToText?: string | null
-  reactionEmoji?: string | null
-  createdAt: string
-}
-
-export interface WhatsappQuickReply {
-  id: string
-  name: string
-  body: string
-  isActive: boolean
-  createdAt?: string
-}
-
-export interface PersonalDebt {
-  id: string
-  personName: string
-  amount: number
-  dueDate: string
-  status: "PENDING" | "PAID"
-  computedStatus: PersonalDebtStatus
-  notes?: string | null
-  paidAt?: string | null
-  createdAt: string
-  updatedAt: string
-  creator?: { id: string; name: string } | null
-}
-
-export interface CreatePersonalDebtPayload {
-  personName: string
-  amount: number
-  dueDate: string
-  notes?: string
-}
-
-export type WhatsappMessageDirection = "IN" | "OUT"
-
-export type WhatsappMediaType = "IMAGE" | "DOCUMENT" | "AUDIO" | "VIDEO" | "STICKER" | "LOCATION"
-
-// «الديون الشخصية» — unrelated to shop customers/accounting (e.g. cash lent
-// to a friend). See PersonalDebt model in inventory-backend/prisma/schema.prisma.
-export type PersonalDebtStatus = "PENDING" | "OVERDUE" | "PAID"
-
-
-export interface UpdatePersonalDebtPayload {
-  personName?: string
-  amount?: number
-  dueDate?: string
-  notes?: string
 }

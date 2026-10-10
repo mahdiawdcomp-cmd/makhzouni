@@ -17,7 +17,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
-import { getProfitReport, getMarginReport, getWarehouseComparisonReport, getCrossSellPairs, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers, getSettings, updateSettings, getProductReviews, getSearchMisses } from "../api/endpoints"
+import { getMarginReport, getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getProductReviews, getSearchMisses, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers, getSettings, updateSettings } from "../api/endpoints"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -106,6 +106,7 @@ function AssistantTab() {
   const onRefresh = async () => {
     setRefreshing(true)
     try {
+      // Force a heavy-snapshot rebuild (rate-limited server-side), then refresh.
       const fresh = await getDailyAssistant({ refresh: true })
       qc.setQueryData(["reports", "daily-assistant", "today"], fresh)
     } catch {
@@ -491,11 +492,14 @@ function ProfitsTab() {
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const appliedDefaultRef = useRef(false)
   useEffect(() => {
-    if (appliedDefaultRef.current || !settingsQuery.isSuccess) return
+    // Read the settings out before the ref assignment: TS drops the narrowing
+    // that isSuccess gives us as soon as another property is written to.
+    const settings = settingsQuery.data
+    if (appliedDefaultRef.current || !settingsQuery.isSuccess || !settings) return
     appliedDefaultRef.current = true
-    if (settingsQuery.data?.reportsProfitStartDate) {
+    if (settings.reportsProfitStartDate) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time default applied once settings load, guarded above so it can't loop
-      setFrom(settingsQuery.data.reportsProfitStartDate)
+      setFrom(settings.reportsProfitStartDate)
     }
   }, [settingsQuery.isSuccess, settingsQuery.data])
 
@@ -1093,12 +1097,13 @@ function DebtsTab() {
 
 // ─── Inactive Customers Tab ─────────────────────────────────────────────────────
 function InactiveTab() {
-  const [waTarget, setWaTarget] = useState<{ name: string; phone: string } | null>(null)
-  const [waSending, setWaSending] = useState(false)
   const [minDays, setMinDays] = useState(30)
   const [customDays, setCustomDays] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sendMsg, setSendMsg] = useState("")
+  // Per-row "فردي" reminder → channel picker (official / personal / wa.me web).
+  const [waTarget, setWaTarget] = useState<{ name: string; phone: string } | null>(null)
+  const [waSending, setWaSending] = useState(false)
 
   const effectiveDays = customDays !== "" ? Number(customDays) : minDays
 
@@ -1236,6 +1241,7 @@ function InactiveTab() {
   )
 }
 
+// ─── Shared sub-components ────────────────────────────────────────────────────
 /**
  * «الهوامش» — per-product and per-customer margin, from the same cost helpers
  * the Profits tab uses so the two screens can never disagree.
@@ -1354,7 +1360,7 @@ function MarginsTab() {
     </div>
   )
 }
-// ─── Shared sub-components ────────────────────────────────────────────────────
+
 function MetricCard({ title, value, color, suffix = " د.ع" }: { title: string; value: number | string; color?: string; suffix?: string }) {
   return (
     <Card>

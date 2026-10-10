@@ -1,21 +1,8 @@
-﻿import { api, publicApi } from "./client"
+import { api, publicApi } from "./client"
 import type {
   ApiEnvelope,
   AppSettings,
   Approval,
-  Campaign,
-  CampaignDetail,
-  CampaignPayload,
-  CampaignStatus,
-  SystemHealth,
-  ErrorLog,
-  ErrorLogSource,
-  ErrorAnalysis,
-  Prospect,
-  ProspectListResult,
-  ProspectStatus,
-  InboundMessage,
-  InboundMessageStatus,
   AuditLog,
   Branch,
   BranchSummary,
@@ -28,6 +15,23 @@ import type {
   CatalogAccessRequestPayload,
   CatalogAccessStatus,
   CatalogSession,
+  Campaign,
+  CampaignDetail,
+  CampaignFunnelReport,
+  FirstOrderCouponReport,
+  CampaignPayload,
+  CampaignStatus,
+  SystemHealth,
+  ErrorLog,
+  ErrorLogSource,
+  ErrorAnalysis,
+  ProspectStatus,
+  ProspectListResult,
+  InboundMessage,
+  InboundMessageStatus,
+  WhatsappConversation,
+  WhatsappChatMessage,
+  WhatsappQuickReply,
   Coupon,
   CreateInvoicePayload,
   CreateUserPayload,
@@ -51,6 +55,10 @@ import type {
   LastTransaction,
   MessageTemplate,
   PagedResponse,
+  ProductReview,
+  PersonalDebt,
+  CreatePersonalDebtPayload,
+  UpdatePersonalDebtPayload,
   Product,
   CatalogCategory,
   Quotation,
@@ -68,10 +76,7 @@ import type {
   ProfitReport,
   WarehouseComparisonRow,
   CrossSellPair,
-  ProductReview,
   SearchMissRow,
-  CampaignFunnelVariantStats,
-  CampaignFunnelReport,
   StoreBrainReport,
   DailyAssistantReport,
   DebtCustomer,
@@ -104,12 +109,6 @@ import type {
   StockLoss,
   LossReason,
   StockCorrectionReason,
-  WhatsappConversation,
-  WhatsappChatMessage,
-  WhatsappQuickReply,
-  PersonalDebt,
-  CreatePersonalDebtPayload,
-  UpdatePersonalDebtPayload,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
@@ -162,6 +161,32 @@ export async function getApprovals() {
   return data.data ?? []
 }
 
+// «الديون الشخصية» — unrelated to shop customers.
+export async function getPersonalDebts() {
+  const { data } = await api.get<ApiEnvelope<PersonalDebt[]>>("/personal-debts")
+  return data.data ?? []
+}
+
+export async function createPersonalDebt(payload: CreatePersonalDebtPayload) {
+  const { data } = await api.post<ApiEnvelope<PersonalDebt>>("/personal-debts", payload)
+  return data.data
+}
+
+export async function updatePersonalDebt(id: string, payload: UpdatePersonalDebtPayload) {
+  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}`, payload)
+  return data.data
+}
+
+export async function markPersonalDebtPaid(id: string) {
+  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}/paid`, {})
+  return data.data
+}
+
+export async function deletePersonalDebt(id: string) {
+  const { data } = await api.delete<ApiEnvelope<never>>(`/personal-debts/${id}`)
+  return data
+}
+
 export async function getMyApprovals() {
   const { data } = await api.get<ApiEnvelope<Approval[]>>("/approvals/my-requests")
   return data.data ?? []
@@ -192,6 +217,426 @@ export async function getCatalogSession(access: string) {
   return data.data
 }
 
+/* ── Storefront login ─────────────────────────────────────────────── */
+
+export type CustomerLoginResult =
+  | { kind: "CUSTOMER"; token: string; customer: { id: string; name: string; phone: string } }
+  | {
+      kind: "VISITOR"
+      phone: string
+      token: string
+      detailsSubmitted: boolean
+      pricesUnlocked: boolean
+      priceRequestPending: boolean
+    }
+
+export interface VisitorSession {
+  phone: string
+  name: string | null
+  address: string | null
+  notes: string | null
+  province: string | null
+  businessType: string | null
+  detailsSubmitted: boolean
+  pricesUnlocked: boolean
+  priceRequestPending: boolean
+  customerId: string | null
+}
+
+export async function customerLogin(phone: string, code: string) {
+  const { data } = await api.post<ApiEnvelope<CustomerLoginResult>>(
+    "/public/catalog/login", { phone, code },
+  )
+  return data.data!
+}
+
+/** Identified by the browsing session, never by a phone the caller supplies. */
+export async function submitStorefrontSignupDetails(payload: {
+  token: string; customerName: string; address?: string; notes?: string
+  province?: string; businessType?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>(
+    "/public/catalog/signup-details", payload,
+  )
+  return data
+}
+
+export async function getVisitorSession(token: string) {
+  const { data } = await api.get<ApiEnvelope<VisitorSession>>(
+    "/public/catalog/visitor-session", { params: { token } },
+  )
+  return data.data!
+}
+
+export async function getVisitorCatalogProducts(token: string, priceMode?: "WHOLESALE" | "CARTON") {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>(
+    "/public/catalog/visitor-products", { params: { token, priceMode } },
+  )
+  return data.data ?? []
+}
+
+export async function requestCatalogPrices(token: string) {
+  const { data } = await api.post<ApiEnvelope<{ alreadyUnlocked: boolean; pending: boolean }>>(
+    "/public/catalog/request-prices", { token },
+  )
+  return data.data!
+}
+
+/* ── «احجز البضاعة القادمة الجديدة» ───────────────────────────────── */
+
+export interface IncomingItem {
+  id: string
+  name: string
+  description: string | null
+  imageUrl: string | null
+  expectedAt: string | null
+  price: number | null
+  active?: boolean
+  sortOrder?: number
+  arrivedAt?: string | null
+  reservationCount?: number
+  /** In pieces, with how many go in a carton — the storefront shows cartons. */
+  quantityPieces?: number | null
+  pcsPerCarton?: number | null
+  category?: string | null
+  /** Set when the row was raised from a China order that has not landed. */
+  sourceBatchId?: string | null
+  sourceBatchItemId?: string | null
+}
+
+export async function getPublicIncomingItems(phone = "") {
+  const { data } = await api.get<ApiEnvelope<{ items: IncomingItem[]; mine: Record<string, number> }>>(
+    "/public/catalog/incoming", { params: phone ? { phone } : {} },
+  )
+  return data.data ?? { items: [], mine: {} }
+}
+
+export async function reserveIncomingItem(payload: {
+  itemId: string; phone: string; name?: string; quantity?: number; note?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; quantity: number }>>(
+    "/public/catalog/incoming/reserve", payload,
+  )
+  return data.data!
+}
+
+export async function listIncomingItems() {
+  const { data } = await api.get<ApiEnvelope<IncomingItem[]>>("/catalog-management/incoming")
+  return data.data ?? []
+}
+
+export async function saveIncomingItem(payload: Partial<IncomingItem> & { name: string }, id?: string) {
+  const { data } = id
+    ? await api.put<ApiEnvelope<IncomingItem>>(`/catalog-management/incoming/${id}`, payload)
+    : await api.post<ApiEnvelope<IncomingItem>>("/catalog-management/incoming", payload)
+  return data.data!
+}
+
+export async function deleteIncomingItem(id: string) {
+  await api.delete(`/catalog-management/incoming/${id}`)
+}
+
+/** «وصلت البضاعة» — closes the loop and tells everyone who reserved. */
+export async function markIncomingArrived(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ alreadyArrived: boolean; notified: number }>>(
+    `/catalog-management/incoming/${id}/arrived`, {},
+  )
+  return data.data!
+}
+
+export interface IncomingReservation {
+  id: string
+  phone: string
+  name: string | null
+  quantity: number
+  note: string | null
+  status: string
+  createdAt: string
+}
+
+export async function listIncomingReservations(itemId: string) {
+  const { data } = await api.get<ApiEnvelope<IncomingReservation[]>>(
+    `/catalog-management/incoming/${itemId}/reservations`,
+  )
+  return data.data ?? []
+}
+
+export interface ReservationRow extends IncomingReservation {
+  itemId: string
+  itemName: string
+  itemArrived: boolean
+}
+
+/** Every reservation across every item — who is waiting on the merchant. */
+export async function listAllReservations(status?: "PENDING" | "CONFIRMED" | "CANCELLED") {
+  const { data } = await api.get<ApiEnvelope<ReservationRow[]>>(
+    "/catalog-management/incoming-reservations", { params: status ? { status } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function setIncomingReservationStatus(id: string, status: "PENDING" | "CONFIRMED" | "CANCELLED") {
+  await api.patch(`/catalog-management/incoming/reservations/${id}`, { status })
+}
+
+/* ── Storefront accounts, admin side ──────────────────────────────── */
+
+export interface StorefrontAccountRow {
+  kind: "CUSTOMER" | "VISITOR"
+  phone: string
+  name: string
+  address: string | null
+  province: string | null
+  lastLoginAt: string | null
+  detailsSubmitted: boolean
+  pricesUnlocked: boolean
+  priceRequestPending: boolean
+  customerId: string | null
+  hasCode: boolean
+  locked: boolean
+}
+
+/** What is waiting for the merchant right now — the catalog home screen. */
+export async function getCatalogDashboard() {
+  const { data } = await api.get<ApiEnvelope<{
+    priceRequests: number; reservations: number; customersNoCode: number
+    visitorsToday: number; incomingItems: number; pendingOrders: number
+  }>>("/catalog-management/dashboard")
+  return data.data!
+}
+
+export async function listStorefrontAccountsUnified(search?: string) {
+  const { data } = await api.get<ApiEnvelope<StorefrontAccountRow[]>>(
+    "/catalog-management/accounts/unified", { params: search ? { search } : {} },
+  )
+  return data.data ?? []
+}
+
+export interface PersonProfile {
+  phone: string
+  name: string
+  kind: "CUSTOMER" | "VISITOR"
+  address: string | null
+  province: string | null
+  notes: string | null
+  balance: number | null
+  customerId: string | null
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  pricesVisible: boolean
+  priceRequestPending: boolean
+  detailsSubmitted: boolean
+  visits: number
+  totalTimeSeconds: number
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+  productViews: number
+  orders: Array<{ id: string; invoiceNumber: string; total: number; createdAt: string }>
+  reservations: Array<{ id: string; quantity: number; status: string; itemName: string }>
+}
+
+/** Everything the shop knows about one phone, in one reply. */
+export async function getStorefrontPersonProfile(phone: string) {
+  const { data } = await api.get<ApiEnvelope<PersonProfile>>(
+    `/catalog-management/accounts/${encodeURIComponent(phone)}/profile`,
+  )
+  return data.data!
+}
+
+export async function grantCatalogPrices(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
+    "/catalog-management/accounts/grant-prices", { phone },
+  )
+  return data.data!
+}
+
+export async function revokeCatalogPrices(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
+    "/catalog-management/accounts/revoke-prices", { phone },
+  )
+  return data.data!
+}
+
+/**
+ * «أظهر الرمز» — get the credentials in hand instead of sending them.
+ *
+ * Mints a NEW code (the stored one is a hash nobody can read back) and returns
+ * it once, with the message and a wa.me link so the admin can send it from
+ * their own WhatsApp rather than the shop number.
+ */
+export async function revealStorefrontCredentials(
+  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{
+    phone: string; name: string; username: string; code: string
+    message: string; waLink: string; link: string
+  }>>("/catalog-management/accounts/reveal", target)
+  return data.data!
+}
+
+/** «احفظ كزبون بالمحل» — the only thing that puts a visitor on the books. */
+export async function promoteVisitorToCustomer(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string; customerName: string; created: boolean }>>(
+    "/catalog-management/accounts/promote", { phone },
+  )
+  return data.data!
+}
+
+export interface CustomerAccountTx {
+  id: string
+  type: string
+  invoiceType?: string | null
+  date: string
+  description: string
+  referenceNumber?: string | null
+  debit: number
+  credit: number
+  runningBalance: number
+  status?: string | null
+}
+
+export interface CustomerAccount {
+  customer: {
+    id: string; name: string; phone: string; address: string | null
+    openingBalance: number; currentBalance: number
+    lastTransactionAt: string | null; loyaltyPoints: number
+  }
+  transactions: CustomerAccountTx[]
+  storeName: string
+  storePhone: string | null
+  currency: string
+}
+
+export async function getCustomerAccount(access: string) {
+  const { data } = await api.get<ApiEnvelope<CustomerAccount>>(
+    "/public/catalog/account", { params: { access } },
+  )
+  return data.data!
+}
+
+/* ── Marketing opt-out («توقف») ───────────────────────────────────── */
+
+export interface MarketingOptOut {
+  phone: string
+  name: string | null
+  reason: string | null
+  source: string
+  createdAt: string
+}
+
+export async function listMarketingOptOuts(search?: string) {
+  const { data } = await api.get<ApiEnvelope<MarketingOptOut[]>>(
+    "/catalog-management/opt-outs", { params: search ? { search } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function addMarketingOptOut(phone: string, reason?: string) {
+  await api.post("/catalog-management/opt-outs", { phone, reason })
+}
+
+export async function resumeMarketingFor(phone: string) {
+  await api.post("/catalog-management/opt-outs/resume", { phone })
+}
+
+/* ── Storefront accounts (admin) ──────────────────────────────────── */
+
+export interface StorefrontCustomerAccount {
+  kind: "CUSTOMER"
+  id: string
+  name: string
+  phone: string
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  pricesHidden: boolean
+}
+
+export interface StorefrontVisitorAccount {
+  kind: "VISITOR"
+  phone: string
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  detailsSubmitted: boolean
+}
+
+export async function listStorefrontAccounts(search?: string) {
+  const { data } = await api.get<ApiEnvelope<{
+    customers: StorefrontCustomerAccount[]
+    visitors: StorefrontVisitorAccount[]
+  }>>("/catalog-management/accounts", { params: search ? { search } : {} })
+  return data.data ?? { customers: [], visitors: [] }
+}
+
+export async function sendStorefrontCredentials(
+  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string; sent: boolean }>>(
+    "/catalog-management/accounts/send-credentials", target,
+  )
+  return data
+}
+
+export async function sendStorefrontCredentialsBulk(
+  targets: Array<{ kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string }>,
+) {
+  const { data } = await api.post<ApiEnvelope<{
+    total: number; sent: number; failed: number
+    results: Array<{ phone: string; ok: boolean; error?: string }>
+  }>>("/catalog-management/accounts/send-credentials-bulk", { targets })
+  return data.data!
+}
+
+/** True recipient counts — the accounts list is paged, these are not. */
+export async function getCredentialTargetCounts() {
+  const { data } = await api.get<ApiEnvelope<{ customers: number; visitors: number }>>(
+    "/catalog-management/accounts/target-counts",
+  )
+  return data.data ?? { customers: 0, visitors: 0 }
+}
+
+/** Sends to every recipient in the group, resolved server-side. */
+export async function sendStorefrontCredentialsToAll(group: "customers" | "visitors" | "all") {
+  const { data } = await api.post<ApiEnvelope<{
+    total: number; sent: number; failed: number
+    results: Array<{ phone: string; ok: boolean; error?: string }>
+  }>>("/catalog-management/accounts/send-credentials-all", { group })
+  return data.data!
+}
+
+/**
+ * «دعوة الحساب» — the cold invite. Credentials cannot be pushed to a number
+ * that has not messaged us (Meta approves no template carrying a code), so
+ * this asks the shopper to reply; their reply is what earns the credentials.
+ */
+export async function sendStorefrontInvitesToAll(group: "customers" | "visitors" | "all") {
+  const { data } = await api.post<ApiEnvelope<{
+    queued: number; remaining: number; total: number
+  }>>("/catalog-management/accounts/send-invites-all", { group })
+  return data.data!
+}
+
+/** Push the shop-wide price default onto every live catalog link. */
+export async function applyPricesDefaultToAll() {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; visible: boolean }>>(
+    "/catalog-management/accounts/apply-prices-default",
+  )
+  return data.data!
+}
+
+export async function setCustomerPricesHidden(customerId: string, hidden: boolean) {
+  await api.patch(`/catalog-management/accounts/${customerId}/prices-hidden`, { hidden })
+}
+
+export async function unlockStorefrontAccount(kind: "CUSTOMER" | "VISITOR", idOrPhone: string) {
+  await api.post("/catalog-management/accounts/unlock", { kind, idOrPhone })
+}
+
 // After a successful OTP for an existing link (6-month re-verification): stamps
 // the link as verified again — same token, no new admin approval.
 export async function verifyCatalogAccess(access: string) {
@@ -204,24 +649,23 @@ export async function getPublicCatalogProducts(access: string, priceMode?: "WHOL
   return data.data ?? []
 }
 
-
-export async function getPublicCatalogProductImage(access: string, id: string) {
-  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>("/public/catalog/product-image", { params: { access, id } })
-  return data.data?.imageUrl ?? null
+/* ── Guest catalog (no phone/OTP — only served when the merchant has
+   turned off catalogRequireOtp) ────────────────────────────────────── */
+/** Gallery-sized pictures for the tiles about to be drawn. */
+export async function getCatalogMediums(ids: string[], opts?: { access?: string; visitor?: string }) {
+  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
+    "/public/catalog/mediums", { ids },
+    { params: { ...(opts?.access ? { access: opts.access } : {}), ...(opts?.visitor ? { visitor: opts.visitor } : {}) } },
+  )
+  return data.data ?? {}
 }
 
-export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string, sessionId?: string) {
-  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access }, headers: sessionId ? { "X-Catalog-Session": sessionId } : undefined })
-  return data
-}
-
-/* ── Guest catalog (no token/OTP — only when the merchant turned off
-   catalogRequireOtp; the phone gate collects the visitor's number first) ── */
 export async function getGuestCatalogProducts(priceMode?: "WHOLESALE" | "CARTON") {
   const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products", { params: { priceMode } })
   return data.data ?? []
 }
 
+// Phone gate: record a guest's phone before they browse (guest mode only).
 export async function guestCatalogEnter(phone: string, details?: { name?: string; province?: string }) {
   const { data } = await api.post<ApiEnvelope<{ ok: boolean; hasAccount?: boolean }>>("/public/catalog/guest-enter", {
     phone,
@@ -231,16 +675,462 @@ export async function guestCatalogEnter(phone: string, details?: { name?: string
   return data.data
 }
 
+// Fire-and-forget: record that a shopper opened a product card (analytics).
+// Deduped per device per day so repeat opens of the same product by the same
+// visitor count once — the counter reflects unique daily interest, not clicks.
+export async function trackCatalogProductView(productId: string, phone?: string) {
+  if (!productId) return
+  try {
+    const key = `catalog_viewed_${new Date().toISOString().slice(0, 10)}`
+    const seen: string[] = JSON.parse(localStorage.getItem(key) || "[]")
+    if (seen.includes(productId)) return
+    seen.push(productId)
+    localStorage.setItem(key, JSON.stringify(seen))
+  } catch { /* localStorage unavailable — fall through and still count */ }
+  try { await api.post("/public/catalog/track-view", { productId, phone }) } catch { /* best-effort */ }
+}
+
+// Fire-and-forget: accumulate seconds of active browsing time for this visitor.
+export async function postVisitorHeartbeat(phone: string, seconds: number) {
+  if (!phone || seconds <= 0) return
+  try { await api.post("/public/catalog/visitor-heartbeat", { phone, seconds }) } catch { /* best-effort */ }
+}
+
+export async function getGuestCatalogProductImage(id: string, visitor = "") {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
+    "/public/catalog/guest-product-image",
+    { params: { id, ...(visitor ? { visitor } : {}) } },
+  )
+  return data.data?.imageUrl ?? null
+}
+
 export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload & { visitorToken?: string }, sessionId?: string) {
   const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload, { headers: sessionId ? { "X-Catalog-Session": sessionId } : undefined })
   return data
 }
 
-export async function validatePublicPromoCode(code: string, customerId: string) {
-  const { data } = await api.post<ApiEnvelope<{ code: string; type: string; value: number | null; description: string | null }>>(
-    "/public/catalog/validate-promo", { code, customerId }
+/* ── Inbound WhatsApp messages (الرسائل الواردة) ────────────────────── */
+export async function getInboundMessages(params?: { status?: InboundMessageStatus }) {
+  const { data } = await api.get<ApiEnvelope<{ items: InboundMessage[]; unreadCount: number }>>("/inbound-messages", { params })
+  return data.data
+}
+
+export async function markInboundMessageRead(id: string) {
+  const { data } = await api.patch<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/read`, {})
+  return data.data
+}
+
+export async function replyToInboundMessage(id: string, text: string) {
+  const { data } = await api.post<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/reply`, { text })
+  return data.data
+}
+
+/* ── WhatsApp chat (Meta Cloud API messenger screen) ─────────────────── */
+export async function getWhatsappConversations(search?: string, includeArchived?: boolean) {
+  const { data } = await api.get<ApiEnvelope<WhatsappConversation[]>>("/whatsapp-chat/conversations", { params: { search, includeArchived } })
+  return data.data ?? []
+}
+
+export async function getWhatsappUnreadCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/whatsapp-chat/unread-count")
+  return data.data?.count ?? 0
+}
+
+export async function getWhatsappMessages(phone: string, params?: { before?: string; limit?: number }) {
+  const { data } = await api.get<ApiEnvelope<{ conversation: WhatsappConversation | null; messages: WhatsappChatMessage[]; hasMore: boolean; lastInboundAt?: string | null }>>(
+    `/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`,
+    { params }
+  )
+  return data.data ?? { conversation: null, messages: [], hasMore: false, lastInboundAt: null }
+}
+
+export async function sendWhatsappChatMessage(phone: string, text: string, replyToWaMessageId?: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`, { text, replyToWaMessageId })
+  return data.data
+}
+
+// «الموظف الذكي» — what it is doing on one conversation: standing down after
+// a human reply, and the durable facts it has learned about this number.
+export type AiConversationState = {
+  phone: string
+  /** The shop-wide switch — false means the agent answers nobody right now. */
+  enabled: boolean
+  mutedUntil: string | null
+  memories: Array<{ id: string; fact: string; createdAt: string }>
+}
+
+export async function getAiConversationState(phone: string) {
+  const { data } = await api.get<ApiEnvelope<AiConversationState>>(`/whatsapp/ai/state`, { params: { phone } })
+  return data.data
+}
+
+export async function setAiConversationMute(phone: string, minutes?: number) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string; mutedUntil: string | null }>>(`/whatsapp/ai/mute`, { phone, minutes })
+  return data.data
+}
+
+export async function deleteAiMemory(id: string) {
+  await api.delete(`/whatsapp/ai/memories/${id}`)
+}
+
+export async function sendWhatsappChatMedia(phone: string, payload: { dataUrl: string; filename?: string; caption?: string }) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/media`, payload)
+  return data.data
+}
+
+export async function sendWhatsappChatReaction(phone: string, waMessageId: string, emoji: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/reaction`, { waMessageId, emoji })
+  return data.data
+}
+
+export async function markWhatsappConversationRead(phone: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/read`, {})
+  return data.data
+}
+
+export async function archiveWhatsappConversation(phone: string, isArchived: boolean) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/archive`, { isArchived })
+  return data.data
+}
+
+export async function pinWhatsappConversation(phone: string, isPinned: boolean) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/pin`, { isPinned })
+  return data.data
+}
+
+export async function updateWhatsappConversationNotes(phone: string, notes: string) {
+  const { data } = await api.put<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/notes`, { notes })
+  return data.data
+}
+
+// Generate + send the customer's account statement as a WhatsApp PDF document.
+// `date` (YYYY-MM-DD) caps movements up to that day; omit for full history.
+export async function sendCustomerStatementPdfWhatsapp(customerId: string, date?: string, channel?: WhatsAppSendChannel) {
+  const { data } = await api.post<ApiEnvelope<never>>(`/customers/${customerId}/statement-pdf-whatsapp`, { date, channel })
+  return data
+}
+
+export async function getWhatsappQuickReplies() {
+  const { data } = await api.get<ApiEnvelope<WhatsappQuickReply[]>>("/whatsapp-chat/quick-replies")
+  return data.data ?? []
+}
+
+export async function createWhatsappQuickReply(name: string, body: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappQuickReply>>("/whatsapp-chat/quick-replies", { name, body })
+  return data.data
+}
+
+export async function deleteWhatsappQuickReply(id: string) {
+  await api.delete(`/whatsapp-chat/quick-replies/${id}`)
+}
+
+/* ── Prospects (زبائن محتملين) ──────────────────────────────────────── */
+export async function getProspects(params?: { status?: ProspectStatus; search?: string }) {
+  const { data } = await api.get<ApiEnvelope<ProspectListResult>>("/prospects", { params })
+  return data.data
+}
+
+export async function importProspects(prospects: Array<{ phone: string; name?: string }>) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects", { prospects })
+  return data.data
+}
+
+export async function importProspectsFromImages(images: string[]) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects/from-images", { images })
+  return data.data
+}
+
+export async function convertProspect(id: string, payload: { name: string; address?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string }>>(`/prospects/${id}/convert`, payload)
+  return data.data
+}
+
+export async function deleteProspect(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/prospects/${id}`)
+  return data.data
+}
+
+/* ── Campaigns (drip marketing) ─────────────────────────────────────── */
+export async function getCampaigns() {
+  const { data } = await api.get<ApiEnvelope<Campaign[]>>("/campaigns")
+  return data.data ?? []
+}
+
+export async function getCampaign(id: string) {
+  const { data } = await api.get<ApiEnvelope<CampaignDetail>>(`/campaigns/${id}`)
+  return data.data
+}
+
+export async function createCampaign(payload: CampaignPayload) {
+  const { data } = await api.post<ApiEnvelope<Campaign>>("/campaigns", payload)
+  return data.data
+}
+
+export async function updateCampaign(id: string, payload: CampaignPayload) {
+  const { data } = await api.put<ApiEnvelope<Campaign>>(`/campaigns/${id}`, payload)
+  return data.data
+}
+
+export async function deleteCampaign(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}`)
+  return data.data
+}
+
+export async function setCampaignStatus(id: string, status: CampaignStatus) {
+  const { data } = await api.patch<ApiEnvelope<Campaign>>(`/campaigns/${id}/status`, { status })
+  return data.data
+}
+
+export async function loadCampaignProspects(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>(
+    `/campaigns/${id}/recipients`, {})
+  return data.data
+}
+
+export async function deleteCampaignRecipient(id: string, recipientId: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}/recipients/${recipientId}`)
+  return data.data
+}
+
+// بند ٦ — جدول القمع لكل صيغة رسالة.
+export async function getCampaignFunnelReport(params?: { from?: string; to?: string; tag?: string }) {
+  const { data } = await api.get<ApiEnvelope<CampaignFunnelReport>>("/campaigns/funnel-report", { params })
+  return data.data
+}
+
+/* ── System health + error logs ─────────────────────────────────────── */
+export async function getSystemHealth() {
+  const { data } = await api.get<ApiEnvelope<SystemHealth>>("/health/system")
+  return data.data
+}
+
+export async function getErrorLogs(params?: { source?: ErrorLogSource; includeResolved?: boolean }) {
+  const { data } = await api.get<ApiEnvelope<ErrorLog[]> & { aiEnabled?: boolean }>("/error-logs", { params })
+  return { rows: data.data ?? [], aiEnabled: Boolean(data.aiEnabled) }
+}
+
+export async function resolveErrorLog(id: string) {
+  const { data } = await api.patch<ApiEnvelope<ErrorLog>>(`/error-logs/${id}/resolve`)
+  return data.data
+}
+
+export async function analyzeErrorLog(id: string) {
+  const { data } = await api.post<ApiEnvelope<ErrorAnalysis>>(`/error-logs/${id}/analyze`)
+  return data.data
+}
+
+export async function analyzeHealthComponent(component: string) {
+  const { data } = await api.post<ApiEnvelope<ErrorAnalysis>>("/error-logs/analyze-health", { component })
+  return data.data
+}
+
+export async function getPublicCatalogProductImage(access: string, id: string) {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>("/public/catalog/product-image", { params: { access, id } })
+  return data.data?.imageUrl ?? null
+}
+
+/* ── Catalog product page ─────────────────────────────────────────── */
+
+export interface CatalogProductSpec { label: string; value: string }
+
+export interface CatalogProductReviewItem {
+  id: string
+  rating: number
+  comment: string | null
+  createdAt: string
+  authorName: string
+}
+
+export interface CatalogProductDetail {
+  cartonPiecePrice?: number | null
+  id: string
+  itemNumber: string
+  name: string
+  thumbnailUrl: string | null
+  category: string | null
+  isNewArrival: boolean
+  isOffer: boolean
+  oldPrice: number | null
+  offerEndsAt: string | null
+  salePrice: number | null
+  pcsPerCarton: number
+  boxPieces: number | null
+  hiddenUnits: Array<"DOZEN" | "BOX" | "CARTON">
+  currentStock: number
+  showStock: boolean
+  description: string
+  specs: CatalogProductSpec[]
+  gallery: Array<{ id: string; thumbnailUrl: string | null }>
+  reviews: { average: number | null; count: number; items: CatalogProductReviewItem[] }
+  related: Array<{
+    id: string; name: string; itemNumber: string; thumbnailUrl: string | null
+    cartonPiecePrice?: number | null; salePrice: number | null; pcsPerCarton: number; currentStock: number
+  }>
+}
+
+export interface MyCatalogReview {
+  id: string
+  rating: number
+  comment: string | null
+  status: "PENDING" | "APPROVED" | "REJECTED"
+  createdAt: string
+}
+
+/** `access` is "" for guest browsing — the backend refuses if guests are off. */
+export async function getCatalogProductDetail(productId: string, access: string, visitor = "") {
+  const { data } = await api.get<ApiEnvelope<CatalogProductDetail>>(
+    `/public/catalog/product/${productId}`,
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
   )
   return data.data!
+}
+
+/**
+ * Thumbnails for the products currently on screen.
+ *
+ * The grid ships without them on purpose: a few hundred base64 thumbnails is
+ * several megabytes on the first open. `access` is "" for guest browsing.
+ */
+/**
+ * A signed-in visitor carries their own token: without it the request falls
+ * into the guest branch, which the backend refuses whenever the shop requires
+ * a login — and every card silently loses its picture.
+ */
+export async function getCatalogThumbnails(ids: string[], access: string, visitor = "") {
+  if (ids.length === 0) return {}
+  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
+    "/public/catalog/thumbnails", { ids },
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
+  )
+  return data.data ?? {}
+}
+
+export async function getCatalogGalleryImage(productId: string, imageId: string, access: string, visitor = "") {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
+    `/public/catalog/product/${productId}/image/${imageId}`,
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
+  )
+  return data.data?.imageUrl ?? null
+}
+
+export async function getMyCatalogReview(productId: string, access: string) {
+  if (!access) return null
+  const { data } = await api.get<ApiEnvelope<MyCatalogReview | null>>(
+    `/public/catalog/product/${productId}/my-review`,
+    { params: { access } },
+  )
+  return data.data ?? null
+}
+
+export async function submitCatalogProductReview(
+  productId: string, access: string, payload: { rating: number; comment?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(
+    `/public/catalog/product/${productId}/review`, payload, { params: { access } },
+  )
+  return data
+}
+
+/* ── Catalog product content + review moderation (admin) ──────────── */
+
+export interface AdminProductContent {
+  id: string
+  name: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  description: string
+  specs: CatalogProductSpec[]
+  gallery: Array<{ id: string; thumbnailUrl: string | null; sortOrder: number }>
+  isOffer: boolean
+  offerEndsAt: string | null
+}
+
+export interface AdminCatalogReview {
+  id: string
+  rating: number
+  comment: string | null
+  status: "PENDING" | "APPROVED" | "REJECTED"
+  createdAt: string
+  reviewedAt: string | null
+  product: { id: string; name: string; itemNumber: string; thumbnailUrl: string | null }
+  customer: { id: string; name: string; phone: string }
+}
+
+export interface MerchandisedProduct {
+  id: string
+  name: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  salePrice: number
+  oldPrice: number | null
+  offerEndsAt: string | null
+  isOffer: boolean
+  isNewArrival: boolean
+}
+
+/** Both storefront rows in one list, instead of one product form at a time. */
+export async function listMerchandisedProducts() {
+  const { data } = await api.get<ApiEnvelope<MerchandisedProduct[]>>("/catalog-management/merchandising")
+  return data.data ?? []
+}
+
+export async function setProductMerchandising(productId: string, patch: {
+  isOffer?: boolean; isNewArrival?: boolean; oldPrice?: number | null; offerEndsAt?: string | null
+}) {
+  const { data } = await api.patch<ApiEnvelope<{ ok: boolean }>>(
+    `/catalog-management/merchandising/${productId}`, patch,
+  )
+  return data.data!
+}
+
+export async function getProductCatalogContent(productId: string) {
+  const { data } = await api.get<ApiEnvelope<AdminProductContent>>(
+    `/catalog-management/products/${productId}/content`,
+  )
+  return data.data!
+}
+
+export async function updateProductCatalogContent(
+  productId: string,
+  payload: { description?: string; specs?: CatalogProductSpec[]; offerEndsAt?: string },
+) {
+  const { data } = await api.put<ApiEnvelope<AdminProductContent>>(
+    `/catalog-management/products/${productId}/content`, payload,
+  )
+  return data.data!
+}
+
+export async function addProductCatalogImage(
+  productId: string, payload: { url: string; thumbnailUrl?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ id: string }>>(
+    `/catalog-management/products/${productId}/images`, payload,
+  )
+  return data.data!
+}
+
+export async function deleteProductCatalogImage(productId: string, imageId: string) {
+  await api.delete(`/catalog-management/products/${productId}/images/${imageId}`)
+}
+
+export async function listCatalogReviews(status?: "PENDING" | "APPROVED" | "REJECTED") {
+  const { data } = await api.get<ApiEnvelope<AdminCatalogReview[]>>(
+    "/catalog-management/reviews", { params: status ? { status } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function setCatalogReviewStatus(id: string, status: "APPROVED" | "REJECTED") {
+  await api.patch(`/catalog-management/reviews/${id}`, { status })
+}
+
+export async function deleteCatalogReview(id: string) {
+  await api.delete(`/catalog-management/reviews/${id}`)
+}
+
+export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string, sessionId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access }, headers: sessionId ? { "X-Catalog-Session": sessionId } : undefined })
+  return data
 }
 
 export async function getAuditLogs(params?: {
@@ -312,6 +1202,51 @@ export async function getProduct(id: string) {
   return data.data
 }
 
+export async function createProduct(payload: ProductPayload) {
+  const { data } = await api.post<ApiEnvelope<Product>>("/products", payload)
+  return data
+}
+
+export async function updateProduct(id: string, payload: ProductPayload) {
+  const { data } = await api.put<ApiEnvelope<Product>>(`/products/${id}`, payload)
+  return data
+}
+
+export async function deleteProduct(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/products/${id}`)
+  return data
+}
+
+export async function getDeletedProducts() {
+  const { data } = await api.get<ApiEnvelope<Product[]>>("/products/deleted")
+  return data.data
+}
+
+export interface ManualStockAdjustment {
+  id: string
+  type: "IN" | "OUT" | "DAMAGE"
+  quantity: number
+  balanceBefore: number
+  balanceAfter: number
+  warehouseName: string | null
+  userName: string | null
+  note: string | null
+  createdAt: string
+}
+
+export async function adjustProductStock(
+  id: string,
+  payload: { warehouses: Array<{ warehouseId: string; quantityPieces: number }>; note?: string; reason: StockCorrectionReason },
+) {
+  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/adjust-stock`, payload)
+  return data.data
+}
+
+export async function getManualStockAdjustments(id: string) {
+  const { data } = await api.get<ApiEnvelope<ManualStockAdjustment[]>>(`/products/${id}/manual-adjustments`)
+  return data.data ?? []
+}
+
 export type StockMovementSource =
   | "create"
   | "manual"
@@ -340,39 +1275,6 @@ export async function getStockHistory(id: string) {
   return data.data ?? []
 }
 
-export async function createProduct(payload: ProductPayload) {
-  const { data } = await api.post<ApiEnvelope<Product>>("/products", payload)
-  return data
-}
-
-export async function updateProduct(id: string, payload: ProductPayload) {
-  const { data } = await api.put<ApiEnvelope<Product>>(`/products/${id}`, payload)
-  return data
-}
-
-export async function adjustProductStock(
-  id: string,
-  payload: { warehouses: Array<{ warehouseId: string; quantityPieces: number }>; note?: string; reason: StockCorrectionReason },
-) {
-  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/adjust-stock`, payload)
-  return data.data
-}
-
-export async function deleteProduct(id: string) {
-  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/products/${id}`)
-  return data
-}
-
-export async function getDeletedProducts() {
-  const { data } = await api.get<ApiEnvelope<Product[]>>("/products/deleted")
-  return data.data
-}
-
-export async function restoreProduct(id: string) {
-  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/restore`)
-  return data
-}
-
 // ── Stale products (no movement in N days) ──────────────────────────────────
 export interface StaleProductsResult {
   days: number
@@ -383,6 +1285,42 @@ export interface StaleProductsResult {
 export async function getStaleProducts(days = 60) {
   const { data } = await api.get<StaleProductsResult & { success: boolean }>("/products/stale", { params: { days } })
   return { days: data.days, count: data.count, data: data.data ?? [] }
+}
+
+/** A product with a full carton in stock and no carton price yet. */
+export interface MissingCartonPriceProduct extends Product {
+  fullCartons: number
+}
+
+export async function getProductsMissingCartonPrice() {
+  const { data } = await api.get<{ success: boolean; count: number; data: MissingCartonPriceProduct[] }>(
+    "/products/missing-carton-price",
+  )
+  return { count: data.count ?? 0, data: data.data ?? [] }
+}
+
+/**
+ * Partial product update — the carton price alone. Goes through the normal
+ * product update so the "must not exceed wholesale" rule stays in one place.
+ */
+export async function setCartonPiecePrice(id: string, cartonPiecePrice: number | null) {
+  const { data } = await api.put<ApiEnvelope<Product>>(`/products/${id}`, { cartonPiecePrice })
+  return data
+}
+
+export interface DataHealthReport {
+  checkedProducts: number
+  unmigratedStock: Array<{ id: string; name: string; itemNumber: string; legacyPieces: number; pcsPerCarton: number }>
+  costIssues: Array<{
+    id: string; name: string; itemNumber: string; currentStock: number
+    costPrice: number; purchasePrice: number; salePrice: number
+    issue: "MISSING_COST" | "COST_ABOVE_SALE"
+  }>
+}
+
+export async function getProductDataHealth() {
+  const { data } = await api.get<DataHealthReport & { success: boolean }>("/products/data-health")
+  return { checkedProducts: data.checkedProducts ?? 0, unmigratedStock: data.unmigratedStock ?? [], costIssues: data.costIssues ?? [] }
 }
 
 export interface NegativeStockWarehouse {
@@ -419,234 +1357,33 @@ export async function getProductsWithNegativeStock() {
   return { count: data.count ?? 0, unfixableCount: data.unfixableCount ?? 0, data: data.data ?? [] }
 }
 
-// ── «مزاد تصفية الراكد» ────────────────────────────────────────────────────
-export type AuctionStatus = "ACTIVE" | "ENDED" | "CANCELLED"
-export type AuctionIncrementType = "PERCENT" | "AMOUNT"
-
-export interface AuctionLot {
-  id: string
-  token: string
-  product: { id: string; name: string; itemNumber: string; thumbnailUrl: string | null; pcsPerCarton: number }
-  unit: "PIECE" | "CARTON"
-  quantity: number
-  startPrice: number
-  incrementType: AuctionIncrementType
-  incrementValue: number
-  currentPrice: number | null
-  nextBid: number
-  bidCount: number
-  endsAt: string
-  status: AuctionStatus
-  notes: string | null
-  endedAt: string | null
-  cancelledAt: string | null
-  acknowledgedAt: string | null
-  createdAt: string
-  winner: { name: string; phone: string; amount: number; total: number } | null
-  bids: Array<{ id: string; name: string; phone: string; amount: number; extendedEnd: boolean; createdAt: string }>
-}
-
-export interface CreateAuctionPayload {
-  productId: string
-  unit: "PIECE" | "CARTON"
-  quantity: number
-  startPrice: number
-  incrementType: AuctionIncrementType
-  incrementValue: number
-  endsAt: string
-  notes?: string
-}
-
-export async function getAuctions(status?: AuctionStatus) {
-  const { data } = await api.get<ApiEnvelope<AuctionLot[]>>("/auctions", { params: status ? { status } : undefined })
-  return data.data ?? []
-}
-
-export async function getAuctionResults() {
-  const { data } = await api.get<ApiEnvelope<AuctionLot[]>>("/auctions/results")
-  return data.data ?? []
-}
-
-export async function createAuction(payload: CreateAuctionPayload) {
-  const { data } = await api.post<ApiEnvelope<AuctionLot>>("/auctions", payload)
-  return data.data!
-}
-
-export async function cancelAuction(id: string) {
-  const { data } = await api.post<ApiEnvelope<AuctionLot>>(`/auctions/${id}/cancel`, {})
-  return data.data!
-}
-
-export async function acknowledgeAuction(id: string) {
-  const { data } = await api.post<ApiEnvelope<AuctionLot>>(`/auctions/${id}/acknowledge`, {})
-  return data.data!
-}
-
-export interface PublicAuction {
-  token: string
-  product: { name: string; itemNumber: string; thumbnailUrl: string | null; pcsPerCarton: number }
-  unit: "PIECE" | "CARTON"
-  quantity: number
-  startPrice: number
-  incrementType: AuctionIncrementType
-  incrementValue: number
-  currentPrice: number | null
-  nextBid: number
-  bidCount: number
-  endsAt: string
-  serverNow: string
-  status: AuctionStatus
-  notes: string | null
-  bids: Array<{ name: string; phone: string; amount: number; createdAt: string; mine: boolean }>
-  leading: boolean
-  won: boolean
-}
-
-export async function getPublicAuction(token: string, phone?: string) {
-  const { data } = await publicApi.get<ApiEnvelope<PublicAuction>>(`/public/auctions/${token}`, { params: phone ? { phone } : undefined })
-  return data.data!
-}
-
-export async function placeAuctionBid(token: string, body: { name: string; phone: string; expectedAmount: number }) {
-  const { data } = await publicApi.post<ApiEnvelope<PublicAuction>>(`/public/auctions/${token}/bid`, body)
-  return data.data!
-}
-
-/* ── «الكشك» — the screen standing in the shop ───────────────────────
- * The token in the path is the screen's only credential, so every call
- * carries it. Nothing here needs a login, and nothing here is cached
- * between customers.
- */
-
-export type KioskConfig = {
-  storeName: string
-  title: string
-  priceMode: "WHOLESALE" | "CARTON"
-}
-
-export type KioskProduct = {
-  id: string
-  itemNumber: string
-  name: string
-  category: string | null
-  hasImage: boolean
-  salePrice: number | null
-  cartonPiecePrice: number | null
-  pcsPerCarton: number
-  boxPieces: number | null
-  currentStock: number
-  isOffer: boolean
-  isNewArrival: boolean
-}
-
-export async function getKioskConfig(token: string) {
-  const { data } = await publicApi.get<ApiEnvelope<KioskConfig>>(`/public/kiosk/${token}`)
-  return data.data!
-}
-
-export async function getKioskProducts(token: string) {
-  const { data } = await publicApi.get<ApiEnvelope<KioskProduct[]>>(`/public/kiosk/${token}/products`)
-  return data.data ?? []
-}
-
-export async function getKioskThumbnails(token: string, ids: string[]) {
-  const { data } = await publicApi.post<ApiEnvelope<Record<string, string | null>>>(
-    `/public/kiosk/${token}/thumbnails`,
-    { ids },
-  )
-  return data.data ?? {}
-}
-
-export async function submitKioskOrder(
-  token: string,
-  body: {
-    customerName: string
-    phone: string
-    notes?: string
-    items: Array<{ productId: string; unit: string; quantity: number }>
-  },
-) {
-  const { data } = await publicApi.post<ApiEnvelope<{ approvalId: string }>>(
-    `/public/kiosk/${token}/orders`,
-    body,
-  )
-  return data.data!
-}
-
-/** Admin: a fresh kiosk link (and the kiosk switched on). */
-export async function rotateKioskToken() {
-  const { data } = await api.post<ApiEnvelope<{ token: string }>>("/settings/kiosk/rotate")
-  return data.data!.token
-}
-
-export type PurchaseSource = "CHINA" | "REGULAR"
-export type PerformanceLevel = "HIGH" | "MEDIUM" | "LOW"
-export type PerformanceCategory =
-  | "BEST" | "HIGH_PROFIT_MEDIUM" | "HIGH_PROFIT_SLOW" | "FAST_LOW_PROFIT"
-  | "BALANCED" | "STAGNANT" | "NEW" | "OTHER"
-
-export interface PurchaseLotPerformance {
-  lotId: string
-  invoiceId: string
-  invoiceNumber: string
-  supplierName: string
-  date: string
-  source: PurchaseSource
-  productId: string
-  productName: string
-  itemNumber: string
-  thumbnailUrl: string | null
-  pcsPerCarton: number
-  orderedPieces: number
-  soldPieces: number
-  remainingPieces: number
-  soldPercent: number
-  daysActive: number
-  soldOut: boolean
-  piecesPerDay: number
-  daysToSellOut: number | null
-  costPerPiece: number
-  revenue: number
-  cost: number
-  profit: number
-  margin: number
-  marginIsExpected: boolean
-  speedLevel: PerformanceLevel
-  profitLevel: PerformanceLevel
-  category: PerformanceCategory
-  score: number
-}
-
-export interface PurchaseOrderPerformance {
-  invoiceId: string
-  invoiceNumber: string
-  supplierName: string
-  date: string
-  source: PurchaseSource
-  lines: number
-  orderedPieces: number
-  soldPieces: number
-  soldPercent: number
-  revenue: number
-  profit: number
-  margin: number
-  best: number
-  stagnant: number
-}
-
-export interface PurchasePerformanceReport {
-  rows: PurchaseLotPerformance[]
-  orders: PurchaseOrderPerformance[]
-  categoryCounts: Partial<Record<PerformanceCategory, number>>
-}
-
-export async function getPurchasePerformance(params: { invoiceId?: string; source?: PurchaseSource; category?: PerformanceCategory }) {
-  const { data } = await api.get<ApiEnvelope<PurchasePerformanceReport>>("/reports/purchase-performance", { params })
-  return data.data!
-}
-
 export async function bulkDeleteProducts(ids: string[]) {
   const { data } = await api.post<{ success: boolean; deleted: number; message?: string }>("/products/bulk-delete", { ids })
+  return data
+}
+
+export interface VarietyConvertResult {
+  targetProductId: string
+  targetProductName: string
+  addedPieces: number
+  newCost: number
+  lines: Array<{ productId: string; productName: string; pieces: number }>
+}
+
+export async function convertToVariety(payload: {
+  fromWarehouseId: string
+  targetProductId: string
+  toWarehouseId?: string
+  allowNegative?: boolean
+  notes?: string
+  items: Array<{ productId: string; unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"; quantity: number }>
+}) {
+  const { data } = await api.post<ApiEnvelope<VarietyConvertResult>>("/products/variety-convert", payload)
+  return data.data
+}
+
+export async function restoreProduct(id: string) {
+  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/restore`)
   return data
 }
 
@@ -676,6 +1413,8 @@ export async function productPieceLabelPdf(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
+// Absolute label URLs — the desktop opens these in the system browser
+// (deliverLabel), because a blob download is a no-op inside WebView2.
 export function productPieceLabelPdfUrl(productId: string) {
   return `${api.defaults.baseURL}/products/${productId}/label/piece.pdf`
 }
@@ -833,6 +1572,31 @@ export async function getCustomers(params?: { search?: string; isSupplier?: bool
     return data.data ?? []
   }
   return fetchAllPages<Customer>("/customers", { ...params })
+}
+
+// ── One-off opening-balance migration (temporary «نقل الأرصدة» page) ──
+export interface BalanceMigrationEntry {
+  tempId: string
+  action: "create" | "link"
+  name: string
+  phone?: string | null
+  amount: number
+  customerId?: string | null
+  notes?: string | null
+  oldCode?: string | null
+}
+
+export interface BalanceMigrationResult {
+  created: number
+  linked: number
+  failed: number
+  totalApplied: number
+  results: Array<{ tempId: string; status: "created" | "linked" | "failed"; customerId?: string; error?: string }>
+}
+
+export async function applyOpeningBalances(entries: BalanceMigrationEntry[]) {
+  const { data } = await api.post<ApiEnvelope<BalanceMigrationResult>>("/balance-migration/apply", { entries })
+  return data.data!
 }
 
 export async function getCustomerTags() {
@@ -1129,7 +1893,7 @@ export async function reactivateInvoice(id: string) {
 }
 
 export async function permanentDeleteInvoice(id: string, returnWarehouseId?: string) {
-  const { data } = await api.delete<ApiEnvelope<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/permanent`, {
+  const { data } = await api.delete<ApiEnvelope<Invoice>>(`/invoices/${id}/permanent`, {
     params: returnWarehouseId ? { returnWarehouseId } : undefined,
   })
   return data
@@ -1294,13 +2058,6 @@ export async function sendVoucherPdfWhatsapp(id: string, message: string, channe
   return data
 }
 
-// Generate + send the customer's account statement as a WhatsApp PDF document.
-// `date` (YYYY-MM-DD) caps movements up to that day; omit for full history.
-export async function sendCustomerStatementPdfWhatsapp(customerId: string, date?: string, channel?: WhatsAppSendChannel) {
-  const { data } = await api.post<ApiEnvelope<never>>(`/customers/${customerId}/statement-pdf-whatsapp`, { date, channel })
-  return data
-}
-
 export async function createReceipt(payload: VoucherPayload) {
   return createVoucher(payload)
 }
@@ -1379,122 +2136,6 @@ export async function getSettings() {
 export async function updateSettings(payload: Partial<AppSettings>) {
   const { data } = await api.put<ApiEnvelope<AppSettings>>("/settings", payload)
   return data
-}
-
-/* ── Inbound WhatsApp messages (الرسائل الواردة) ────────────────────── */
-export async function getInboundMessages(params?: { status?: InboundMessageStatus }) {
-  const { data } = await api.get<ApiEnvelope<{ items: InboundMessage[]; unreadCount: number }>>("/inbound-messages", { params })
-  return data.data
-}
-
-export async function markInboundMessageRead(id: string) {
-  const { data } = await api.patch<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/read`, {})
-  return data.data
-}
-
-export async function replyToInboundMessage(id: string, text: string) {
-  const { data } = await api.post<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/reply`, { text })
-  return data.data
-}
-
-/* ── Prospects (زبائن محتملين) ──────────────────────────────────────── */
-export async function getProspects(params?: { status?: ProspectStatus; search?: string }) {
-  const { data } = await api.get<ApiEnvelope<ProspectListResult>>("/prospects", { params })
-  return data.data
-}
-
-export async function importProspects(prospects: Array<{ phone: string; name?: string }>) {
-  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects", { prospects })
-  return data.data
-}
-
-export async function importProspectsFromImages(images: string[]) {
-  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects/from-images", { images })
-  return data.data
-}
-
-export async function convertProspect(id: string, payload: { name: string; address?: string }) {
-  const { data } = await api.post<ApiEnvelope<{ customerId: string }>>(`/prospects/${id}/convert`, payload)
-  return data.data
-}
-
-export async function deleteProspect(id: string) {
-  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/prospects/${id}`)
-  return data.data
-}
-
-/* ── Campaigns (drip marketing) ─────────────────────────────────────── */
-export async function getCampaigns() {
-  const { data } = await api.get<ApiEnvelope<Campaign[]>>("/campaigns")
-  return data.data ?? []
-}
-
-export async function getCampaign(id: string) {
-  const { data } = await api.get<ApiEnvelope<CampaignDetail>>(`/campaigns/${id}`)
-  return data.data
-}
-
-export async function createCampaign(payload: CampaignPayload) {
-  const { data } = await api.post<ApiEnvelope<Campaign>>("/campaigns", payload)
-  return data.data
-}
-
-export async function updateCampaign(id: string, payload: CampaignPayload) {
-  const { data } = await api.put<ApiEnvelope<Campaign>>(`/campaigns/${id}`, payload)
-  return data.data
-}
-
-export async function deleteCampaign(id: string) {
-  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}`)
-  return data.data
-}
-
-export async function setCampaignStatus(id: string, status: CampaignStatus) {
-  const { data } = await api.patch<ApiEnvelope<Campaign>>(`/campaigns/${id}/status`, { status })
-  return data.data
-}
-
-export async function loadCampaignProspects(id: string) {
-  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>(
-    `/campaigns/${id}/recipients`, {})
-  return data.data
-}
-
-export async function deleteCampaignRecipient(id: string, recipientId: string) {
-  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}/recipients/${recipientId}`)
-  return data.data
-}
-
-// بند ٦ — جدول القمع لكل صيغة رسالة.
-export async function getCampaignFunnelReport(params?: { from?: string; to?: string; tag?: string }) {
-  const { data } = await api.get<ApiEnvelope<CampaignFunnelReport>>("/campaigns/funnel-report", { params })
-  return data.data
-}
-
-/* ── System health + error logs ─────────────────────────────────────── */
-export async function getSystemHealth() {
-  const { data } = await api.get<ApiEnvelope<SystemHealth>>("/health/system")
-  return data.data
-}
-
-export async function getErrorLogs(params?: { source?: ErrorLogSource; includeResolved?: boolean }) {
-  const { data } = await api.get<ApiEnvelope<ErrorLog[]> & { aiEnabled?: boolean }>("/error-logs", { params })
-  return { rows: data.data ?? [], aiEnabled: Boolean(data.aiEnabled) }
-}
-
-export async function resolveErrorLog(id: string) {
-  const { data } = await api.patch<ApiEnvelope<ErrorLog>>(`/error-logs/${id}/resolve`)
-  return data.data
-}
-
-export async function analyzeErrorLog(id: string) {
-  const { data } = await api.post<ApiEnvelope<ErrorAnalysis>>(`/error-logs/${id}/analyze`)
-  return data.data
-}
-
-export async function analyzeHealthComponent(component: string) {
-  const { data } = await api.post<ApiEnvelope<ErrorAnalysis>>("/error-logs/analyze-health", { component })
-  return data.data
 }
 
 export interface LicenseInfo {
@@ -1711,6 +2352,7 @@ export interface WorkerSendResult {
   skipped: { phone: string; reason: string }[]
 }
 
+// Send the (customer-safe) invoice PDF to selected preparation workers.
 export async function sendInvoiceToWorkers(invoiceId: string, phones: string[], channel?: WhatsAppSendChannel) {
   const { data } = await api.post<ApiEnvelope<WorkerSendResult>>(
     `/whatsapp/send-invoice-to-workers/${invoiceId}`,
@@ -1857,21 +2499,6 @@ export async function getWhatsAppStatus() {
   return data.data
 }
 
-export interface WabaSubscribedApp {
-  whatsapp_business_api_data?: { id?: string; name?: string; link?: string }
-}
-
-// Which Meta Apps are subscribed to this WABA's webhook events.
-export async function getWabaSubscribedApps(wabaId?: string) {
-  const { data } = await api.get<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { params: { wabaId } })
-  return data.data
-}
-
-export async function subscribeAppToWaba(wabaId?: string) {
-  const { data } = await api.post<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { wabaId })
-  return data.data
-}
-
 export async function restartWhatsApp() {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/restart")
   return data
@@ -1910,6 +2537,20 @@ export async function checkWhatsAppWebhook() {
 
 export async function regenerateVerifyToken() {
   const { data } = await api.post<ApiEnvelope<{ verifyToken: string }>>("/whatsapp/verify-token/regenerate")
+  return data.data
+}
+
+export interface WabaSubscribedApp {
+  whatsapp_business_api_data?: { id?: string; name?: string; link?: string }
+}
+
+export async function getWabaSubscribedApps(wabaId?: string) {
+  const { data } = await api.get<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { params: { wabaId } })
+  return data.data
+}
+
+export async function subscribeAppToWaba(wabaId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { wabaId })
   return data.data
 }
 
@@ -2015,6 +2656,21 @@ export async function convertCatalogVisitor(phone: string, opts?: { name?: strin
   return data.data!
 }
 
+export interface VisitSession {
+  id: string
+  startedAt: string
+  lastBeatAt: string
+  seconds: number
+}
+
+/** The individual visits behind one phone's running total. */
+export async function getVisitorSessions(phone: string) {
+  const { data } = await api.get<ApiEnvelope<VisitSession[]>>(
+    `/catalog-management/visitors/${encodeURIComponent(phone)}/sessions`,
+  )
+  return data.data ?? []
+}
+
 export async function broadcastToCatalogVisitors(message: string, phones?: string[]) {
   const { data } = await api.post<ApiEnvelope<{ started: boolean; total: number }>>("/catalog-management/visitors/broadcast", { message, phones })
   return data.data!
@@ -2027,26 +2683,30 @@ export async function getCatalogProductStats() {
   return data.data ?? { topViewed: [], topOrdered: [], totalViews: 0, totalOrders: 0 }
 }
 
-// Deduped per device per day so repeat opens of the same product by the same
-// visitor count once — the counter reflects unique daily interest, not clicks.
-export async function trackCatalogProductView(productId: string, phone?: string) {
-  if (!productId) return
-  try {
-    const key = `catalog_viewed_${new Date().toISOString().slice(0, 10)}`
-    const seen: string[] = JSON.parse(localStorage.getItem(key) || "[]")
-    if (seen.includes(productId)) return
-    seen.push(productId)
-    localStorage.setItem(key, JSON.stringify(seen))
-  } catch { /* localStorage unavailable — fall through and still count */ }
-  try { await api.post("/public/catalog/track-view", { productId, phone }) } catch { /* best-effort */ }
+export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean; stockFilter?: CatalogStockFilter }) {
+  const { data } = await api.post<ApiEnvelope<{ token: string; urlPath: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter }>>(
+    `/catalog-management/${customerId}/grant`,
+    opts,
+  )
+  return data.data!
 }
 
-// Fire-and-forget: accumulate seconds of active browsing time for this visitor.
-export async function postVisitorHeartbeat(phone: string, seconds: number) {
-  if (!phone || seconds <= 0) return
-  try { await api.post("/public/catalog/visitor-heartbeat", { phone, seconds }) } catch { /* best-effort */ }
+export async function patchCatalogAccess(customerId: string, patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter }) {
+  const { data } = await api.patch<ApiEnvelope<{ allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter; token: string }>>(
+    `/catalog-management/${customerId}`,
+    patch,
+  )
+  return data.data!
 }
 
+export async function revokeCatalogAccess(customerId: string) {
+  const { data } = await api.delete<ApiEnvelope<never>>(`/catalog-management/${customerId}`)
+  return data
+}
+
+// ── Catalog Design Settings ───────────────────────────────────────────────────
+/** Storefront footer. Every string is "" until an admin fills it in, and an
+ *  empty value hides its row in the catalog rather than showing a blank one. */
 export interface CatalogFooter {
   enabled: boolean
   about: string
@@ -2109,7 +2769,7 @@ export async function updateCatalogDesign(payload: Partial<CatalogDesign>) {
   return data
 }
 
-/* ── Admin promo codes (catalog) ────────────────────────────────────────── */
+// ── Promo Codes ───────────────────────────────────────────────────────────────
 export interface PromoCode {
   id: string
   code: string
@@ -2153,25 +2813,17 @@ export async function toggleAdminPromoCode(id: string, active: boolean) {
   return data.data!
 }
 
-export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean; stockFilter?: CatalogStockFilter }) {
-  const { data } = await api.post<ApiEnvelope<{ token: string; urlPath: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter }>>(
-    `/catalog-management/${customerId}/grant`,
-    opts,
-  )
-  return data.data!
+// بند ٧ — تقرير كوبون أول طلب.
+export async function getFirstOrderCouponReport() {
+  const { data } = await api.get<ApiEnvelope<FirstOrderCouponReport>>("/catalog-management/promo-codes/first-order-report")
+  return data.data
 }
 
-export async function patchCatalogAccess(customerId: string, patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter }) {
-  const { data } = await api.patch<ApiEnvelope<{ allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter; token: string }>>(
-    `/catalog-management/${customerId}`,
-    patch,
+export async function validatePublicPromoCode(code: string, customerId: string) {
+  const { data } = await api.post<ApiEnvelope<{ code: string; type: string; value: number | null; description: string | null }>>(
+    "/public/catalog/validate-promo", { code, customerId }
   )
   return data.data!
-}
-
-export async function revokeCatalogAccess(customerId: string) {
-  const { data } = await api.delete<ApiEnvelope<never>>(`/catalog-management/${customerId}`)
-  return data
 }
 
 // ── Order Preparations ───────────────────────────────────────────────────────
@@ -2191,6 +2843,7 @@ export async function completeOrderPreparation(id: string, invoiceId: string) {
   return data
 }
 
+// Cancel a pending preparation (rejected / not prepared)
 // «زبون جديد — نسويله حساب؟» (Telegram bot orders with an unregistered phone)
 export async function createPreparationCustomer(id: string) {
   const { data } = await api.post<ApiEnvelope<{ customerId: string; name: string; created: boolean }>>(
@@ -2200,7 +2853,6 @@ export async function createPreparationCustomer(id: string) {
   return data
 }
 
-// Cancel a pending preparation (rejected / not prepared)
 export async function cancelOrderPreparation(id: string) {
   const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(`/order-preparations/${id}/cancel`, {})
   return data
@@ -2210,6 +2862,264 @@ export async function cancelOrderPreparation(id: string) {
 export async function getProfitReport(params?: { from?: string; to?: string; groupBy?: "day" | "week" | "month" }) {
   const { data } = await api.get<ApiEnvelope<ProfitReport>>("/reports/profit", { params })
   return data.data!
+}
+
+// ── «مزاد تصفية الراكد» ────────────────────────────────────────────────────
+export type AuctionStatus = "ACTIVE" | "ENDED" | "CANCELLED"
+export type AuctionIncrementType = "PERCENT" | "AMOUNT"
+
+export interface AuctionLot {
+  id: string
+  token: string
+  product: { id: string; name: string; itemNumber: string; thumbnailUrl: string | null; pcsPerCarton: number }
+  unit: "PIECE" | "CARTON"
+  quantity: number
+  startPrice: number
+  incrementType: AuctionIncrementType
+  incrementValue: number
+  currentPrice: number | null
+  nextBid: number
+  bidCount: number
+  endsAt: string
+  status: AuctionStatus
+  notes: string | null
+  endedAt: string | null
+  cancelledAt: string | null
+  acknowledgedAt: string | null
+  createdAt: string
+  winner: { name: string; phone: string; amount: number; total: number } | null
+  bids: Array<{ id: string; name: string; phone: string; amount: number; extendedEnd: boolean; createdAt: string }>
+}
+
+export interface CreateAuctionPayload {
+  productId: string
+  unit: "PIECE" | "CARTON"
+  quantity: number
+  startPrice: number
+  incrementType: AuctionIncrementType
+  incrementValue: number
+  endsAt: string
+  notes?: string
+}
+
+export async function getAuctions(status?: AuctionStatus) {
+  const { data } = await api.get<ApiEnvelope<AuctionLot[]>>("/auctions", { params: status ? { status } : undefined })
+  return data.data ?? []
+}
+
+export async function getAuctionResults() {
+  const { data } = await api.get<ApiEnvelope<AuctionLot[]>>("/auctions/results")
+  return data.data ?? []
+}
+
+export async function createAuction(payload: CreateAuctionPayload) {
+  const { data } = await api.post<ApiEnvelope<AuctionLot>>("/auctions", payload)
+  return data.data!
+}
+
+export async function cancelAuction(id: string) {
+  const { data } = await api.post<ApiEnvelope<AuctionLot>>(`/auctions/${id}/cancel`, {})
+  return data.data!
+}
+
+export async function acknowledgeAuction(id: string) {
+  const { data } = await api.post<ApiEnvelope<AuctionLot>>(`/auctions/${id}/acknowledge`, {})
+  return data.data!
+}
+
+export interface PublicAuction {
+  token: string
+  product: { name: string; itemNumber: string; thumbnailUrl: string | null; pcsPerCarton: number }
+  unit: "PIECE" | "CARTON"
+  quantity: number
+  startPrice: number
+  incrementType: AuctionIncrementType
+  incrementValue: number
+  currentPrice: number | null
+  nextBid: number
+  bidCount: number
+  endsAt: string
+  serverNow: string
+  status: AuctionStatus
+  notes: string | null
+  bids: Array<{ name: string; phone: string; amount: number; createdAt: string; mine: boolean }>
+  leading: boolean
+  won: boolean
+}
+
+export async function getPublicAuction(token: string, phone?: string) {
+  const { data } = await publicApi.get<ApiEnvelope<PublicAuction>>(`/public/auctions/${token}`, { params: phone ? { phone } : undefined })
+  return data.data!
+}
+
+export async function placeAuctionBid(token: string, body: { name: string; phone: string; expectedAmount: number }) {
+  const { data } = await publicApi.post<ApiEnvelope<PublicAuction>>(`/public/auctions/${token}/bid`, body)
+  return data.data!
+}
+
+/* ── «الكشك» — the screen standing in the shop ───────────────────────
+ * The token in the path is the screen's only credential, so every call
+ * carries it. Nothing here needs a login, and nothing here is cached
+ * between customers.
+ */
+
+export type KioskConfig = {
+  storeName: string
+  title: string
+  priceMode: "WHOLESALE" | "CARTON"
+}
+
+export type KioskProduct = {
+  id: string
+  itemNumber: string
+  name: string
+  category: string | null
+  hasImage: boolean
+  salePrice: number | null
+  cartonPiecePrice: number | null
+  pcsPerCarton: number
+  boxPieces: number | null
+  currentStock: number
+  isOffer: boolean
+  isNewArrival: boolean
+}
+
+export async function getKioskConfig(token: string) {
+  const { data } = await publicApi.get<ApiEnvelope<KioskConfig>>(`/public/kiosk/${token}`)
+  return data.data!
+}
+
+export async function getKioskProducts(token: string) {
+  const { data } = await publicApi.get<ApiEnvelope<KioskProduct[]>>(`/public/kiosk/${token}/products`)
+  return data.data ?? []
+}
+
+export async function getKioskThumbnails(token: string, ids: string[]) {
+  const { data } = await publicApi.post<ApiEnvelope<Record<string, string | null>>>(
+    `/public/kiosk/${token}/thumbnails`,
+    { ids },
+  )
+  return data.data ?? {}
+}
+
+export async function submitKioskOrder(
+  token: string,
+  body: {
+    customerName: string
+    phone: string
+    notes?: string
+    items: Array<{ productId: string; unit: string; quantity: number }>
+  },
+) {
+  const { data } = await publicApi.post<ApiEnvelope<{ approvalId: string }>>(
+    `/public/kiosk/${token}/orders`,
+    body,
+  )
+  return data.data!
+}
+
+/** Admin: a fresh kiosk link (and the kiosk switched on). */
+export async function rotateKioskToken() {
+  const { data } = await api.post<ApiEnvelope<{ token: string }>>("/settings/kiosk/rotate")
+  return data.data!.token
+}
+
+export type PurchaseSource = "CHINA" | "REGULAR"
+export type PerformanceLevel = "HIGH" | "MEDIUM" | "LOW"
+export type PerformanceCategory =
+  | "BEST" | "HIGH_PROFIT_MEDIUM" | "HIGH_PROFIT_SLOW" | "FAST_LOW_PROFIT"
+  | "BALANCED" | "STAGNANT" | "NEW" | "OTHER"
+
+export interface PurchaseLotPerformance {
+  lotId: string
+  invoiceId: string
+  invoiceNumber: string
+  supplierName: string
+  date: string
+  source: PurchaseSource
+  productId: string
+  productName: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  pcsPerCarton: number
+  orderedPieces: number
+  soldPieces: number
+  remainingPieces: number
+  soldPercent: number
+  daysActive: number
+  soldOut: boolean
+  piecesPerDay: number
+  daysToSellOut: number | null
+  costPerPiece: number
+  revenue: number
+  cost: number
+  profit: number
+  margin: number
+  marginIsExpected: boolean
+  speedLevel: PerformanceLevel
+  profitLevel: PerformanceLevel
+  category: PerformanceCategory
+  score: number
+}
+
+export interface PurchaseOrderPerformance {
+  invoiceId: string
+  invoiceNumber: string
+  supplierName: string
+  date: string
+  source: PurchaseSource
+  lines: number
+  orderedPieces: number
+  soldPieces: number
+  soldPercent: number
+  revenue: number
+  profit: number
+  margin: number
+  best: number
+  stagnant: number
+}
+
+export interface PurchasePerformanceReport {
+  rows: PurchaseLotPerformance[]
+  orders: PurchaseOrderPerformance[]
+  categoryCounts: Partial<Record<PerformanceCategory, number>>
+}
+
+export async function getPurchasePerformance(params: { invoiceId?: string; source?: PurchaseSource; category?: PerformanceCategory }) {
+  const { data } = await api.get<ApiEnvelope<PurchasePerformanceReport>>("/reports/purchase-performance", { params })
+  return data.data!
+}
+
+export interface MarginRow {
+  id: string
+  name: string
+  detail: string
+  revenue: number
+  cost: number
+  profit: number
+  margin: number
+  qty: number
+  invoices: number
+  /** Revenue whose cost is unknown — margin on this part is not real. */
+  revenueWithoutCost: number
+}
+
+export interface MarginReport {
+  from: string | null
+  to: string | null
+  totals: {
+    revenue: number; cost: number; profit: number; margin: number
+    revenueWithoutCost: number
+    /** Share of revenue that HAS a known cost, as a percentage. */
+    costCoverage: number
+  }
+  products: MarginRow[]
+  customers: MarginRow[]
+}
+
+export async function getMarginReport(params: { from?: string; to?: string }) {
+  const { data } = await api.get<ApiEnvelope<MarginReport>>("/reports/margins", { params })
+  return data.data
 }
 
 export async function getWarehouseComparisonReport(params?: { from?: string; to?: string }) {
@@ -2237,7 +3147,7 @@ export async function getStoreBrainReport(params?: { from?: string; to?: string 
   return data.data!
 }
 
-// ── «المساعد الذكي اليومي» (Daily Smart Assistant) — cloud backend only in V1 ──
+// ── «المساعد الذكي اليومي» (Daily Smart Assistant) ────────────────────────────
 export async function getDailyAssistant(params?: { date?: string; refresh?: boolean }) {
   const { data } = await api.get<ApiEnvelope<DailyAssistantReport>>("/reports/daily-assistant", { params })
   return data.data!
@@ -2462,6 +3372,7 @@ export interface LandedCostBatch {
   purchaseInvoice: { id: string; invoiceNumber: string } | null
   createdAt: string
   appliedAt: string | null
+  /** Set while the batch is held: roughly when the container lands. */
   expectedArrivalAt?: string | null
   /** Full rows — present on the single-batch endpoint only. */
   items?: LandedCostItem[]
@@ -2536,6 +3447,10 @@ export async function confirmLandedCostBatch(id: string, payload: { supplierCust
   return data.data!
 }
 
+/**
+ * «ما وصلت بعد» — nothing goes on the books; the rows show up on the
+ * storefront as «البضاعة القادمة» for customers to reserve against instead.
+ */
 export async function holdLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number; expectedAt?: string | null }) {
   const { data } = await api.post<ApiEnvelope<{ incomingCount: number; skippedCount: number; expectedAt: string | null }>>(
     `/landed-cost/batches/${id}/hold`, payload,
@@ -2543,8 +3458,17 @@ export async function holdLandedCostBatch(id: string, payload: { supplierCustome
   return data.data!
 }
 
+/** «وصلت الشحنة» — the whole held batch lands at once. */
 export async function markLandedCostBatchArrived(id: string) {
   const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(`/landed-cost/batches/${id}/arrived`, {})
+  return data.data!
+}
+
+/** «وصلت» on one incoming card, for a shipment landing in parts. */
+export async function markIncomingItemArrived(incomingItemId: string) {
+  const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(
+    `/landed-cost/incoming/${incomingItemId}/arrived`, {},
+  )
   return data.data!
 }
 
@@ -2972,27 +3896,6 @@ export async function cancelStockLoss(id: string) {
   return data.data!
 }
 
-
-export interface VarietyConvertResult {
-  targetProductId: string
-  targetProductName: string
-  addedPieces: number
-  newCost: number
-  lines: Array<{ productId: string; productName: string; pieces: number }>
-}
-
-export async function convertToVariety(payload: {
-  fromWarehouseId: string
-  targetProductId: string
-  toWarehouseId?: string
-  allowNegative?: boolean
-  notes?: string
-  items: Array<{ productId: string; unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"; quantity: number }>
-}) {
-  const { data } = await api.post<ApiEnvelope<VarietyConvertResult>>("/products/variety-convert", payload)
-  return data.data
-}
-
 // ── Voice Invoice ─────────────────────────────────────────────────────────────
 
 export interface VoiceParsedPlan {
@@ -3039,6 +3942,7 @@ export async function voiceExecute(plan: VoiceParsedPlan["plan"]) {
   return data.data!
 }
 
+// ── Instagram auto-publish («كتلوك المفرد») ───────────────────────────────────
 
 export interface InstagramAccount {
   id: string
@@ -3052,6 +3956,11 @@ export interface InstagramAccount {
   tokenExpiresAt?: string | null
   tokenExpiringSoon?: boolean
   createdAt: string
+}
+
+export type InstagramMediaPlan = {
+  media: Array<{ kind: "image"; imageIndex: number } | { kind: "video" }>
+  coverImageIndex?: number
 }
 
 export interface InstagramPost {
@@ -3097,57 +4006,6 @@ export interface InstagramHashtagGroup {
   hashtags: string[]
 }
 
-/* ── Ported from inventory-web for desktop parity ─────────────────────────
-   Personal debts, the WhatsApp messenger screen and Instagram auto-publish.
-   The backend routes already existed and are shared; only the desktop client
-   was missing these bindings. Keep them byte-identical to the web copies. */
-
-export async function archiveWhatsappConversation(phone: string, isArchived: boolean) {
-  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/archive`, { isArchived })
-  return data.data
-}
-
-export async function createInstagramHashtagGroup(payload: { name: string; category?: string; hashtags: string[] }) {
-  const { data } = await api.post<ApiEnvelope<InstagramHashtagGroup>>("/instagram/hashtag-groups", payload)
-  return data.data!
-}
-
-export async function createInstagramQueue(payload: { accountId: string; name?: string; scheduleType: "FIXED_TIMES" | "INTERVAL"; times?: string[]; intervalMinutes?: number; postsPerDay: number }) {
-  const { data } = await api.post<ApiEnvelope<InstagramQueue>>("/instagram/queues", payload)
-  return data.data!
-}
-
-export async function createPersonalDebt(payload: CreatePersonalDebtPayload) {
-  const { data } = await api.post<ApiEnvelope<PersonalDebt>>("/personal-debts", payload)
-  return data.data
-}
-
-export async function createWhatsappQuickReply(name: string, body: string) {
-  const { data } = await api.post<ApiEnvelope<WhatsappQuickReply>>("/whatsapp-chat/quick-replies", { name, body })
-  return data.data
-}
-
-export async function deleteInstagramHashtagGroup(id: string) {
-  await api.delete(`/instagram/hashtag-groups/${id}`)
-}
-
-export async function deleteInstagramPost(id: string) {
-  await api.delete(`/instagram/posts/${id}`)
-}
-
-export async function deleteInstagramQueue(id: string) {
-  await api.delete(`/instagram/queues/${id}`)
-}
-
-export async function deletePersonalDebt(id: string) {
-  const { data } = await api.delete<ApiEnvelope<never>>(`/personal-debts/${id}`)
-  return data
-}
-
-export async function deleteWhatsappQuickReply(id: string) {
-  await api.delete(`/whatsapp-chat/quick-replies/${id}`)
-}
-
 export async function getInstagramAppConfig() {
   const { data } = await api.get<ApiEnvelope<{ appId: string; hasAppSecret: boolean }>>("/instagram/app-config")
   return data.data!
@@ -3182,6 +4040,15 @@ export async function disconnectInstagramAccount(id: string) {
   await api.post(`/instagram/accounts/${id}/disconnect`)
 }
 
+export async function deleteInstagramAccount(id: string) {
+  await api.delete(`/instagram/accounts/${id}`)
+}
+
+export async function getInstagramQuota(accountId: string) {
+  const { data } = await api.get<ApiEnvelope<{ used: number; total: number }>>(`/instagram/accounts/${accountId}/quota`)
+  return data.data!
+}
+
 export async function uploadRetailItemVideo(itemId: string, file: File, meta: { duration?: number; width?: number; height?: number }) {
   const form = new FormData()
   form.append("video", file)
@@ -3205,102 +4072,22 @@ export async function getInstagramHashtagGroups() {
   return data.data ?? []
 }
 
-export async function getInstagramPosts(params?: { status?: string; retailItemId?: string }) {
-  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>("/instagram/posts", { params })
-  return data.data ?? []
-}
-
-export async function getInstagramQueuePosts(queueId: string) {
-  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>(`/instagram/queues/${queueId}/posts`)
-  return data.data ?? []
-}
-
-export async function getInstagramQueues() {
-  const { data } = await api.get<ApiEnvelope<InstagramQueue[]>>("/instagram/queues")
-  return data.data ?? []
-}
-
-// «الديون الشخصية» — unrelated to shop customers.
-export async function getPersonalDebts() {
-  const { data } = await api.get<ApiEnvelope<PersonalDebt[]>>("/personal-debts")
-  return data.data ?? []
-}
-
-export async function getWhatsappConversations(search?: string, includeArchived?: boolean) {
-  const { data } = await api.get<ApiEnvelope<WhatsappConversation[]>>("/whatsapp-chat/conversations", { params: { search, includeArchived } })
-  return data.data ?? []
-}
-
-export async function getWhatsappMessages(phone: string, params?: { before?: string; limit?: number }) {
-  const { data } = await api.get<ApiEnvelope<{ conversation: WhatsappConversation | null; messages: WhatsappChatMessage[]; hasMore: boolean; lastInboundAt?: string | null }>>(
-    `/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`,
-    { params }
-  )
-  return data.data ?? { conversation: null, messages: [], hasMore: false, lastInboundAt: null }
-}
-
-export async function getWhatsappQuickReplies() {
-  const { data } = await api.get<ApiEnvelope<WhatsappQuickReply[]>>("/whatsapp-chat/quick-replies")
-  return data.data ?? []
-}
-
-export async function markPersonalDebtPaid(id: string) {
-  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}/paid`, {})
-  return data.data
-}
-
-export async function markWhatsappConversationRead(phone: string) {
-  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/read`, {})
-  return data.data
-}
-
-export async function pinWhatsappConversation(phone: string, isPinned: boolean) {
-  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/pin`, { isPinned })
-  return data.data
-}
-
-export async function retryInstagramPost(id: string) {
-  await api.post(`/instagram/posts/${id}/retry`)
-}
-
-export async function sendWhatsappChatMedia(phone: string, payload: { dataUrl: string; filename?: string; caption?: string }) {
-  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/media`, payload)
-  return data.data
-}
-
-export async function sendWhatsappChatMessage(phone: string, text: string, replyToWaMessageId?: string) {
-  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`, { text, replyToWaMessageId })
-  return data.data
-}
-
-export async function sendWhatsappChatReaction(phone: string, waMessageId: string, emoji: string) {
-  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/reaction`, { waMessageId, emoji })
-  return data.data
-}
-
-export async function updateInstagramQueue(id: string, payload: Partial<{ name: string; status: "ACTIVE" | "PAUSED"; scheduleType: "FIXED_TIMES" | "INTERVAL"; times: string[]; intervalMinutes: number; postsPerDay: number }>) {
-  const { data } = await api.put<ApiEnvelope<InstagramQueue>>(`/instagram/queues/${id}`, payload)
+export async function createInstagramHashtagGroup(payload: { name: string; category?: string; hashtags: string[] }) {
+  const { data } = await api.post<ApiEnvelope<InstagramHashtagGroup>>("/instagram/hashtag-groups", payload)
   return data.data!
 }
 
-export async function updatePersonalDebt(id: string, payload: UpdatePersonalDebtPayload) {
-  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}`, payload)
-  return data.data
+export async function updateInstagramHashtagGroup(id: string, payload: { name?: string; category?: string; hashtags?: string[] }) {
+  const { data } = await api.put<ApiEnvelope<InstagramHashtagGroup>>(`/instagram/hashtag-groups/${id}`, payload)
+  return data.data!
 }
 
-export async function updateWhatsappConversationNotes(phone: string, notes: string) {
-  const { data } = await api.put<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/notes`, { notes })
-  return data.data
+export async function deleteInstagramHashtagGroup(id: string) {
+  await api.delete(`/instagram/hashtag-groups/${id}`)
 }
 
-
-export type InstagramMediaPlan = {
-  media: Array<{ kind: "image"; imageIndex: number } | { kind: "video" }>
-  coverImageIndex?: number
-}
-
-export async function publishInstagramPost(payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan; draftId?: string }) {
-  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>("/instagram/posts/publish", payload)
+export async function validateInstagramMedia(retailItemId: string, mediaPlan: InstagramMediaPlan) {
+  const { data } = await api.post<ApiEnvelope<{ warnings: string[] }>>("/instagram/validate-media", { retailItemId, mediaPlan })
   return data.data!
 }
 
@@ -3309,952 +4096,59 @@ export async function saveInstagramDraft(payload: { retailItemId: string; accoun
   return data.data!
 }
 
+export async function publishInstagramPost(payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan; draftId?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>("/instagram/posts/publish", payload)
+  return data.data!
+}
+
+export async function retryInstagramPost(id: string) {
+  await api.post(`/instagram/posts/${id}/retry`)
+}
+
+export async function getInstagramPosts(params?: { status?: string; retailItemId?: string }) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>("/instagram/posts", { params })
+  return data.data ?? []
+}
+
+export async function getInstagramPost(id: string) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost>>(`/instagram/posts/${id}`)
+  return data.data!
+}
+
+export async function deleteInstagramPost(id: string) {
+  await api.delete(`/instagram/posts/${id}`)
+}
+
+export async function getInstagramQueues() {
+  const { data } = await api.get<ApiEnvelope<InstagramQueue[]>>("/instagram/queues")
+  return data.data ?? []
+}
+
+export async function createInstagramQueue(payload: { accountId: string; name?: string; scheduleType: "FIXED_TIMES" | "INTERVAL"; times?: string[]; intervalMinutes?: number; postsPerDay: number }) {
+  const { data } = await api.post<ApiEnvelope<InstagramQueue>>("/instagram/queues", payload)
+  return data.data!
+}
+
+export async function updateInstagramQueue(id: string, payload: Partial<{ name: string; status: "ACTIVE" | "PAUSED"; scheduleType: "FIXED_TIMES" | "INTERVAL"; times: string[]; intervalMinutes: number; postsPerDay: number }>) {
+  const { data } = await api.put<ApiEnvelope<InstagramQueue>>(`/instagram/queues/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteInstagramQueue(id: string) {
+  await api.delete(`/instagram/queues/${id}`)
+}
+
 export async function addPostToInstagramQueue(queueId: string, payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan }) {
   const { data } = await api.post<ApiEnvelope<InstagramPost>>(`/instagram/queues/${queueId}/posts`, payload)
   return data.data!
 }
 
-export async function validateInstagramMedia(retailItemId: string, mediaPlan: InstagramMediaPlan) {
-  const { data } = await api.post<ApiEnvelope<{ warnings: string[] }>>("/instagram/validate-media", { retailItemId, mediaPlan })
-  return data.data!
-}
-
-
-export async function getWhatsappUnreadCount() {
-  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/whatsapp-chat/unread-count")
-  return data.data?.count ?? 0
-}
-
-/* ── «تدقيق ربح الزبون» ────────────────────────────────────────────── */
-
-export interface AuditGroup {
-  productId: string
-  productName: string
-  itemNumber: string | null
-  pieces: number
-  revenue: number
-  costPerPiece: number
-  cost: number
-  profit: number
-  /** Null means there is no cost to compare against — unknown, not 100%. */
-  marginPercent: number | null
-  /** RECORDED = frozen at sale time. PRODUCT = the report is guessing with
-   *  today's product cost. NONE = the sale reads as pure profit. */
-  costSource: "RECORDED" | "PRODUCT" | "NONE"
-  productCostPrice: number
-  productPurchasePrice: number
-  lines: Array<{
-    invoiceItemId: string
-    invoiceId: string
-    invoiceNumber: string
-    date: string
-    unit: string
-    quantity: number
-    pieces: number
-    unitPrice: number
-    revenue: number
-    costPerPiece: number
-  }>
-}
-
-export interface CustomerProfitAudit {
-  customer: { id: string; name: string; phone: string }
-  minMarginPercent: number
-  totals: {
-    revenue: number
-    reportedProfit: number
-    knownProfit: number
-    revenueWithKnownCost: number
-    revenueWithoutCost: number
-    returnedRevenue: number
-    revenueEstimated: number
-    revenueNoCost: number
-    knownMarginPercent: number | null
-  }
-  highMargin: AuditGroup[]
-  noCost: AuditGroup[]
-  estimated: AuditGroup[]
-}
-
-export async function getCustomerProfitAudit(params: {
-  customerId: string; minMarginPercent?: number; from?: string; to?: string
-}) {
-  const { data } = await api.get<ApiEnvelope<CustomerProfitAudit>>("/reports/customer-profit-audit", { params })
-  return data.data!
-}
-
-export async function fixInvoiceLineCost(payload: {
-  productId: string
-  costPerPiece: number
-  scope: "INVOICE" | "CUSTOMER" | "ALL"
-  invoiceItemId?: string
-  customerId?: string
-  updateProduct?: boolean
-}) {
-  const { data } = await api.post<ApiEnvelope<{
-    linesUpdated: number
-    productUpdated: boolean
-    invoicesAffected: number
-    pointsBefore: number
-    pointsAfter: number
-    pointsDelta: number
-  }>>("/reports/customer-profit-audit/fix", payload)
-  return data.data!
-}
-
-/** How many lines a cost fix would touch, asked before it is applied. */
-export async function getCostFixScope(params: { productId: string; customerId?: string }) {
-  const { data } = await api.get<ApiEnvelope<{ thisCustomer: number; everywhere: number }>>(
-    "/reports/customer-profit-audit/fix-scope", { params },
-  )
-  return data.data!
-}
-
-/* ── «نقاط الولاء» ──────────────────────────────────────────────────── */
-
-export interface LoyaltyPointsRow {
-  id: string
-  name: string
-  phone: string
-  loyaltyPoints: number
-  balance: number
-  /** Live sale lines with no cost recorded — the reason to distrust the points. */
-  zeroCostLines: number
-}
-
-export async function getLoyaltyPointsReport() {
-  const { data } = await api.get<ApiEnvelope<{ totalPoints: number; customers: LoyaltyPointsRow[] }>>(
-    "/reports/loyalty-points",
-  )
-  return data.data!
-}
-
-export interface LoyaltyBalance {
-  lifetime: number
-  /** What can actually be spent today, after expiry and past redemptions. */
-  redeemable: number
-  expired: number
-  redeemedTotal: number
-  excluded: boolean
-  pointValue: number
-  expiryDays: number
-  redeemableValue: number
-  redemptions: Array<{
-    id: string
-    points: number
-    value: number
-    pointValue: number
-    invoiceId: string | null
-    note: string | null
-    createdAt: string
-    revertedAt: string | null
-  }>
-}
-
-export async function getLoyaltyBalance(customerId: string) {
-  const { data } = await api.get<ApiEnvelope<LoyaltyBalance>>(`/reports/loyalty-points/${customerId}`)
-  return data.data!
-}
-
-export async function setLoyaltyExclusion(customerId: string, payload: { excluded: boolean; clearPoints?: boolean }) {
-  const { data } = await api.post<ApiEnvelope<{ excluded: boolean; clearedPoints: number }>>(
-    `/reports/loyalty-points/${customerId}/exclude`, payload,
-  )
-  return data.data!
-}
-
-/* ── «احجز البضاعة القادمة الجديدة» ───────────────────────────────── */
-
-export interface IncomingItem {
-  id: string
-  name: string
-  description: string | null
-  imageUrl: string | null
-  expectedAt: string | null
-  price: number | null
-  active?: boolean
-  sortOrder?: number
-  arrivedAt?: string | null
-  reservationCount?: number
-  /** In pieces, with how many go in a carton — the storefront shows cartons. */
-  quantityPieces?: number | null
-  pcsPerCarton?: number | null
-  category?: string | null
-  /** Set when the row was raised from a China order that has not landed. */
-  sourceBatchId?: string | null
-  sourceBatchItemId?: string | null
-}
-
-export async function getPublicIncomingItems(phone = "") {
-  const { data } = await api.get<ApiEnvelope<{ items: IncomingItem[]; mine: Record<string, number> }>>(
-    "/public/catalog/incoming", { params: phone ? { phone } : {} },
-  )
-  return data.data ?? { items: [], mine: {} }
-}
-
-export async function reserveIncomingItem(payload: {
-  itemId: string; phone: string; name?: string; quantity?: number; note?: string
-}) {
-  const { data } = await api.post<ApiEnvelope<{ ok: boolean; quantity: number }>>(
-    "/public/catalog/incoming/reserve", payload,
-  )
-  return data.data!
-}
-
-export async function listIncomingItems() {
-  const { data } = await api.get<ApiEnvelope<IncomingItem[]>>("/catalog-management/incoming")
+export async function getInstagramQueuePosts(queueId: string) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>(`/instagram/queues/${queueId}/posts`)
   return data.data ?? []
 }
 
-export async function saveIncomingItem(payload: Partial<IncomingItem> & { name: string }, id?: string) {
-  const { data } = id
-    ? await api.put<ApiEnvelope<IncomingItem>>(`/catalog-management/incoming/${id}`, payload)
-    : await api.post<ApiEnvelope<IncomingItem>>("/catalog-management/incoming", payload)
-  return data.data!
-}
-
-export async function deleteIncomingItem(id: string) {
-  await api.delete(`/catalog-management/incoming/${id}`)
-}
-
-/** «وصلت البضاعة» — closes the loop and tells everyone who reserved. */
-export async function markIncomingArrived(id: string) {
-  const { data } = await api.post<ApiEnvelope<{ alreadyArrived: boolean; notified: number }>>(
-    `/catalog-management/incoming/${id}/arrived`, {},
-  )
-  return data.data!
-}
-
-export interface IncomingReservation {
-  id: string
-  phone: string
-  name: string | null
-  quantity: number
-  note: string | null
-  status: string
-  createdAt: string
-}
-
-export async function listIncomingReservations(itemId: string) {
-  const { data } = await api.get<ApiEnvelope<IncomingReservation[]>>(
-    `/catalog-management/incoming/${itemId}/reservations`,
-  )
-  return data.data ?? []
-}
-
-export interface ReservationRow extends IncomingReservation {
-  itemId: string
-  itemName: string
-  itemArrived: boolean
-}
-
-/** Every reservation across every item — who is waiting on the merchant. */
-export async function listAllReservations(status?: "PENDING" | "CONFIRMED" | "CANCELLED") {
-  const { data } = await api.get<ApiEnvelope<ReservationRow[]>>(
-    "/catalog-management/incoming-reservations", { params: status ? { status } : {} },
-  )
-  return data.data ?? []
-}
-
-export async function setIncomingReservationStatus(id: string, status: "PENDING" | "CONFIRMED" | "CANCELLED") {
-  await api.patch(`/catalog-management/incoming/reservations/${id}`, { status })
-}
-
-/** «وصلت» on one incoming card, for a shipment landing in parts. */
-export async function markIncomingItemArrived(incomingItemId: string) {
-  const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(
-    `/landed-cost/incoming/${incomingItemId}/arrived`, {},
-  )
-  return data.data!
-}
-
-/* ── Storefront accounts, admin side ──────────────────────────────── */
-
-export interface StorefrontAccountRow {
-  kind: "CUSTOMER" | "VISITOR"
-  phone: string
-  name: string
-  address: string | null
-  province: string | null
-  lastLoginAt: string | null
-  detailsSubmitted: boolean
-  pricesUnlocked: boolean
-  priceRequestPending: boolean
-  customerId: string | null
-  hasCode: boolean
-  locked: boolean
-}
-
-/** What is waiting for the merchant right now — the catalog home screen. */
-export async function getCatalogDashboard() {
-  const { data } = await api.get<ApiEnvelope<{
-    priceRequests: number; reservations: number; customersNoCode: number
-    visitorsToday: number; incomingItems: number; pendingOrders: number
-  }>>("/catalog-management/dashboard")
-  return data.data!
-}
-
-export async function listStorefrontAccountsUnified(search?: string) {
-  const { data } = await api.get<ApiEnvelope<StorefrontAccountRow[]>>(
-    "/catalog-management/accounts/unified", { params: search ? { search } : {} },
-  )
-  return data.data ?? []
-}
-
-export interface PersonProfile {
-  phone: string
-  name: string
-  kind: "CUSTOMER" | "VISITOR"
-  address: string | null
-  province: string | null
-  notes: string | null
-  balance: number | null
-  customerId: string | null
-  hasCode: boolean
-  codeSetAt: string | null
-  lastLoginAt: string | null
-  locked: boolean
-  pricesVisible: boolean
-  priceRequestPending: boolean
-  detailsSubmitted: boolean
-  visits: number
-  totalTimeSeconds: number
-  firstSeenAt: string | null
-  lastSeenAt: string | null
-  productViews: number
-  orders: Array<{ id: string; invoiceNumber: string; total: number; createdAt: string }>
-  reservations: Array<{ id: string; quantity: number; status: string; itemName: string }>
-}
-
-/** Everything the shop knows about one phone, in one reply. */
-export async function getStorefrontPersonProfile(phone: string) {
-  const { data } = await api.get<ApiEnvelope<PersonProfile>>(
-    `/catalog-management/accounts/${encodeURIComponent(phone)}/profile`,
-  )
-  return data.data!
-}
-
-export async function grantCatalogPrices(phone: string) {
-  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
-    "/catalog-management/accounts/grant-prices", { phone },
-  )
-  return data.data!
-}
-
-export async function revokeCatalogPrices(phone: string) {
-  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
-    "/catalog-management/accounts/revoke-prices", { phone },
-  )
-  return data.data!
-}
-
-/**
- * «أظهر الرمز» — get the credentials in hand instead of sending them.
- *
- * Mints a NEW code (the stored one is a hash nobody can read back) and returns
- * it once, with the message and a wa.me link so the admin can send it from
- * their own WhatsApp rather than the shop number.
- */
-export async function revealStorefrontCredentials(
-  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
-) {
-  const { data } = await api.post<ApiEnvelope<{
-    phone: string; name: string; username: string; code: string
-    message: string; waLink: string; link: string
-  }>>("/catalog-management/accounts/reveal", target)
-  return data.data!
-}
-
-/** «احفظ كزبون بالمحل» — the only thing that puts a visitor on the books. */
-export async function promoteVisitorToCustomer(phone: string) {
-  const { data } = await api.post<ApiEnvelope<{ customerId: string; customerName: string; created: boolean }>>(
-    "/catalog-management/accounts/promote", { phone },
-  )
-  return data.data!
-}
-
-export interface StorefrontCustomerAccount {
-  kind: "CUSTOMER"
-  id: string
-  name: string
-  phone: string
-  hasCode: boolean
-  codeSetAt: string | null
-  lastLoginAt: string | null
-  locked: boolean
-  pricesHidden: boolean
-}
-
-export interface StorefrontVisitorAccount {
-  kind: "VISITOR"
-  phone: string
-  hasCode: boolean
-  codeSetAt: string | null
-  lastLoginAt: string | null
-  locked: boolean
-  detailsSubmitted: boolean
-}
-
-export async function listStorefrontAccounts(search?: string) {
-  const { data } = await api.get<ApiEnvelope<{
-    customers: StorefrontCustomerAccount[]
-    visitors: StorefrontVisitorAccount[]
-  }>>("/catalog-management/accounts", { params: search ? { search } : {} })
-  return data.data ?? { customers: [], visitors: [] }
-}
-
-export async function sendStorefrontCredentials(
-  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
-) {
-  const { data } = await api.post<ApiEnvelope<{ phone: string; sent: boolean }>>(
-    "/catalog-management/accounts/send-credentials", target,
-  )
-  return data
-}
-
-export async function sendStorefrontCredentialsBulk(
-  targets: Array<{ kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string }>,
-) {
-  const { data } = await api.post<ApiEnvelope<{
-    total: number; sent: number; failed: number
-    results: Array<{ phone: string; ok: boolean; error?: string }>
-  }>>("/catalog-management/accounts/send-credentials-bulk", { targets })
-  return data.data!
-}
-
-/** True recipient counts — the accounts list is paged, these are not. */
-export async function getCredentialTargetCounts() {
-  const { data } = await api.get<ApiEnvelope<{ customers: number; visitors: number }>>(
-    "/catalog-management/accounts/target-counts",
-  )
-  return data.data ?? { customers: 0, visitors: 0 }
-}
-
-/** Sends to every recipient in the group, resolved server-side. */
-export async function sendStorefrontCredentialsToAll(group: "customers" | "visitors" | "all") {
-  const { data } = await api.post<ApiEnvelope<{
-    total: number; sent: number; failed: number
-    results: Array<{ phone: string; ok: boolean; error?: string }>
-  }>>("/catalog-management/accounts/send-credentials-all", { group })
-  return data.data!
-}
-
-/**
- * «دعوة الحساب» — the cold invite. Credentials cannot be pushed to a number
- * that has not messaged us (Meta approves no template carrying a code), so
- * this asks the shopper to reply; their reply is what earns the credentials.
- */
-export async function sendStorefrontInvitesToAll(group: "customers" | "visitors" | "all") {
-  const { data } = await api.post<ApiEnvelope<{
-    queued: number; remaining: number; total: number
-  }>>("/catalog-management/accounts/send-invites-all", { group })
-  return data.data!
-}
-
-/** Push the shop-wide price default onto every live catalog link. */
-export async function applyPricesDefaultToAll() {
-  const { data } = await api.post<ApiEnvelope<{ ok: boolean; visible: boolean }>>(
-    "/catalog-management/accounts/apply-prices-default",
-  )
-  return data.data!
-}
-
-export async function setCustomerPricesHidden(customerId: string, hidden: boolean) {
-  await api.patch(`/catalog-management/accounts/${customerId}/prices-hidden`, { hidden })
-}
-
-export async function unlockStorefrontAccount(kind: "CUSTOMER" | "VISITOR", idOrPhone: string) {
-  await api.post("/catalog-management/accounts/unlock", { kind, idOrPhone })
-}
-
-/* ── Catalog product content + review moderation (admin) ──────────── */
-
-export interface CatalogProductSpec { label: string; value: string }
-
-export interface AdminProductContent {
-  id: string
-  name: string
-  itemNumber: string
-  thumbnailUrl: string | null
-  description: string
-  specs: CatalogProductSpec[]
-  gallery: Array<{ id: string; thumbnailUrl: string | null; sortOrder: number }>
-  isOffer: boolean
-  offerEndsAt: string | null
-}
-
-export interface AdminCatalogReview {
-  id: string
-  rating: number
-  comment: string | null
-  status: "PENDING" | "APPROVED" | "REJECTED"
-  createdAt: string
-  reviewedAt: string | null
-  product: { id: string; name: string; itemNumber: string; thumbnailUrl: string | null }
-  customer: { id: string; name: string; phone: string }
-}
-
-export interface MerchandisedProduct {
-  id: string
-  name: string
-  itemNumber: string
-  thumbnailUrl: string | null
-  salePrice: number
-  oldPrice: number | null
-  offerEndsAt: string | null
-  isOffer: boolean
-  isNewArrival: boolean
-}
-
-/** Both storefront rows in one list, instead of one product form at a time. */
-export async function listMerchandisedProducts() {
-  const { data } = await api.get<ApiEnvelope<MerchandisedProduct[]>>("/catalog-management/merchandising")
-  return data.data ?? []
-}
-
-export async function setProductMerchandising(productId: string, patch: {
-  isOffer?: boolean; isNewArrival?: boolean; oldPrice?: number | null; offerEndsAt?: string | null
-}) {
-  const { data } = await api.patch<ApiEnvelope<{ ok: boolean }>>(
-    `/catalog-management/merchandising/${productId}`, patch,
-  )
-  return data.data!
-}
-
-export async function getProductCatalogContent(productId: string) {
-  const { data } = await api.get<ApiEnvelope<AdminProductContent>>(
-    `/catalog-management/products/${productId}/content`,
-  )
-  return data.data!
-}
-
-export async function updateProductCatalogContent(
-  productId: string,
-  payload: { description?: string; specs?: CatalogProductSpec[]; offerEndsAt?: string },
-) {
-  const { data } = await api.put<ApiEnvelope<AdminProductContent>>(
-    `/catalog-management/products/${productId}/content`, payload,
-  )
-  return data.data!
-}
-
-export async function addProductCatalogImage(
-  productId: string, payload: { url: string; thumbnailUrl?: string },
-) {
-  const { data } = await api.post<ApiEnvelope<{ id: string }>>(
-    `/catalog-management/products/${productId}/images`, payload,
-  )
-  return data.data!
-}
-
-export async function deleteProductCatalogImage(productId: string, imageId: string) {
-  await api.delete(`/catalog-management/products/${productId}/images/${imageId}`)
-}
-
-export async function listCatalogReviews(status?: "PENDING" | "APPROVED" | "REJECTED") {
-  const { data } = await api.get<ApiEnvelope<AdminCatalogReview[]>>(
-    "/catalog-management/reviews", { params: status ? { status } : {} },
-  )
-  return data.data ?? []
-}
-
-export async function setCatalogReviewStatus(id: string, status: "APPROVED" | "REJECTED") {
-  await api.patch(`/catalog-management/reviews/${id}`, { status })
-}
-
-export async function deleteCatalogReview(id: string) {
-  await api.delete(`/catalog-management/reviews/${id}`)
-}
-
-export interface VisitSession {
-  id: string
-  startedAt: string
-  lastBeatAt: string
-  seconds: number
-}
-
-/** The individual visits behind one phone's running total. */
-export async function getVisitorSessions(phone: string) {
-  const { data } = await api.get<ApiEnvelope<VisitSession[]>>(
-    `/catalog-management/visitors/${encodeURIComponent(phone)}/sessions`,
-  )
-  return data.data ?? []
-}
-
-export interface FirstOrderCouponReport {
-  issued: number
-  used: number
-  salesCount: number
-  salesTotal: number
-}
-
-// بند ٧ — تقرير كوبون أول طلب.
-export async function getFirstOrderCouponReport() {
-  const { data } = await api.get<ApiEnvelope<FirstOrderCouponReport>>("/catalog-management/promo-codes/first-order-report")
-  return data.data
-}
-
-export interface MarketingOptOut {
-  phone: string
-  name: string | null
-  reason: string | null
-  source: string
-  createdAt: string
-}
-
-export async function listMarketingOptOuts(search?: string) {
-  const { data } = await api.get<ApiEnvelope<MarketingOptOut[]>>(
-    "/catalog-management/opt-outs", { params: search ? { search } : {} },
-  )
-  return data.data ?? []
-}
-
-export async function addMarketingOptOut(phone: string, reason?: string) {
-  await api.post("/catalog-management/opt-outs", { phone, reason })
-}
-
-export async function resumeMarketingFor(phone: string) {
-  await api.post("/catalog-management/opt-outs/resume", { phone })
-}
-
-/* ── Public catalog (storefront) — ported from inventory-web for desktop
-   parity. The backend routes already existed and are shared; only the
-   desktop client was missing these bindings. Keep them byte-identical to
-   the web copies. ─────────────────────────────────────────────────────── */
-
-/* ── Storefront login ─────────────────────────────────────────────── */
-
-export type CustomerLoginResult =
-  | { kind: "CUSTOMER"; token: string; customer: { id: string; name: string; phone: string } }
-  | {
-      kind: "VISITOR"
-      phone: string
-      token: string
-      detailsSubmitted: boolean
-      pricesUnlocked: boolean
-      priceRequestPending: boolean
-    }
-
-export interface VisitorSession {
-  phone: string
-  name: string | null
-  address: string | null
-  notes: string | null
-  province: string | null
-  businessType: string | null
-  detailsSubmitted: boolean
-  pricesUnlocked: boolean
-  priceRequestPending: boolean
-  customerId: string | null
-}
-
-export async function customerLogin(phone: string, code: string) {
-  const { data } = await api.post<ApiEnvelope<CustomerLoginResult>>(
-    "/public/catalog/login", { phone, code },
-  )
-  return data.data!
-}
-
-/** Identified by the browsing session, never by a phone the caller supplies. */
-export async function submitStorefrontSignupDetails(payload: {
-  token: string; customerName: string; address?: string; notes?: string
-  province?: string; businessType?: string
-}) {
-  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>(
-    "/public/catalog/signup-details", payload,
-  )
-  return data
-}
-
-export async function getVisitorSession(token: string) {
-  const { data } = await api.get<ApiEnvelope<VisitorSession>>(
-    "/public/catalog/visitor-session", { params: { token } },
-  )
-  return data.data!
-}
-
-export async function getVisitorCatalogProducts(token: string, priceMode?: "WHOLESALE" | "CARTON") {
-  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>(
-    "/public/catalog/visitor-products", { params: { token, priceMode } },
-  )
-  return data.data ?? []
-}
-
-export async function requestCatalogPrices(token: string) {
-  const { data } = await api.post<ApiEnvelope<{ alreadyUnlocked: boolean; pending: boolean }>>(
-    "/public/catalog/request-prices", { token },
-  )
-  return data.data!
-}
-
-/* ── «حسابي» — the customer's own statement inside the storefront ──── */
-
-export interface CustomerAccountTx {
-  id: string
-  type: string
-  invoiceType?: string | null
-  date: string
-  description: string
-  referenceNumber?: string | null
-  debit: number
-  credit: number
-  runningBalance: number
-  status?: string | null
-}
-
-export interface CustomerAccount {
-  customer: {
-    id: string; name: string; phone: string; address: string | null
-    openingBalance: number; currentBalance: number
-    lastTransactionAt: string | null; loyaltyPoints: number
-  }
-  transactions: CustomerAccountTx[]
-  storeName: string
-  storePhone: string | null
-  currency: string
-}
-
-export async function getCustomerAccount(access: string) {
-  const { data } = await api.get<ApiEnvelope<CustomerAccount>>(
-    "/public/catalog/account", { params: { access } },
-  )
-  return data.data!
-}
-
-/* ── Product pictures & detail page ───────────────────────────────── */
-
-/** Gallery-sized pictures for the tiles about to be drawn. */
-export async function getCatalogMediums(ids: string[], opts?: { access?: string; visitor?: string }) {
-  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
-    "/public/catalog/mediums", { ids },
-    { params: { ...(opts?.access ? { access: opts.access } : {}), ...(opts?.visitor ? { visitor: opts.visitor } : {}) } },
-  )
-  return data.data ?? {}
-}
-
-export async function getGuestCatalogProductImage(id: string, visitor = "") {
-  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
-    "/public/catalog/guest-product-image",
-    { params: { id, ...(visitor ? { visitor } : {}) } },
-  )
-  return data.data?.imageUrl ?? null
-}
-
-export interface CatalogProductReviewItem {
-  id: string
-  rating: number
-  comment: string | null
-  authorName: string
-  createdAt: string
-}
-
-export interface CatalogProductDetail {
-  id: string
-  itemNumber: string
-  name: string
-  thumbnailUrl: string | null
-  category: string | null
-  isNewArrival: boolean
-  isOffer: boolean
-  oldPrice: number | null
-  offerEndsAt: string | null
-  salePrice: number | null
-  pcsPerCarton: number
-  boxPieces: number | null
-  hiddenUnits: Array<"DOZEN" | "BOX" | "CARTON">
-  currentStock: number
-  showStock: boolean
-  description: string
-  specs: CatalogProductSpec[]
-  gallery: Array<{ id: string; thumbnailUrl: string | null }>
-  reviews: { average: number | null; count: number; items: CatalogProductReviewItem[] }
-  related: Array<{
-    id: string; name: string; itemNumber: string; thumbnailUrl: string | null
-    salePrice: number | null; pcsPerCarton: number; currentStock: number
-  }>
-}
-
-export interface MyCatalogReview {
-  id: string
-  rating: number
-  comment: string | null
-  status: "PENDING" | "APPROVED" | "REJECTED"
-  createdAt: string
-}
-
-/** `access` is "" for guest browsing — the backend refuses if guests are off. */
-export async function getCatalogProductDetail(productId: string, access: string, visitor = "") {
-  const { data } = await api.get<ApiEnvelope<CatalogProductDetail>>(
-    `/public/catalog/product/${productId}`,
-    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
-  )
-  return data.data!
-}
-
-/**
- * Thumbnails for the products currently on screen.
- *
- * The grid ships without them on purpose: a few hundred base64 thumbnails is
- * several megabytes on the first open. `access` is "" for guest browsing.
- *
- * A signed-in visitor carries their own token: without it the request falls
- * into the guest branch, which the backend refuses whenever the shop requires
- * a login — and every card silently loses its picture.
- */
-export async function getCatalogThumbnails(ids: string[], access: string, visitor = "") {
-  if (ids.length === 0) return {}
-  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
-    "/public/catalog/thumbnails", { ids },
-    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
-  )
-  return data.data ?? {}
-}
-
-export async function getCatalogGalleryImage(productId: string, imageId: string, access: string, visitor = "") {
-  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
-    `/public/catalog/product/${productId}/image/${imageId}`,
-    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
-  )
-  return data.data?.imageUrl ?? null
-}
-
-export async function getMyCatalogReview(productId: string, access: string) {
-  if (!access) return null
-  const { data } = await api.get<ApiEnvelope<MyCatalogReview | null>>(
-    `/public/catalog/product/${productId}/my-review`,
-    { params: { access } },
-  )
-  return data.data ?? null
-}
-
-export async function submitCatalogProductReview(
-  productId: string, access: string, payload: { rating: number; comment?: string },
-) {
-  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(
-    `/public/catalog/product/${productId}/review`, payload, { params: { access } },
-  )
-  return data
-}
-
-/* ── منقولة من الويب: سعر الكارتون، فحص صحة البيانات، تنبيهات الموظف الذكي ── */
-
-/** A product with a full carton in stock and no carton price yet. */
-export interface MissingCartonPriceProduct extends Product {
-  fullCartons: number
-}
-
-export async function getProductsMissingCartonPrice() {
-  const { data } = await api.get<{ success: boolean; count: number; data: MissingCartonPriceProduct[] }>(
-    "/products/missing-carton-price",
-  )
-  return { count: data.count ?? 0, data: data.data ?? [] }
-}
-
-/**
- * Partial product update — the carton price alone. Goes through the normal
- * product update so the "must not exceed wholesale" rule stays in one place.
- */
-export async function setCartonPiecePrice(id: string, cartonPiecePrice: number | null) {
-  const { data } = await api.put<ApiEnvelope<Product>>(`/products/${id}`, { cartonPiecePrice })
-  return data
-}
-
-export interface DataHealthReport {
-  checkedProducts: number
-  unmigratedStock: Array<{ id: string; name: string; itemNumber: string; legacyPieces: number; pcsPerCarton: number }>
-  costIssues: Array<{
-    id: string; name: string; itemNumber: string; currentStock: number
-    costPrice: number; purchasePrice: number; salePrice: number
-    issue: "MISSING_COST" | "COST_ABOVE_SALE"
-  }>
-}
-
-export async function getProductDataHealth() {
-  const { data } = await api.get<DataHealthReport & { success: boolean }>("/products/data-health")
-  return { checkedProducts: data.checkedProducts ?? 0, unmigratedStock: data.unmigratedStock ?? [], costIssues: data.costIssues ?? [] }
-}
-
-
-// ── «المنتجات المطلوبة» — demand collected by the WhatsApp AI agent ─────────
-
-export interface RequestedProduct {
-  id: string
-  productName: string
-  normalizedName: string
-  requestCount: number
-  lastPhone: string
-  lastCustomerId?: string | null
-  lastNote?: string | null
-  status: "OPEN" | "HANDLED"
-  handledAt?: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export async function getRequestedProducts(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
-  const { data } = await api.get<ApiEnvelope<RequestedProduct[]>>("/requested-products", { params: { status } })
-  return data.data ?? []
-}
-
-export async function getRequestedProductsOpenCount() {
-  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/open-count")
-  return data.data?.count ?? 0
-}
-
-export async function markRequestedProductHandled(id: string) {
-  await api.post(`/requested-products/${id}/handled`)
-}
-
-export async function reopenRequestedProduct(id: string) {
-  await api.post(`/requested-products/${id}/reopen`)
-}
-
-export async function deleteRequestedProduct(id: string) {
-  await api.delete(`/requested-products/${id}`)
-}
-
-// ── تنبيهات الموظف الذكي — anything the agent handed to a human ─────────────
-
-export interface AiEscalation {
-  id: string
-  phone: string
-  customerId?: string | null
-  customerName?: string | null
-  summary: string
-  customerText: string
-  status: "OPEN" | "HANDLED"
-  /** UPSET = an angry customer; the owner's phone was texted the moment it happened. */
-  kind?: "GENERAL" | "UPSET"
-  alertedAt?: string | null
-  handledAt?: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export async function getAiEscalations(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
-  const { data } = await api.get<ApiEnvelope<AiEscalation[]>>("/requested-products/escalations", { params: { status } })
-  return data.data ?? []
-}
-
-export async function getAiEscalationsOpenCount() {
-  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/escalations/open-count")
-  return data.data?.count ?? 0
-}
-
-export async function markAiEscalationHandled(id: string) {
-  await api.post(`/requested-products/escalations/${id}/handled`)
-}
-
-export async function reopenAiEscalation(id: string) {
-  await api.post(`/requested-products/escalations/${id}/reopen`)
-}
-
-export async function deleteAiEscalation(id: string) {
-  await api.delete(`/requested-products/escalations/${id}`)
-}
-
-
-/* ── منقولة من الويب: إنستغرام الجملة ── */
+// ── إنستغرام الجملة (wholesale Product auto-publish — independent system) ────
 
 export interface WholesaleInstagramMedia {
   id: string
@@ -4388,62 +4282,276 @@ export async function dismissWholesaleInstagramStockAlert(id: string) {
   await api.post(`/wholesale-instagram/posts/${id}/dismiss-stock-alert`)
 }
 
-/* ── منقولة من الويب: تقرير الهوامش ── */
+// ── «المنتجات المطلوبة» — demand collected by the WhatsApp AI agent ─────────
 
-export interface MarginRow {
+export interface RequestedProduct {
   id: string
-  name: string
-  detail: string
+  productName: string
+  normalizedName: string
+  requestCount: number
+  lastPhone: string
+  lastCustomerId?: string | null
+  lastNote?: string | null
+  status: "OPEN" | "HANDLED"
+  handledAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getRequestedProducts(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
+  const { data } = await api.get<ApiEnvelope<RequestedProduct[]>>("/requested-products", { params: { status } })
+  return data.data ?? []
+}
+
+export async function getRequestedProductsOpenCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/open-count")
+  return data.data?.count ?? 0
+}
+
+export async function markRequestedProductHandled(id: string) {
+  await api.post(`/requested-products/${id}/handled`)
+}
+
+export async function reopenRequestedProduct(id: string) {
+  await api.post(`/requested-products/${id}/reopen`)
+}
+
+export async function deleteRequestedProduct(id: string) {
+  await api.delete(`/requested-products/${id}`)
+}
+
+// ── تنبيهات الموظف الذكي — anything the agent handed to a human ─────────────
+
+export interface AiEscalation {
+  id: string
+  phone: string
+  customerId?: string | null
+  customerName?: string | null
+  summary: string
+  customerText: string
+  status: "OPEN" | "HANDLED"
+  /** UPSET = an angry customer; the owner's phone was texted the moment it happened. */
+  kind?: "GENERAL" | "UPSET"
+  alertedAt?: string | null
+  handledAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getAiEscalations(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
+  const { data } = await api.get<ApiEnvelope<AiEscalation[]>>("/requested-products/escalations", { params: { status } })
+  return data.data ?? []
+}
+
+export async function getAiEscalationsOpenCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/escalations/open-count")
+  return data.data?.count ?? 0
+}
+
+export async function markAiEscalationHandled(id: string) {
+  await api.post(`/requested-products/escalations/${id}/handled`)
+}
+
+export async function reopenAiEscalation(id: string) {
+  await api.post(`/requested-products/escalations/${id}/reopen`)
+}
+
+export async function deleteAiEscalation(id: string) {
+  await api.delete(`/requested-products/escalations/${id}`)
+}
+
+/* ── «تدقيق ربح الزبون» ─────────────────────────────────────────────── */
+
+export interface AuditGroup {
+  productId: string
+  productName: string
+  itemNumber: string | null
+  pieces: number
   revenue: number
+  costPerPiece: number
   cost: number
   profit: number
-  margin: number
-  qty: number
-  invoices: number
-  /** Revenue whose cost is unknown — margin on this part is not real. */
-  revenueWithoutCost: number
+  /** Null means there is no cost to compare against — unknown, not 100%. */
+  marginPercent: number | null
+  /** RECORDED = frozen at sale time. PRODUCT = the report is guessing with
+   *  today's product cost. NONE = the sale reads as pure profit. */
+  costSource: "RECORDED" | "PRODUCT" | "NONE"
+  productCostPrice: number
+  productPurchasePrice: number
+  lines: Array<{
+    invoiceItemId: string
+    invoiceId: string
+    invoiceNumber: string
+    date: string
+    unit: string
+    quantity: number
+    pieces: number
+    unitPrice: number
+    revenue: number
+    costPerPiece: number
+  }>
 }
 
-export interface MarginReport {
-  from: string | null
-  to: string | null
+export interface CustomerProfitAudit {
+  customer: { id: string; name: string; phone: string }
+  minMarginPercent: number
   totals: {
-    revenue: number; cost: number; profit: number; margin: number
+    revenue: number
+    reportedProfit: number
+    knownProfit: number
+    revenueWithKnownCost: number
     revenueWithoutCost: number
-    /** Share of revenue that HAS a known cost, as a percentage. */
-    costCoverage: number
+    returnedRevenue: number
+    revenueEstimated: number
+    revenueNoCost: number
+    knownMarginPercent: number | null
   }
-  products: MarginRow[]
-  customers: MarginRow[]
+  highMargin: AuditGroup[]
+  noCost: AuditGroup[]
+  estimated: AuditGroup[]
 }
 
-export async function getMarginReport(params: { from?: string; to?: string }) {
-  const { data } = await api.get<ApiEnvelope<MarginReport>>("/reports/margins", { params })
-  return data.data
+export async function getCustomerProfitAudit(params: {
+  customerId: string; minMarginPercent?: number; from?: string; to?: string
+}) {
+  const { data } = await api.get<ApiEnvelope<CustomerProfitAudit>>("/reports/customer-profit-audit", { params })
+  return data.data!
 }
 
-/* ── منقولة من الويب: حالة الموظف الذكي بالمحادثة ── */
-// «الموظف الذكي» — what it is doing on one conversation: standing down after
-// a human reply, and the durable facts it has learned about this number.
-export type AiConversationState = {
+export async function fixInvoiceLineCost(payload: {
+  productId: string
+  costPerPiece: number
+  scope: "INVOICE" | "CUSTOMER" | "ALL"
+  invoiceItemId?: string
+  customerId?: string
+  updateProduct?: boolean
+}) {
+  const { data } = await api.post<ApiEnvelope<{
+    linesUpdated: number
+    productUpdated: boolean
+    invoicesAffected: number
+    pointsBefore: number
+    pointsAfter: number
+    pointsDelta: number
+  }>>("/reports/customer-profit-audit/fix", payload)
+  return data.data!
+}
+
+/** How many lines a cost fix would touch, asked before it is applied. */
+export async function getCostFixScope(params: { productId: string; customerId?: string }) {
+  const { data } = await api.get<ApiEnvelope<{ thisCustomer: number; everywhere: number }>>(
+    "/reports/customer-profit-audit/fix-scope", { params },
+  )
+  return data.data!
+}
+
+export interface LoyaltyPointsRow {
+  id: string
+  name: string
   phone: string
-  /** The shop-wide switch — false means the agent answers nobody right now. */
-  enabled: boolean
-  mutedUntil: string | null
-  memories: Array<{ id: string; fact: string; createdAt: string }>
+  loyaltyPoints: number
+  balance: number
+  /** Live sale lines with no cost recorded — the reason to distrust the points. */
+  zeroCostLines: number
 }
 
-export async function getAiConversationState(phone: string) {
-  const { data } = await api.get<ApiEnvelope<AiConversationState>>(`/whatsapp/ai/state`, { params: { phone } })
+export async function getLoyaltyPointsReport() {
+  const { data } = await api.get<ApiEnvelope<{ totalPoints: number; customers: LoyaltyPointsRow[] }>>(
+    "/reports/loyalty-points",
+  )
+  return data.data!
+}
+
+/* ── «نقاط الولاء» — spending them ─────────────────────────────────── */
+
+export interface LoyaltyBalance {
+  lifetime: number
+  /** What can actually be spent today, after expiry and past redemptions. */
+  redeemable: number
+  expired: number
+  redeemedTotal: number
+  excluded: boolean
+  pointValue: number
+  expiryDays: number
+  redeemableValue: number
+  redemptions: Array<{
+    id: string
+    points: number
+    value: number
+    pointValue: number
+    invoiceId: string | null
+    note: string | null
+    createdAt: string
+    revertedAt: string | null
+  }>
+}
+
+export async function getLoyaltyBalance(customerId: string) {
+  const { data } = await api.get<ApiEnvelope<LoyaltyBalance>>(`/reports/loyalty-points/${customerId}`)
+  return data.data!
+}
+
+export async function setLoyaltyExclusion(customerId: string, payload: { excluded: boolean; clearPoints?: boolean }) {
+  const { data } = await api.post<ApiEnvelope<{ excluded: boolean; clearedPoints: number }>>(
+    `/reports/loyalty-points/${customerId}/exclude`, payload,
+  )
+  return data.data!
+}
+
+// «شاشة التجهيز» — live sale-invoice mirror + staff phone push.
+// Pictures are data URLs (~10 KB each): never ship them with the snapshot —
+// the prep screens load each product's picture once via getPrepThumbs().
+function withoutInlineImages(snapshot: import("../utils/prepScreen").PrepSnapshot) {
+  return { ...snapshot, lines: snapshot.lines.map((l) => (l.imageUrl?.startsWith("data:") ? { ...l, imageUrl: null } : l)) }
+}
+export async function putPrepLive(snapshot: import("../utils/prepScreen").PrepSnapshot) {
+  await api.put("/prep-screen/live", withoutInlineImages(snapshot))
+}
+export async function getPrepThumbs(productIds: string[]) {
+  const { data } = await api.get<ApiEnvelope<Record<string, string | null>>>("/prep-screen/thumbs", { params: { ids: productIds.join(",") } })
+  return data.data ?? {}
+}
+export async function getPrepLive() {
+  const { data } = await api.get<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/live")
+  return data.data ?? { live: null, orders: [] }
+}
+export async function markPrepLine(orderId: string, key: string, status: { state: "done" | "short" | "count"; found?: number } | null) {
+  await api.post("/prep-screen/mark", { orderId, key, status })
+}
+export async function markPrepReady(orderId: string, ready: boolean) {
+  await api.post("/prep-screen/ready", { orderId, ready })
+}
+export async function getPrepVapidKey() {
+  const { data } = await api.get<ApiEnvelope<{ publicKey: string }>>("/prep-screen/vapid-key")
+  return data.data?.publicKey ?? ""
+}
+export async function subscribePrepPush(subscription: PushSubscriptionJSON) {
+  await api.post("/prep-screen/subscribe", subscription)
+}export async function sendPrepOrder(payload: {
+  snapshot: import("../utils/prepScreen").PrepSnapshot
+  urgent: boolean
+  note: string | null
+  targetUserId: string | null
+}) {
+  const { data } = await api.post<ApiEnvelope<import("../utils/prepScreen").PrepState>>("/prep-screen/send", { ...payload, snapshot: withoutInlineImages(payload.snapshot) })
   return data.data
 }
-
-export async function setAiConversationMute(phone: string, minutes?: number) {
-  const { data } = await api.post<ApiEnvelope<{ phone: string; mutedUntil: string | null }>>(`/whatsapp/ai/mute`, { phone, minutes })
-  return data.data
+export async function cancelPrepOrder(orderId: string) {
+  await api.post("/prep-screen/cancel", { orderId })
 }
-
-export async function deleteAiMemory(id: string) {
-  await api.delete(`/whatsapp/ai/memories/${id}`)
+export async function ackPrepOrder(orderId: string) {
+  await api.post("/prep-screen/ack", { orderId })
 }
-
+export async function getPrepWorkers() {
+  const { data } = await api.get<ApiEnvelope<Array<{ id: string; name: string }>>>("/prep-screen/workers")
+  return data.data ?? []
+}
+// «سجل الصفحات»
+export async function recordPageView(path: string, label: string | null) {
+  await api.post("/activity/page-view", { path, label })
+}
+export interface PageViewRow { id: string; userId: string; userName: string; path: string; label: string | null; createdAt: string }
+export async function getPageViews(params: { userId?: string; from?: string; to?: string; limit?: number }) {
+  const { data } = await api.get<ApiEnvelope<PageViewRow[]>>("/activity/page-views", { params })
+  return data.data ?? []
+}

@@ -8,7 +8,9 @@ export function QueryErrorBox({ title, onRetry }: { title: string; onRetry: () =
       <p className="mt-1 text-sm text-rose-500">تحقق من الاتصال بالخادم ثم اضغط إعادة المحاولة.</p>
       <button
         onClick={onRetry}
-        className="mt-3 rounded-lg bg-rose-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-rose-700"
+        // 44px tall: this is the one button someone taps outdoors, one-handed,
+        // when the connection drops. It was 38.
+        className="mt-3 h-11 rounded-lg bg-rose-600 px-5 text-sm font-semibold text-white hover:bg-rose-700"
       >
         إعادة المحاولة
       </button>

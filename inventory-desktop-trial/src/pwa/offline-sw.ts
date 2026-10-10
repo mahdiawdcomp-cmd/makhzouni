@@ -212,7 +212,9 @@ function isQueueableMutation(pathname: string) {
 }
 
 self.addEventListener("install", () => {
-  // Don't auto-skip waiting — user triggers update via the banner button
+  // Skip waiting immediately so every browser gets the new version without
+  // needing to close all tabs first.
+  void self.skipWaiting()
 })
 
 self.addEventListener("activate", (event) => {
@@ -250,6 +252,14 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin !== self.location.origin) return
 
+  // Private purchase history must not survive revocation in a service-worker
+  // cache. Restored baskets also require live stock/prices, not an offline grid.
+  if (/^\/api\/public\/catalog\/(purchase-history|products|guest-products|visitor-products)(?:\/|$)/.test(url.pathname)
+      || url.pathname.startsWith("/catalog/product/") || url.pathname.startsWith("/sitemap-products/") || url.pathname === "/sitemap.xml") {
+    event.respondWith(fetch(request).catch(() => jsonResponse({ success: false, offline: true, message: "يلزم اتصال لتحديث بيانات الكتلوك" }, 503)))
+    return
+  }
+
   if (url.pathname.startsWith("/api/")) {
     if (MUTATING_METHODS.has(request.method)) {
       event.respondWith(
@@ -282,7 +292,7 @@ self.addEventListener("fetch", (event) => {
 
 // ── Push notifications (product arrival alerts) ────────────────────────────
 self.addEventListener("push", (event) => {
-  let payload: { title?: string; body?: string; url?: string } = {}
+  let payload: { title?: string; body?: string; url?: string; image?: string; tag?: string; staff?: boolean } = {}
   try {
     payload = event.data?.json() ?? {}
   } catch {
@@ -290,13 +300,16 @@ self.addEventListener("push", (event) => {
   }
 
   const title = payload.title ?? "مخزوني"
-  const options: NotificationOptions = {
+  // «شاشة التجهيز» staff alert: English/LTR, loud, stays until tapped.
+  const staff = payload.staff === true
+  const options: NotificationOptions & { image?: string; vibrate?: number[]; renotify?: boolean } = {
     body: payload.body ?? "",
     icon: "/favicon.svg",
     badge: "/favicon.svg",
-    dir: "rtl",
-    lang: "ar",
+    dir: staff ? "ltr" : "rtl",
+    lang: staff ? "en" : "ar",
     data: { url: payload.url ?? "/" },
+    ...(staff ? { image: payload.image, tag: payload.tag, renotify: true, requireInteraction: true, vibrate: [400, 150, 400, 150, 600] } : {}),
   }
 
   event.waitUntil(self.registration.showNotification(title, options))

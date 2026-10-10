@@ -13,6 +13,7 @@ type RealtimeResource =
   | "invoices"
   | "notifications"
   | "order-preparations"
+  | "prep-screen"
   | "products"
   | "quotations"
   | "reports"
@@ -43,6 +44,7 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   invoices: ["invoices", "invoice", "dashboard-report", "reports", "customers", "products", "approvals"],
   notifications: ["notifications"],
   "order-preparations": ["order-preparations", "approvals"],
+  "prep-screen": ["prep-screen"],
   products: ["products", "product", "product-movement", "dashboard-report", "reports"],
   quotations: ["quotations"],
   reports: ["reports", "dashboard-report"],
@@ -52,12 +54,7 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   transfers: ["transfers", "products", "branches"],
   users: ["users"],
   vouchers: ["vouchers", "voucher", "customers", "dashboard-report", "reports"],
-  // No dedicated chat UI in desktop (web-only feature) — just refresh the
-  // provider status/usage counters shown in the send-channel picker. An
-  // empty array here would still fall through to invalidateQueries() with
-  // no filter (empty key set == "unknown resource" to invalidate()), so a
-  // real, cheap key is needed to avoid that.
-  "whatsapp-chat": ["whatsapp-status"],
+  "whatsapp-chat": ["whatsapp-conversations", "whatsapp-messages", "whatsapp-unread-count"],
 }
 
 // The rep's screens live under ["sales-agent", <name>], so none of the generic
@@ -80,8 +77,12 @@ const salesAgentKeysByResource: Partial<Record<RealtimeResource, string[]>> = {
 
 /**
  * Resources whose writes CREATE notifications, and the queries that show them.
- * Same rule as the web: without it the bell and «إشعارات المندوبين» waited on
- * their own poll after every invoice or voucher, and read wrong meanwhile.
+ *
+ * The bell and «إشعارات المندوبين» are fed by rows written inside ordinary
+ * saves — an invoice, a voucher, a rep's order. Only the «notifications»
+ * resource used to refresh them, and that fires when someone marks a
+ * notification read, not when one is created. So the counter sat stale until
+ * its own 30-second poll, and looked wrong in the meantime.
  */
 const NOTIFYING_RESOURCES = new Set<RealtimeResource>([
   "approvals",
@@ -98,17 +99,24 @@ const NOTIFICATION_QUERY_KEYS: string[][] = [
   ["app-notification-counts"],
   ["sales-agent-admin", "activity"],
   ["sales-agent-admin", "activity-counts"],
+  // The sidebar's approvals badge. Its key does not start with «approvals»,
+  // so the approvals rule above never reached it either.
   ["approvals-pending-count"],
 ]
 
-function realtimeUrl(token: string) {
+function realtimeUrl(token: string): string | null {
   const configuredBase = String(import.meta.env.VITE_REALTIME_API_URL ?? "").trim()
+  // Fail-closed: only open an SSE connection against an ABSOLUTE backend base
+  // (VITE_REALTIME_API_URL, or the runtime-resolved API_BASE_URL once it points
+  // at the tenant's own backend). Previously this fell back to a hardcoded
+  // backend when API_BASE_URL was still relative — that could route realtime
+  // traffic to the wrong tenant. No hardcoded fallback: if there's no absolute
+  // base we simply don't connect.
   const base = (
     configuredBase ||
-    (API_BASE_URL.startsWith("http")
-      ? API_BASE_URL
-      : "https://inventory-backend-production-7e85.up.railway.app/api")
+    (API_BASE_URL.startsWith("http") ? API_BASE_URL : "")
   ).replace(/\/$/, "")
+  if (!base) return null
   return `${base}/realtime/events?token=${encodeURIComponent(token)}`
 }
 
@@ -117,19 +125,28 @@ const FULL_REFRESH_MIN_GAP_MS = 10_000
 // only adds requests.
 const STATIC_QUERY_ROOTS = new Set(["tenant-config", "license-status"])
 
+const MIN_RECONNECT_MS = 3_000
+const MAX_RECONNECT_MS = 30_000
+
 export function RealtimeSyncBridge() {
   const queryClient = useQueryClient()
   const eventSourceRef = useRef<EventSource | null>(null)
   const tokenRef = useRef<string | null>(null)
   const invalidationTimer = useRef<number | null>(null)
   const pendingResources = useRef<Set<RealtimeResource>>(new Set())
+  const reconnectBackoff = useRef<number>(MIN_RECONNECT_MS)
+  const nextRetryAt = useRef<number>(0)
+
   const lastFullRefreshAt = useRef<number>(0)
   const deferredFullRefresh = useRef<number | null>(null)
 
   useEffect(() => {
-    // Same guard as web: an unfiltered refresh that re-triggers itself became a
-    // request storm (429 lockout). Coalesce to one per window, keep the last
-    // one, and leave the heavy products query / static boot config out.
+    // An unfiltered refresh refetches every active query. If whatever triggers
+    // it is itself a side effect of refetching (a page that re-requests data on
+    // refetch and a server that broadcasts that request), the two feed each
+    // other several times a second — that loop locked every shop device out
+    // with 429s. Coalesce to at most one per window, never drop the last one,
+    // and leave the heavy products query / static boot config out of it.
     function invalidateEverything() {
       const wait = lastFullRefreshAt.current + FULL_REFRESH_MIN_GAP_MS - Date.now()
       if (wait > 0) {
@@ -206,20 +223,27 @@ export function RealtimeSyncBridge() {
         return
       }
       if (tokenRef.current === token && eventSourceRef.current) return
+      // Respect exponential backoff after a failed connection
+      if (Date.now() < nextRetryAt.current) return
 
       tokenRef.current = token
       closeCurrent()
 
-      const source = new EventSource(realtimeUrl(token))
+      const url = realtimeUrl(token)
+      if (!url) {
+        // No absolute backend base resolved yet — skip realtime (fail-closed,
+        // never route SSE traffic to a hardcoded/other-tenant backend).
+        return
+      }
+      const source = new EventSource(url)
       eventSourceRef.current = source
 
-      source.addEventListener("connected", (event) => {
-        try {
-          const payload = JSON.parse((event as MessageEvent).data) as RealtimeEvent
-          invalidate(payload.resource)
-        } catch {
-          invalidate("all")
-        }
+      // "connected" is just a handshake — do NOT invalidate here.
+      // The page already loaded fresh data; invalidating "all" on every
+      // (re)connect caused a refetch storm + flicker when the SSE connection
+      // dropped and reconnected repeatedly under server load.
+      source.addEventListener("connected", () => {
+        reconnectBackoff.current = MIN_RECONNECT_MS
       })
 
       source.addEventListener("changed", (event) => {
@@ -234,11 +258,18 @@ export function RealtimeSyncBridge() {
       source.onerror = () => {
         source.close()
         if (eventSourceRef.current === source) eventSourceRef.current = null
+        // Back off so a struggling server isn't hammered every 2s
+        nextRetryAt.current = Date.now() + reconnectBackoff.current
+        reconnectBackoff.current = Math.min(reconnectBackoff.current * 2, MAX_RECONNECT_MS)
       }
     }
 
-    // Money-data safety net: refresh balance-bearing resources when the user
-    // returns to this window, so vouchers/invoices made elsewhere never show stale.
+    // Money-data safety net: refetchOnWindowFocus is globally off (SSE covers
+    // cross-tab sync), but SSE can be disconnected (fail-closed base, backoff
+    // window, dropped events during reconnect). When the user switches back to
+    // this tab, refresh the balance-bearing resources so a voucher/invoice made
+    // in another tab is never shown stale — this was perceived as «السند ما
+    // انحسب» until a second operation forced a refetch.
     function refreshMoneyDataOnReturn() {
       if (document.visibilityState !== "visible") return
       invalidate("vouchers")
