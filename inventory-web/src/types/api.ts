@@ -50,6 +50,8 @@ export interface ApiEnvelope<T> {
   token?: string
   user?: User
   approvalId?: string
+  /** Set by the offline service worker when it parked the request instead of sending it. */
+  queued?: boolean
 }
 
 export interface User {
@@ -949,6 +951,8 @@ export interface InvoiceItem {
   itemNumber?: string | null
   warehouseId?: string
   warehouseName?: string | null
+  /** SALE lines: the depot the line was pulled from (null = sold straight from المحل). */
+  sourceWarehouseId?: string | null
   unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"
   quantity: number
   unitPrice: number

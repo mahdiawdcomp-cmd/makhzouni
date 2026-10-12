@@ -1589,6 +1589,14 @@ model InvoiceItem {
   // Who ticked it: the worker's name from «شاشة التجهيز», or the cashier who
   // ticked by hand. A plain name, not a user FK — it is a note, like `notes`.
   preparedBy  String? @map("prepared_by")
+  // SALE lines only: the depot this line was pulled from. A sale always deducts
+  // from المحل, so `warehouseId` is المحل even when the seller picked a depot —
+  // the pull itself lives only in an automatic transfer. Without remembering the
+  // depot here, reopening the invoice showed every line as المحل and saving it
+  // cancelled the transfer without recreating it, shifting stock back to the
+  // depot. NULL = sold straight from المحل. A plain id (no FK) like `preparedBy`:
+  // it is a record of what was chosen, not a live relation.
+  sourceWarehouseId String? @map("source_warehouse_id") @db.Uuid
 
   @@index([invoiceId])
   @@index([productId])

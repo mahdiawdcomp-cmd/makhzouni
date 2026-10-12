@@ -1048,17 +1048,20 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   }, [items, isPurchase])
   const hasPriceWarn = priceWarnItems.size > 0
 
-  // Edit mode: pieces the ORIGINAL invoice already deducted, per product. The
-  // backend edit reverses the old lines then re-applies the new ones, so any
-  // stock projection must credit these back first — otherwise unchanged lines
-  // look like shortages against the already-deducted stock.
+  // Edit mode: pieces the ORIGINAL invoice already deducted, per product AND
+  // warehouse (same key as lineStockKey). The backend edit reverses the old lines
+  // then re-applies the new ones, so any stock projection must credit these back
+  // first — otherwise unchanged lines look like shortages against the
+  // already-deducted stock. A depot pull is handed back to the depot it came
+  // from (the edit cancels its transfer), so that is where it is credited.
   const originalInvoicePcs = useMemo(() => {
     const acc: Record<string, number> = {}
     if (!isEdit || editingInvoice?.type !== "SALE") return acc
     for (const it of editingInvoice?.items ?? []) {
       const prod = products.find((p) => p.id === it.productId)
       const pcs = prod ? unitToPieces((it.unit ?? "PIECE") as Unit, it.quantity, prod) : it.quantity
-      acc[it.productId] = (acc[it.productId] ?? 0) + pcs
+      const key = `${it.productId}::${it.sourceWarehouseId ?? (prod ? shopWarehouseIdOf(prod) : undefined) ?? "shop"}`
+      acc[key] = (acc[key] ?? 0) + pcs
     }
     return acc
   }, [isEdit, editingInvoice, products])
@@ -1095,9 +1098,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const baseAvailable = fromShop
         ? (item.product.shopStock ?? stockOf(item.product))
         : stocksList.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0
-      // Credit-back (edit mode) only applies to what the ORIGINAL invoice deducted
-      // from المحل — a depot-specific line never touched المحل, so it doesn't apply.
-      const available = baseAvailable + (fromShop ? (originalInvoicePcs[item.product.id] ?? 0) : 0)
+      // Credit-back (edit mode): what the ORIGINAL invoice took out of THIS warehouse
+      // (keyed like the bucket, so a depot pull is credited to its depot, not المحل).
+      const available = baseAvailable + (originalInvoicePcs[key] ?? 0)
       const totalPcs = consumed.get(key) ?? 0
       const after = available - totalPcs
       if (after < 0) {
@@ -1124,15 +1127,21 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     const cust = customers.find((c) => c.id === inv.customerId) ?? inv.customer ?? null
     const nextItems: DraftItem[] = (inv.items ?? []).map((it) => {
       const product = products.find((p) => p.id === it.productId) ?? placeholderProduct(it)
-      const wsName = it.warehouseId
-        ? product.warehouseStocks?.find((ws) => ws.warehouseId === it.warehouseId)?.warehouse.name ?? it.warehouseName ?? undefined
+      // A sale is stored against المحل even when the seller pulled the line from a
+      // depot, so the stored warehouse alone would show every line as المحل — and
+      // saving would then drop the pull. Show the depot it was really taken from.
+      const lineWarehouseId = inv.type === "SALE"
+        ? (it.sourceWarehouseId ?? shopWarehouseIdOf(product) ?? it.warehouseId)
+        : it.warehouseId
+      const wsName = lineWarehouseId
+        ? product.warehouseStocks?.find((ws) => ws.warehouseId === lineWarehouseId)?.warehouse.name ?? (lineWarehouseId === it.warehouseId ? it.warehouseName : undefined) ?? undefined
         : undefined
       return {
         product,
         unit: (it.unit ?? "PIECE") as Unit,
         quantity: it.quantity,
         unitPrice: Number(it.unitPrice),
-        warehouseId: it.warehouseId,
+        warehouseId: lineWarehouseId,
         warehouseName: wsName,
         notes: it.notes ?? "",
         // Reopening an invoice must show what was already picked, so the tick
@@ -2058,7 +2067,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       setEditSaveError(null)
       setEditSaving(true)
       try {
-        await updateInvoice(editId, {
+        const response = await updateInvoice(editId, {
           type: invoiceType,
           priceMode,
           customerId: selectedCustomer.id,
@@ -2079,6 +2088,22 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             transferWholeCarton: item.transferWholeCarton || undefined,
           })),
         })
+        // A 2xx without the updated invoice means the server did NOT apply the edit:
+        // a user without invoice rights files a request for the owner to approve
+        // (202 + approvalId), and the offline queue parks the request until the
+        // network is back (202 + queued). Reporting either as "saved" sent the
+        // user to an invoice that still showed the old values.
+        if (!response?.data?.id) {
+          toast({
+            title: response?.message ?? "لم يُطبَّق التعديل بعد",
+            description: response?.approvalId
+              ? "الفاتورة تبقى بدون تعديل إلى أن يوافق المدير على الطلب."
+              : response?.queued
+                ? "الفاتورة تبقى بدون تعديل إلى أن يرجع الإنترنت وتتم المزامنة."
+                : "راجع الفاتورة قبل أن تعتبر التعديل محفوظاً.",
+            variant: "destructive",
+          })
+        }
         invoiceSavedRef.current = true
         setSavedInvoiceId(editId)
         void queryClient.invalidateQueries({ queryKey: ["invoices"] })
@@ -2233,17 +2258,26 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     })
   }
 
-  // Ctrl+S → save invoice from anywhere on this page
+  // Ctrl+S → save invoice from anywhere on this page.
+  // The handler always calls the LATEST save(): a dependency list can never be
+  // complete here (notes, price mode, payment mode, short-line prompt… all feed
+  // persistInvoice), and the old list left them out — so Ctrl+S after editing
+  // only the notes saved the previous notes.
+  const saveRef = useRef(save)
+  useEffect(() => {
+    saveRef.current = save
+  })
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault()
-        save()
+        if (e.repeat) return // a held key must not fire a second save
+        saveRef.current()
       }
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [selectedCustomer, items, hasInvalidTotal, paidAmount, discount, couponCode, invoiceType])
+  }, [])
 
   async function applyCouponCode() {
     if (!couponCode.trim() || subtotal <= 0) return

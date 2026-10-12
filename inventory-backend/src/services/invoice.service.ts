@@ -406,6 +406,10 @@ async function applyStockMovement(
   // (an OLD shop deficit would swallow part of the transferred pieces and make the
   // shop ledger look short even though the chosen depot had the full amount).
   let depotCoveredSale = false;
+  // The depot this SALE line was pulled from (null = straight from المحل). The
+  // line itself is always stored against المحل, so this is the only place the
+  // seller's choice survives for the edit screen to show it again.
+  let sourceWarehouseId: string | null = null;
   if (isSale) {
     const shopId = await resolveShopWarehouseId(tx);
     const requestedId = item.warehouseId ? await resolveWarehouseId(tx, item.warehouseId) : shopId;
@@ -455,6 +459,7 @@ async function applyStockMovement(
         createdBy,
         allowNegativeSale
       );
+      sourceWarehouseId = requestedId;
     }
     warehouseId = shopId;
   } else if (invoiceType === InvoiceType.SALES_RETURN && !item.warehouseId) {
@@ -622,6 +627,7 @@ async function applyStockMovement(
   return {
     product,
     warehouseId,
+    sourceWarehouseId,
     quantityInPieces,
     unitPrice,
     totalPrice: roundMoney(unitPrice * item.quantity),
@@ -1222,6 +1228,7 @@ async function createInvoiceInTransaction(
         invoiceId: invoice.id,
         productId: pricedItem.product.id,
         warehouseId: pricedItem.warehouseId,
+        sourceWarehouseId: pricedItem.sourceWarehouseId,
         productName: pricedItem.product.name,
         itemNumber: pricedItem.product.itemNumber,
         unit: item.unit,
@@ -1912,13 +1919,31 @@ async function updateInvoiceInTransaction(
 
     // Preserve the original invoice type if the caller didn't explicitly set one.
     const effectiveType = input.type ?? invoice.type;
-    // A SALE always deducts from المحل. On edit we already reversed the original
-    // shop deduction, so re-deduct straight from المحل and ignore any stale/legacy
-    // line warehouse the frontend echoed back — otherwise recreating the lines
-    // would auto-transfer from an empty depot and raise a false 409.
+    // A SALE always deducts from المحل. A line that names a depot is a depot pull:
+    // reverseInvoiceItemsStock above has just cancelled its automatic transfer and
+    // handed the pieces back to the depot, so the rebuild below must make that
+    // transfer again — otherwise every save of such an invoice silently moves the
+    // pulled stock back into the depot and out of المحل. Sales never block on stock,
+    // so re-pulling cannot raise a false 409.
+    //
+    // The one thing still ignored is a legacy echo: an old line stored against a
+    // depot with no recorded source was never a pull (legacy sales deducted from
+    // المحل), and a client that sends that stored value back unchanged must not
+    // turn it into one.
+    const legacyEchoes = new Set(
+      invoice.items
+        .filter((it) => it.warehouseId && !it.sourceWarehouseId)
+        .map((it) => `${it.productId}:${it.warehouseId}`)
+    );
     const rebuildItems =
       effectiveType === InvoiceType.SALE
-        ? input.items.map((it) => ({ ...it, warehouseId: undefined }))
+        ? input.items.map((it) => ({
+            ...it,
+            warehouseId:
+              it.warehouseId && !legacyEchoes.has(`${it.productId}:${it.warehouseId}`)
+                ? it.warehouseId
+                : undefined,
+          }))
         : input.items;
     // Units already on the invoice stay editable even if hidden since then.
     const preexistingUnitPairs = new Set(
