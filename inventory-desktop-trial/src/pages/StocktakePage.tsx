@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Archive,
@@ -9,11 +9,13 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Banknote,
   Loader2,
   Plus,
   Printer,
   RotateCcw,
   Search,
+  ShoppingCart,
   Check,
   X,
 } from "lucide-react"
@@ -26,9 +28,13 @@ import {
   getStocktakeSession,
   listStocktakeSessions,
   getBranches,
+  getCustomers,
+  getSettings,
+  updateSettings,
   rejectAllStocktakeItems,
   rejectStocktakeItem,
   reopenStocktakeSession,
+  type StocktakeResolution,
 } from "../api/endpoints"
 import type { StocktakeSessionDetail, StocktakeSessionSummary, StockCorrectionReason } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -195,6 +201,8 @@ export function StocktakePage() {
         />
       )}
 
+      <OverageSupplierCard readOnly={readOnly} />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -282,6 +290,50 @@ function NewSessionCard({
         <p className="text-xs text-slate-500">
           سيُنشأ رابط خارجي للعمال — لا يحتاجون تسجيل دخول.
         </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Overage supplier setting ────────────────────────────────────────────────
+// Where the cash PURCHASE invoice goes when an overage is resolved as a
+// purchase. Per-tenant (never hardcoded). Shortage sales always go to the
+// built-in walk-in customer «الزبون النقدي», so no setting is needed for those.
+
+function OverageSupplierCard({ readOnly }: { readOnly: boolean }) {
+  const qc = useQueryClient()
+  const settingsQ = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const suppliersQ = useQuery({ queryKey: ["customers", "suppliers"], queryFn: () => getCustomers({ isSupplier: true, limit: 500 }) })
+  const current = settingsQ.data?.stocktakeOverageSupplierId ?? ""
+
+  const saveMut = useMutation({
+    mutationFn: (stocktakeOverageSupplierId: string) => updateSettings({ stocktakeOverageSupplierId }),
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ["settings"] }); toast({ title: "تم حفظ مورّد فائض الجرد" }) },
+    onError: (err) => showError(err, "تعذر حفظ المورّد"),
+  })
+
+  const suppliers = suppliersQ.data ?? []
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">مورّد فائض الجرد</p>
+          <p className="text-xs text-slate-500">
+            لمن تُسجَّل فاتورة الشراء عند تسوية «زيادة» كشراء غير مسجّل. النقص يُباع دائماً باسم «الزبون النقدي».
+          </p>
+        </div>
+        <select
+          value={current}
+          disabled={readOnly || saveMut.isPending || suppliersQ.isLoading}
+          onChange={(e) => saveMut.mutate(e.target.value)}
+          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950 sm:w-72"
+        >
+          <option value="">— بدون (عطّل الشراء التلقائي) —</option>
+          {suppliers.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
       </CardContent>
     </Card>
   )
@@ -391,13 +443,17 @@ function SessionView({
     | null
   >(null)
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null)
+  // The resolution step: how to settle one item's variance (sale/purchase/loss).
+  const [resolveItem, setResolveItem] = useState<Item | null>(null)
+  // The bulk resolution step for «موافقة على الكل».
+  const [resolveAll, setResolveAll] = useState(false)
   const qc = useQueryClient()
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["stocktake-session", session.id] })
 
   const approveMut = useMutation({
-    mutationFn: ({ itemId, reason }: { itemId: string; reason: StockCorrectionReason }) => approveStocktakeItem(session.id, itemId, reason),
-    onSuccess: invalidate,
+    mutationFn: ({ itemId, reason, resolution }: { itemId: string; reason: StockCorrectionReason; resolution?: StocktakeResolution }) => approveStocktakeItem(session.id, itemId, reason, resolution ?? "LOSS"),
+    onSuccess: async (r) => { await invalidate(); if (r.invoiceNumber) toast({ title: `تمت التسوية بفاتورة #${r.invoiceNumber}` }) },
     onError: (err) => showError(err, "تعذرت الموافقة على الفرق"),
   })
 
@@ -410,7 +466,7 @@ function SessionView({
   // Server-side bulk approve — one atomic transaction (unlike approveMany's
   // per-item HTTP loop), approving every still-PENDING counted item at once.
   const approveAllMut = useMutation({
-    mutationFn: (reason: StockCorrectionReason) => approveAllStocktakeItems(session.id, reason),
+    mutationFn: ({ reason, mode }: { reason: StockCorrectionReason; mode: "LOSS" | "SALE_PURCHASE" }) => approveAllStocktakeItems(session.id, reason, mode),
     onSuccess: async (r) => { await invalidate(); toast({ title: `تمت الموافقة على ${r.approvedCount} مادة` }) },
     onError: (err) => showError(err, "تعذرت الموافقة على الكل"),
   })
@@ -653,7 +709,7 @@ function SessionView({
                 {bulk ? `جاري الموافقة ${bulk.done}/${bulk.total}` : `موافقة على الظاهر (${bulkTargets.length})`}
               </Button>
               <Button
-                onClick={() => setReasonPrompt({ mode: "all" })}
+                onClick={() => setResolveAll(true)}
                 disabled={readOnly || busy || pendingCounted.length === 0}
                 title={readOnly ? READ_ONLY_MESSAGE : "الموافقة على كل الفروقات بانتظار المراجعة دفعة واحدة"}
               >
@@ -761,7 +817,7 @@ function SessionView({
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-100"
-                                onClick={() => setReasonPrompt({ mode: "one", itemId: item.id, options: item.variance !== null && item.variance > 0 ? OVERAGE_REASONS : undefined })}
+                                onClick={() => setResolveItem(item)}
                                 disabled={readOnly || busy}
                                 title={readOnly ? READ_ONLY_MESSAGE : "وافق"}
                               >
@@ -822,12 +878,173 @@ function SessionView({
           onConfirm={(reason) => {
             const prompt = reasonPrompt
             setReasonPrompt(null)
-            if (prompt.mode === "all") approveAllMut.mutate(reason)
+            if (prompt.mode === "all") approveAllMut.mutate({ reason, mode: "LOSS" })
             else if (prompt.mode === "bulk") void approveMany(prompt.itemIds, reason)
             else approveMut.mutate({ itemId: prompt.itemId, reason })
           }}
         />
       )}
+
+      {/* Per-item: choose HOW to settle the variance before the reason modal */}
+      {resolveItem && (
+        <ResolveVarianceModal
+          item={resolveItem}
+          busy={approveMut.isPending}
+          onCancel={() => setResolveItem(null)}
+          onLoss={() => {
+            const it = resolveItem
+            setResolveItem(null)
+            setReasonPrompt({ mode: "one", itemId: it.id, options: (it.variance ?? 0) > 0 ? OVERAGE_REASONS : undefined })
+          }}
+          onInvoice={(resolution) => {
+            const it = resolveItem
+            setResolveItem(null)
+            // reason is required by the API but ignored on the invoice path.
+            approveMut.mutate({ itemId: it.id, reason: "OTHER", resolution })
+          }}
+        />
+      )}
+
+      {/* Bulk: settle every pending variance as losses, or auto sale/purchase */}
+      {resolveAll && (
+        <ResolveAllModal
+          count={pendingCounted.length}
+          busy={approveAllMut.isPending}
+          onCancel={() => setResolveAll(false)}
+          onLoss={() => { setResolveAll(false); setReasonPrompt({ mode: "all" }) }}
+          onInvoice={() => { setResolveAll(false); approveAllMut.mutate({ reason: "OTHER", mode: "SALE_PURCHASE" }) }}
+        />
+      )}
     </div>
+  )
+}
+
+// ── Resolution modals ───────────────────────────────────────────────────────
+
+function ModalShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">{children}</div>
+    </div>
+  )
+}
+
+/** How to settle ONE item's variance: a real cash invoice, or a written-off loss. */
+function ResolveVarianceModal({
+  item,
+  busy,
+  onCancel,
+  onLoss,
+  onInvoice,
+}: {
+  item: Item
+  busy: boolean
+  onCancel: () => void
+  onLoss: () => void
+  onInvoice: (resolution: StocktakeResolution) => void
+}) {
+  const v = item.variance ?? 0
+  const shortage = v < 0
+  const qty = Math.abs(v)
+  return (
+    <ModalShell>
+      <p className="text-lg font-bold">{item.productName}</p>
+      <p className="mt-1 text-sm text-slate-500">
+        {shortage ? `نقص ${qty} قطعة` : `زيادة ${qty} قطعة`} — كيف تريد تسويته؟
+      </p>
+      <div className="mt-4 space-y-2">
+        {shortage ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onInvoice("SALE")}
+            className="flex w-full items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-right transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950"
+          >
+            <Banknote className="h-6 w-6 shrink-0 text-emerald-600" />
+            <span>
+              <span className="block font-bold text-emerald-800 dark:text-emerald-300">بيع نقدي بسعر البيع</span>
+              <span className="block text-xs text-slate-500">فاتورة بيع نقدية باسم «الزبون النقدي» — يُسجَّل كإيراد</span>
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onInvoice("PURCHASE")}
+            className="flex w-full items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-right transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950"
+          >
+            <ShoppingCart className="h-6 w-6 shrink-0 text-blue-600" />
+            <span>
+              <span className="block font-bold text-blue-800 dark:text-blue-300">شراء بالكلفة</span>
+              <span className="block text-xs text-slate-500">فاتورة شراء نقدية على مورّد فائض الجرد — يدخل المخزون بكلفته</span>
+            </span>
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onLoss}
+          className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-right transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900"
+        >
+          <span>
+            <span className="block font-bold">{shortage ? "تسجيل كخسارة" : "تسوية (عدّ خاطئ)"}</span>
+            <span className="block text-xs text-slate-500">{shortage ? "هالك/سرقة/تلف — يُخصم من الأرباح" : "تصحيح الكمية فقط بدون فاتورة"}</span>
+          </span>
+        </button>
+      </div>
+      <button type="button" onClick={onCancel} className="mt-4 w-full rounded-xl border border-slate-200 py-2 text-sm font-medium dark:border-slate-700">
+        إلغاء
+      </button>
+    </ModalShell>
+  )
+}
+
+/** How to settle EVERY pending variance at once. */
+function ResolveAllModal({
+  count,
+  busy,
+  onCancel,
+  onLoss,
+  onInvoice,
+}: {
+  count: number
+  busy: boolean
+  onCancel: () => void
+  onLoss: () => void
+  onInvoice: () => void
+}) {
+  return (
+    <ModalShell>
+      <p className="text-lg font-bold">تسوية كل الفروقات ({count})</p>
+      <p className="mt-1 text-sm text-slate-500">اختر كيف تُسوّى كل الفروقات بانتظار المراجعة دفعة واحدة.</p>
+      <div className="mt-4 space-y-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onInvoice}
+          className="flex w-full items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-right transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950"
+        >
+          <Banknote className="h-6 w-6 shrink-0 text-emerald-600" />
+          <span>
+            <span className="block font-bold text-emerald-800 dark:text-emerald-300">بيع/شراء تلقائي</span>
+            <span className="block text-xs text-slate-500">كل نقص = بيع نقدي، كل زيادة = شراء بالكلفة</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onLoss}
+          className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-right transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900"
+        >
+          <span>
+            <span className="block font-bold">تسجيل كخسائر/تسويات</span>
+            <span className="block text-xs text-slate-500">بسبب واحد لكل الفروقات (السلوك السابق)</span>
+          </span>
+        </button>
+      </div>
+      <button type="button" onClick={onCancel} className="mt-4 w-full rounded-xl border border-slate-200 py-2 text-sm font-medium dark:border-slate-700">
+        إلغاء
+      </button>
+    </ModalShell>
   )
 }

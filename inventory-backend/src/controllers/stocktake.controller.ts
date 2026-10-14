@@ -71,12 +71,13 @@ export const submitSession = asyncHandler(async (req, res) => {
 });
 
 export const approveItem = asyncHandler(async (req, res) => {
-  const { reason } = req.body as { reason: LossReason };
+  const { reason, resolution } = req.body as { reason: LossReason; resolution?: "LOSS" | "SALE" | "PURCHASE" };
   const data = await approveStocktakeItem(
     String(req.params.id),
     String(req.params.itemId),
     String(req.user!.id),
     reason,
+    resolution ?? "LOSS",
   );
   res.json({ success: true, data });
 });
@@ -87,8 +88,8 @@ export const rejectItem = asyncHandler(async (req, res) => {
 });
 
 export const approveAllItems = asyncHandler(async (req, res) => {
-  const { reason } = req.body as { reason: LossReason };
-  const data = await approveAllStocktakeItems(String(req.params.id), String(req.user!.id), reason);
+  const { reason, mode } = req.body as { reason: LossReason; mode?: "LOSS" | "SALE_PURCHASE" };
+  const data = await approveAllStocktakeItems(String(req.params.id), String(req.user!.id), reason, mode ?? "LOSS");
   res.json({ success: true, data });
 });
 

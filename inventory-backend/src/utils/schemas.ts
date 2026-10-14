@@ -1336,6 +1336,7 @@ export const updateSettingsSchema = z.object({
       cycleCountIntervalDays: z.coerce.number().int().min(1).max(365).optional(),
       cycleCountItemLimit: z.coerce.number().int().min(1).max(1000).optional(),
       cycleCountStrategy: z.enum(["RANDOM", "HIGH_VALUE", "FAST_MOVING", "LOW_STOCK", "LEAST_RECENTLY_COUNTED"]).optional(),
+      stocktakeOverageSupplierId: z.string().trim().optional(),
       personalDebtReminderWhatsappNumber: z.string().trim().optional(),
       reportsProfitStartDate: z.string().trim().optional(),
       // Empty string reopens everything; otherwise a plain YYYY-MM-DD day.
@@ -1795,6 +1796,9 @@ export const stocktakeApproveItemSchema = z.object({
   params: sessionItemParams,
   body: z.object({
     reason: lossReasonSchema,
+    // How to resolve the variance: write it off (LOSS, default), or book it as a
+    // real cash invoice — SALE for a shortage, PURCHASE for an overage.
+    resolution: z.enum(["LOSS", "SALE", "PURCHASE"]).optional(),
   }),
 });
 
@@ -1802,6 +1806,9 @@ export const stocktakeApproveAllSchema = z.object({
   params: uuidParam,
   body: z.object({
     reason: lossReasonSchema,
+    // LOSS (default) writes every variance off; SALE_PURCHASE resolves each
+    // shortage as a cash sale and each overage as a cash purchase.
+    mode: z.enum(["LOSS", "SALE_PURCHASE"]).optional(),
   }),
 });
 

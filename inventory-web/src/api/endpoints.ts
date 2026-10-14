@@ -3197,8 +3197,10 @@ export async function archiveStocktakeSession(id: string, force?: boolean) {
   return data.data
 }
 
-export async function approveStocktakeItem(sessionId: string, itemId: string, reason: StockCorrectionReason) {
-  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number }>>(`/stocktake/${sessionId}/items/${itemId}/approve`, { reason })
+export type StocktakeResolution = "LOSS" | "SALE" | "PURCHASE"
+
+export async function approveStocktakeItem(sessionId: string, itemId: string, reason: StockCorrectionReason, resolution: StocktakeResolution = "LOSS") {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number; invoiceNumber?: string }>>(`/stocktake/${sessionId}/items/${itemId}/approve`, { reason, resolution })
   return data.data!
 }
 
@@ -3207,8 +3209,8 @@ export async function rejectStocktakeItem(sessionId: string, itemId: string) {
   return data.data!
 }
 
-export async function approveAllStocktakeItems(sessionId: string, reason: StockCorrectionReason) {
-  const { data } = await api.post<ApiEnvelope<{ success: boolean; approvedCount: number }>>(`/stocktake/${sessionId}/approve-all`, { reason })
+export async function approveAllStocktakeItems(sessionId: string, reason: StockCorrectionReason, mode: "LOSS" | "SALE_PURCHASE" = "LOSS") {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; approvedCount: number }>>(`/stocktake/${sessionId}/approve-all`, { reason, mode })
   return data.data!
 }
 

@@ -426,6 +426,11 @@ export interface AppSettings {
   cycleCountItemLimit?: number;
   cycleCountStrategy?: "RANDOM" | "HIGH_VALUE" | "FAST_MOVING" | "LOW_STOCK" | "LEAST_RECENTLY_COUNTED";
   cycleCountLastRunAt?: string;
+  // "الجرد الدوري" (manual stocktake) — supplier that receives a cash PURCHASE
+  // invoice when an admin resolves an overage as "شراء غير مسجّل". A customer id
+  // with isSupplier=true, chosen per tenant (never hardcoded). Shortage sales go
+  // to the walk-in customer «الزبون النقدي» (auto-resolved, no setting needed).
+  stocktakeOverageSupplierId?: string;
   // «الديون الشخصية» — WhatsApp number that receives the daily due-date reminder.
   // Sent through the same tenant WhatsApp provider as everything else above.
   personalDebtReminderWhatsappNumber?: string;
@@ -671,6 +676,7 @@ export const defaultSettings: AppSettings = {
   cycleCountItemLimit: 20,
   cycleCountStrategy: "LEAST_RECENTLY_COUNTED",
   cycleCountLastRunAt: "",
+  stocktakeOverageSupplierId: "",
   telegramChannelEnabled: false,
   telegramChannelBotToken: "",
   telegramChannelChatId: "",

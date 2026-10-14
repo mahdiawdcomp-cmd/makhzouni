@@ -1429,6 +1429,9 @@ export interface AppSettings {
   cycleCountItemLimit?: number
   cycleCountStrategy?: CycleCountStrategy
   cycleCountLastRunAt?: string
+  // "الجرد الدوري": supplier that receives the cash PURCHASE invoice when an
+  // overage is resolved as "شراء غير مسجّل". A customer id with isSupplier=true.
+  stocktakeOverageSupplierId?: string
 }
 
 export type BotReplyType = "STATEMENT" | "BALANCE" | "CATALOG_LINK" | "TEXT"

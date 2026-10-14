@@ -1,12 +1,98 @@
 import { randomBytes } from "crypto";
-import { LossReason, Prisma, StockMovementType, StocktakeApprovalStatus, StocktakeSessionStatus } from "@prisma/client";
+import { InvoiceType, LossReason, PaymentType, Prisma, StockMovementType, StocktakeApprovalStatus, StocktakeSessionStatus, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { adjustWarehouseStock, resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
 import { recordStockAdjustmentVariance } from "./stock-loss.service";
+import { createInvoice } from "./invoice.service";
+import { getOrCreateWalkInCustomer } from "./customer.service";
+import { getSettings } from "./settings.service";
 import { logger } from "../utils/logger";
 
 type Db = Prisma.TransactionClient | typeof prisma;
+
+// How an admin chooses to resolve a counted variance at approval time:
+//  - LOSS      : the current behaviour — book a StockLoss (shortage reduces
+//                profit, overage adds to it) and adjust stock directly.
+//  - SALE      : a shortage is treated as an unrecorded cash sale → a real SALE
+//                invoice to «الزبون النقدي» at sale price. Captures the revenue
+//                instead of writing the goods off. Shortages only.
+//  - PURCHASE  : an overage is treated as an unrecorded purchase → a real
+//                PURCHASE invoice to the tenant's configured overage supplier at
+//                cost. Overages only.
+// The SALE/PURCHASE paths route through createInvoice (same proven stock +
+// ledger + profit path as every other invoice) instead of adjustWarehouseStock,
+// so stock is moved exactly once and all reports stay consistent.
+export type StocktakeResolution = "LOSS" | "SALE" | "PURCHASE";
+
+/**
+ * Resolves a single item's variance as a real cash invoice inside the caller's
+ * transaction. Returns the created invoice so the item can keep a trace of it.
+ * deltaPieces < 0 → shortage (SALE), deltaPieces > 0 → overage (PURCHASE).
+ */
+async function resolveVarianceViaInvoice(
+  tx: Prisma.TransactionClient,
+  opts: {
+    resolution: "SALE" | "PURCHASE";
+    productId: string;
+    warehouseId: string;
+    deltaPieces: number;
+    salePrice: number;
+    unitCost: number;
+    createdBy: string;
+    sessionId: string;
+  },
+): Promise<{ invoiceId: string; invoiceNumber: string }> {
+  const qty = Math.abs(opts.deltaPieces);
+  if (qty <= 0) throw new AppError("لا يوجد فرق لتسويته كفاتورة", 400, "NO_VARIANCE");
+
+  if (opts.resolution === "SALE") {
+    if (opts.deltaPieces > 0) throw new AppError("البيع النقدي يصلح للنقص فقط", 400, "SALE_REQUIRES_SHORTAGE");
+    const unitPrice = opts.salePrice;
+    if (!(unitPrice > 0)) throw new AppError("لا يوجد سعر بيع لهذه المادة — عدّل السعر أو اختر «هالك»", 400, "NO_SALE_PRICE");
+    const walkIn = await getOrCreateWalkInCustomer();
+    const inv = await createInvoice(
+      {
+        customerId: walkIn.id,
+        type: InvoiceType.SALE,
+        discount: 0,
+        tax: 0,
+        paidAmount: qty * unitPrice,
+        paymentType: PaymentType.CASH,
+        branchId: opts.warehouseId,
+        notes: `تسوية جرد دوري — بيع نقص غير مسجّل (جلسة ${opts.sessionId})`,
+        items: [{ productId: opts.productId, warehouseId: opts.warehouseId, unit: Unit.PIECE, quantity: qty, unitPrice, allowNegativeStock: true }],
+      },
+      opts.createdBy,
+      tx,
+    );
+    return { invoiceId: inv.id, invoiceNumber: String(inv.invoiceNumber ?? inv.id) };
+  }
+
+  // PURCHASE — overage
+  if (opts.deltaPieces < 0) throw new AppError("الشراء يصلح للزيادة فقط", 400, "PURCHASE_REQUIRES_OVERAGE");
+  const settings = await getSettings();
+  const supplierId = settings.stocktakeOverageSupplierId?.trim();
+  if (!supplierId) throw new AppError("حدّد مورّد فائض الجرد من إعدادات الجرد أولاً", 400, "NO_OVERAGE_SUPPLIER");
+  const unitPrice = opts.unitCost;
+  if (!(unitPrice > 0)) throw new AppError("لا توجد كلفة لهذه المادة — عدّل الكلفة أو اختر «تسوية»", 400, "NO_COST_PRICE");
+  const inv = await createInvoice(
+    {
+      customerId: supplierId,
+      type: InvoiceType.PURCHASE,
+      discount: 0,
+      tax: 0,
+      paidAmount: qty * unitPrice,
+      paymentType: PaymentType.CASH,
+      branchId: opts.warehouseId,
+      notes: `تسوية جرد دوري — شراء زيادة غير مسجّلة (جلسة ${opts.sessionId})`,
+      items: [{ productId: opts.productId, warehouseId: opts.warehouseId, unit: Unit.PIECE, quantity: qty, unitPrice }],
+    },
+    opts.createdBy,
+    tx,
+  );
+  return { invoiceId: inv.id, invoiceNumber: String(inv.invoiceNumber ?? inv.id) };
+}
 
 function makeToken() {
   return `stk_${randomBytes(24).toString("base64url")}`;
@@ -555,6 +641,7 @@ export async function approveStocktakeItem(
   itemId: string,
   approvingUserId: string,
   reason: LossReason,
+  resolution: StocktakeResolution = "LOSS",
 ) {
   return prisma.$transaction(async (tx) => {
     // Lock the item row for update and re-check approvalStatus (race-safe)
@@ -562,7 +649,7 @@ export async function approveStocktakeItem(
       where: { id: itemId },
       include: {
         session: { select: { status: true, branchId: true } },
-        product: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true, salePrice: true, costPrice: true, purchasePrice: true } },
       },
     });
 
@@ -595,6 +682,40 @@ export async function approveStocktakeItem(
     // once-measured delta stays correct no matter how long approval is
     // delayed. This mirrors cycle-count's approveCycleCountItem exactly.
     const delta = item.actualQty - item.systemQty;
+
+    // ── Resolution = SALE / PURCHASE ──────────────────────────────────────────
+    // Instead of writing the gap off as a loss/gain, book it as a real cash
+    // invoice (shortage → sale to «الزبون النقدي», overage → purchase to the
+    // configured supplier). createInvoice moves the stock and the money through
+    // the same proven path as every other invoice, so we do NOT call
+    // adjustWarehouseStock / recordStockAdjustmentVariance here — the stock is
+    // moved exactly once, by the invoice. A zero variance has nothing to sell or
+    // buy, so it just approves.
+    if (resolution !== "LOSS" && delta !== 0) {
+      const inv = await resolveVarianceViaInvoice(tx, {
+        resolution,
+        productId: item.productId,
+        warehouseId: item.session.branchId,
+        deltaPieces: delta,
+        salePrice: Number(item.product.salePrice ?? 0),
+        unitCost: Number(item.product.costPrice ?? 0) || Number(item.product.purchasePrice ?? 0),
+        createdBy: approvingUserId,
+        sessionId,
+      });
+      const updatedViaInvoice = await tx.stocktakeItem.updateMany({
+        where: { id: itemId, approvalStatus: StocktakeApprovalStatus.PENDING },
+        data: {
+          approvalStatus: StocktakeApprovalStatus.APPROVED,
+          approvedQty: item.actualQty,
+          reason: null,
+          lossId: null,
+          notes: [item.notes, `فاتورة ${resolution === "SALE" ? "بيع" : "شراء"} #${inv.invoiceNumber}`].filter(Boolean).join(" | "),
+        },
+      });
+      if (updatedViaInvoice.count === 0)
+        throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
+      return { success: true, delta, newQty: item.actualQty, invoiceNumber: inv.invoiceNumber };
+    }
 
     // adjustWarehouseStock locks the row and enforces the same negative-floor
     // guard every other stock-mutating path (invoice/transfer/loss) uses.
@@ -723,10 +844,14 @@ export async function approveAllStocktakeItems(
   sessionId: string,
   approvingUserId: string,
   reason: LossReason,
+  // "LOSS" (default): write every variance off as a loss/gain.
+  // "SALE_PURCHASE": resolve each shortage as a cash sale and each overage as a
+  // cash purchase (same per-item logic as the single-item SALE/PURCHASE path).
+  mode: "LOSS" | "SALE_PURCHASE" = "LOSS",
 ) {
   const session = await prisma.stocktakeSession.findUnique({
     where: { id: sessionId },
-    include: { items: { include: { product: { select: { name: true } } } } },
+    include: { items: { include: { product: { select: { name: true, salePrice: true, costPrice: true, purchasePrice: true } } } } },
   });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status !== StocktakeSessionStatus.SUBMITTED)
@@ -743,6 +868,34 @@ export async function approveAllStocktakeItems(
       if (item.actualQty === null) continue;
 
       const delta = item.actualQty - item.systemQty;
+
+      // SALE_PURCHASE mode: route non-zero variances through a real invoice
+      // (shortage→sale, overage→purchase) exactly like the single-item path.
+      if (mode === "SALE_PURCHASE" && delta !== 0) {
+        const inv = await resolveVarianceViaInvoice(tx, {
+          resolution: delta < 0 ? "SALE" : "PURCHASE",
+          productId: item.productId,
+          warehouseId: branchId,
+          deltaPieces: delta,
+          salePrice: Number(item.product.salePrice ?? 0),
+          unitCost: Number(item.product.costPrice ?? 0) || Number(item.product.purchasePrice ?? 0),
+          createdBy: approvingUserId,
+          sessionId,
+        });
+        const u = await tx.stocktakeItem.updateMany({
+          where: { id: item.id, approvalStatus: StocktakeApprovalStatus.PENDING },
+          data: {
+            approvalStatus: StocktakeApprovalStatus.APPROVED,
+            approvedQty: item.actualQty,
+            reason: null,
+            lossId: null,
+            notes: [item.notes, `فاتورة ${delta < 0 ? "بيع" : "شراء"} #${inv.invoiceNumber}`].filter(Boolean).join(" | "),
+          },
+        });
+        if (u.count === 1) approvedCount++;
+        continue;
+      }
+
       const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
         productId: item.productId,
         warehouseId: branchId,
