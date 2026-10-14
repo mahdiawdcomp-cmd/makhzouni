@@ -5,6 +5,7 @@ import {
   computeChinaPricing,
   createChinaBatch,
   parseChinaOrderExcel,
+  repriceChinaBatch,
   type ChinaOrderRow,
   type ChinaPricedItem,
   type ChinaPricingParams,
@@ -88,4 +89,13 @@ export const createChinaBatchCtrl = asyncHandler(async (req, res) => {
   );
 
   res.status(201).json({ success: true, data: batch });
+});
+
+// POST /api/landed-cost/china/batches/:id/reprice — re-apply new screen inputs
+// (CBM price, office %, CNY/USD + USD/IQD rates) to an already-saved batch, and
+// update the linked purchase invoice + product costs when one exists.
+export const repriceChinaBatchCtrl = asyncHandler(async (req, res) => {
+  const params = readParams(req.body as Record<string, unknown>);
+  const summary = await repriceChinaBatch(String(req.params.id), params, req.user!.id, req.user!.name);
+  res.json({ success: true, data: summary });
 });

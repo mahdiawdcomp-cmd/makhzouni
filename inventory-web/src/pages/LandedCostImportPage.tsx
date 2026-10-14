@@ -275,7 +275,10 @@ export function LandedCostImportPage() {
                       <Button size="sm" variant="outline" onClick={() => navigate(`/inventory/landed-cost/${b.id}`)}>مراجعة</Button>
                     )}
                     {b.status === "PURCHASE_INVOICE_CREATED" && (
-                      <Button size="sm" variant="outline" onClick={() => navigate(`/invoices/${b.purchaseInvoice?.id}`)}>عرض الفاتورة</Button>
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => navigate(`/invoices/${b.purchaseInvoice?.id}`)}>عرض الفاتورة</Button>
+                        <Button size="sm" variant="ghost" onClick={() => navigate(`/inventory/landed-cost/${b.id}`)}>تعديل التسعير</Button>
+                      </>
                     )}
                     {(b.status === "DRAFT_PRICED" || b.status === "REVIEWING_ITEMS") && (
                       <Button size="sm" variant="ghost" onClick={() => setConfirmCancelId(b.id)}>إلغاء</Button>

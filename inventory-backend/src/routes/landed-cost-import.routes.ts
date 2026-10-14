@@ -18,6 +18,7 @@ import {
   createChinaBatchCtrl,
   downloadChinaTemplate,
   previewChinaOrder,
+  repriceChinaBatchCtrl,
 } from "../controllers/china-order-pricing.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission, requireAnyPermission } from "../middleware/permission.middleware";
@@ -65,6 +66,9 @@ router.use(requireAnyPermission("MANAGE_PRODUCTS", "VIEW_PURCHASE_PRICE"));
 router.get("/china/template", downloadChinaTemplate);
 router.post("/china/preview", upload.single("file"), previewChinaOrder);
 router.post("/china/batches", createChinaBatchCtrl);
+// Re-price a saved batch after the rates/CBM price moved. Rewrites the linked
+// purchase invoice + product costs, so it is a WRITE — same gate as confirm.
+router.post("/china/batches/:id/reprice", requirePermission("MANAGE_PRODUCTS"), repriceChinaBatchCtrl);
 
 // Legacy generic flexible-column flow — kept API-compatible but no longer
 // reachable from the UI (replaced by the China fixed template above).

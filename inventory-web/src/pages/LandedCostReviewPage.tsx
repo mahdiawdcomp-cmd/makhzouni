@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardHeader, CardContent } from "../components/ui/card"
@@ -18,6 +18,7 @@ import {
   getBranches,
   getLandedCostBatch,
   getCatalogCategories,
+  repriceChinaBatch,
   setLandedCostItemDecision,
   type LandedCostItem,
 } from "../api/endpoints"
@@ -296,6 +297,49 @@ export function LandedCostReviewPage() {
   // one button on the day the container lands — not the whole form again.
   const awaiting = batch?.status === "AWAITING_ARRIVAL"
 
+  // ── Re-price after rates moved ────────────────────────────────────────────
+  // A China batch locks once its purchase invoice is created, but the four
+  // screen inputs are rates (CBM price, office %, CNY/USD, USD/IQD) that keep
+  // moving. This card re-opens them on a confirmed batch and rewrites the
+  // invoice + product costs to the new landed cost. Only a China batch (has a
+  // CNY rate) and only after it became a real invoice.
+  const isChinaBatch = batch?.cnyPerUsd != null
+  const canReprice = isChinaBatch && batch?.status === "PURCHASE_INVOICE_CREATED"
+  const [rpCbm, setRpCbm] = useState("")
+  const [rpOffice, setRpOffice] = useState("")
+  const [rpCny, setRpCny] = useState("")
+  const [rpIqd, setRpIqd] = useState("")
+  const [rpSeeded, setRpSeeded] = useState(false)
+  const [confirmReprice, setConfirmReprice] = useState(false)
+  useEffect(() => {
+    if (!batch || rpSeeded) return
+    setRpCbm(batch.cbmPriceUsd != null ? String(batch.cbmPriceUsd) : "")
+    setRpOffice(batch.officePercent != null ? String(batch.officePercent) : "")
+    setRpCny(batch.cnyPerUsd != null ? String(batch.cnyPerUsd) : "")
+    setRpIqd(batch.usdToIqd != null ? String(batch.usdToIqd) : "")
+    setRpSeeded(true)
+  }, [batch, rpSeeded])
+  const rpReady = Number(rpCny) > 0 && Number(rpIqd) > 0
+  const repriceMutation = useMutation({
+    mutationFn: () => repriceChinaBatch(batchId, {
+      cbmPriceUsd: Number(rpCbm) || 0,
+      officePercent: Number(rpOffice) || 0,
+      cnyPerUsd: Number(rpCny) || 0,
+      usdToIqd: Number(rpIqd) || 0,
+    }),
+    onSuccess: (res) => {
+      toast({
+        title: "تمت إعادة التسعير",
+        description: res.purchaseInvoiceId
+          ? `تحدّثت فاتورة الشراء — الإجمالي الجديد ${money(res.newInvoiceTotal)} د.ع (كان ${money(res.oldInvoiceTotal)})`
+          : "تحدّثت كلفة الأصناف",
+      })
+      void queryClient.invalidateQueries({ queryKey: ["landed-cost-batch", batchId] })
+      void queryClient.invalidateQueries({ queryKey: ["landed-cost-batches"] })
+    },
+    onError: (err: unknown) => toast({ title: "تعذّرت إعادة التسعير", description: apiErrorMessage(err), variant: "destructive" }),
+  })
+
   if (batchQuery.isLoading) return <div className="p-6">جاري التحميل...</div>
   if (!batch) return <div className="p-6">الدفعة غير موجودة</div>
 
@@ -326,6 +370,42 @@ export function LandedCostReviewPage() {
         <h1 className="text-xl font-bold">مراجعة الأوردر المسعّر</h1>
         {!locked && <Button variant="ghost" onClick={() => setConfirmCancel(true)}>إلغاء الدفعة</Button>}
       </div>
+
+      {canReprice && (
+        <Card>
+          <CardHeader><span className="font-semibold">إعادة التسعير — تحديث الأسعار على نفس الفاتورة</span></CardHeader>
+          <CardContent className="flex flex-col gap-4 p-5">
+            <p className="text-sm text-muted-foreground">
+              تغيّرت الأسعار؟ عدّل سعر المتر المكعب أو نسبة المكتب أو تكسيرة اليوان/الدولار — يُعاد حساب كلفة
+              كل صنف بالدينار، وتُحدَّث فاتورة الشراء المرتبطة وكلفة المواد ورصيد المورّد تلقائياً.
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <Label className="text-xs">سعر المتر المكعب $ (شحن + كمرك + نقل)</Label>
+                <Input type="number" value={rpCbm} onChange={(e) => setRpCbm(e.target.value)} placeholder="مثال: 170" />
+              </div>
+              <div>
+                <Label className="text-xs">نسبة المكتب %</Label>
+                <Input type="number" value={rpOffice} onChange={(e) => setRpOffice(e.target.value)} placeholder="مثال: 3" />
+              </div>
+              <div>
+                <Label className="text-xs">كم يوان = 1 دولار (تكسيرة الرنمنبي)</Label>
+                <Input type="number" value={rpCny} onChange={(e) => setRpCny(e.target.value)} placeholder="مثال: 7.2" />
+              </div>
+              <div>
+                <Label className="text-xs">سعر صرف الدولار للدينار (تكسيرة العراق)</Label>
+                <Input type="number" value={rpIqd} onChange={(e) => setRpIqd(e.target.value)} placeholder="مثال: 1400" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button disabled={!rpReady || repriceMutation.isPending} onClick={() => setConfirmReprice(true)}>
+                {repriceMutation.isPending ? "جاري التحديث..." : "أعد التسعير وحدّث الفاتورة"}
+              </Button>
+              {!rpReady && <span className="text-xs text-muted-foreground">أدخل تكسيرة اليوان والدولار أولاً</span>}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {duplicateNewCodes.length > 0 && (
         <div className="flex flex-col gap-1 rounded-md border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:bg-rose-950/25 dark:text-rose-300">
@@ -631,6 +711,16 @@ export function LandedCostReviewPage() {
         loading={cancelMutation.isPending}
         onConfirm={() => cancelMutation.mutate()}
         onCancel={() => setConfirmCancel(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmReprice}
+        title="إعادة التسعير وتحديث الفاتورة؟"
+        description="سيُعاد حساب كلفة كل الأصناف بالأسعار الجديدة، وتُحدَّث أسطر فاتورة الشراء وكلفة المواد ورصيد المورّد. لا يتغيّر المخزون المُدخَل، فقط قيمته وكلفته."
+        confirmLabel="أعد التسعير"
+        loading={repriceMutation.isPending}
+        onConfirm={() => repriceMutation.mutate(undefined, { onSuccess: () => setConfirmReprice(false) })}
+        onCancel={() => setConfirmReprice(false)}
       />
     </div>
   )

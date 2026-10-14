@@ -3377,6 +3377,11 @@ export interface LandedCostBatch {
   appliedAt: string | null
   /** Set while the batch is held: roughly when the container lands. */
   expectedArrivalAt?: string | null
+  // China fixed-template pricing inputs (null on legacy generic batches).
+  cbmPriceUsd?: number | null
+  officePercent?: number | null
+  cnyPerUsd?: number | null
+  usdToIqd?: number | null
   /** Full rows — present on the single-batch endpoint only. */
   items?: LandedCostItem[]
   /** Row count — what the LIST endpoint returns instead of the rows. */
@@ -3538,6 +3543,31 @@ export async function createChinaOrderBatch(payload: {
   items: ChinaPricedItem[]
 }) {
   const { data } = await api.post<ApiEnvelope<LandedCostBatch>>("/landed-cost/china/batches", payload)
+  return data.data!
+}
+
+export interface RepriceChinaBatchSummary {
+  batchId: string
+  purchaseInvoiceId: string | null
+  invoiceNumber: string | null
+  oldInvoiceTotal: number | null
+  newInvoiceTotal: number | null
+  updatedItems: number
+  updatedProducts: number
+  params: ChinaPricingParams
+}
+
+/**
+ * Re-apply new screen inputs (CBM price, office %, CNY/USD + USD/IQD rates) to
+ * an already-saved China batch. When the batch already produced a purchase
+ * invoice, the invoice lines, supplier balance, stock valuation and product
+ * costs are all updated to the new landed cost.
+ */
+export async function repriceChinaBatch(id: string, params: ChinaPricingParams) {
+  const { data } = await api.post<ApiEnvelope<RepriceChinaBatchSummary>>(
+    `/landed-cost/china/batches/${id}/reprice`,
+    params,
+  )
   return data.data!
 }
 

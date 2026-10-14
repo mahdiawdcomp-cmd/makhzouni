@@ -1,5 +1,6 @@
 import { read, utils, write } from "xlsx";
 import {
+  InvoiceType,
   LandedCostBatchStatus,
   LandedCostItemAction,
   LandedCostMatchStatus,
@@ -8,6 +9,8 @@ import {
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { roundMoney } from "../utils/financial";
+import { updateInvoice, type CreateInvoiceInput } from "./invoice.service";
+import type { PriceMode } from "../utils/sale-pricing";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -372,4 +375,224 @@ export async function createChinaBatch(input: CreateChinaBatchInput, createdBy: 
     },
     include: { items: true },
   });
+}
+
+// ── Re-price an existing batch after the exchange rate / CBM price changed ──
+//
+// The four screen inputs (سعر المتر، نسبة المكتب، تكسيرة اليوان، تكسيرة الدينار)
+// are entered once before the purchase invoice is made, then the batch locks.
+// When those numbers move afterwards — a new shipping rate, a new dinar rate —
+// this recomputes every row from its STORED raw inputs (unitPriceCny,
+// piecesPerCarton, cartonCbm, cartonCount) using the new params, rewrites the
+// item costs, and — if a purchase invoice was already created — rebuilds that
+// SAME invoice through the normal invoice-edit path so the supplier balance,
+// stock valuation and line prices all move with it. Product cost/purchase price
+// are then overwritten with the true landed cost, exactly as the confirm flow
+// does (the invoice edit's own weighted-average would otherwise blend it).
+
+export interface RepriceChinaBatchSummary {
+  batchId: string;
+  purchaseInvoiceId: string | null;
+  invoiceNumber: string | null;
+  oldInvoiceTotal: number | null;
+  newInvoiceTotal: number | null;
+  updatedItems: number;
+  updatedProducts: number;
+  params: ChinaPricingParams;
+}
+
+export async function repriceChinaBatch(
+  batchId: string,
+  params: ChinaPricingParams,
+  userId: string,
+  userName?: string,
+): Promise<RepriceChinaBatchSummary> {
+  validateParams(params);
+
+  return prisma.$transaction(
+    async (tx) => {
+      const batch = await tx.landedCostImportBatch.findUnique({
+        where: { id: batchId },
+        include: {
+          items: true,
+          purchaseInvoice: { select: { id: true, invoiceNumber: true, totalAmount: true } },
+        },
+      });
+      if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
+      if (batch.status === LandedCostBatchStatus.CANCELLED) {
+        throw new AppError("لا يمكن إعادة تسعير دفعة ملغاة", 409, "BATCH_CANCELLED");
+      }
+      // A held shipment has no invoice yet and its priced numbers also feed the
+      // «البضاعة القادمة» cards; re-pricing those is a different flow. Keep this
+      // to the two honest cases: still in review, or already a purchase invoice.
+      if (batch.status === LandedCostBatchStatus.AWAITING_ARRIVAL) {
+        throw new AppError(
+          "هذه الدفعة بضاعة قادمة لم تصل بعد — عدّل التسعير بعد وصولها",
+          409,
+          "BATCH_AWAITING",
+        );
+      }
+
+      // Recompute every row from its stored raw China inputs. A row missing them
+      // is a legacy generic batch, not a China order — refuse rather than guess.
+      const recomputed = batch.items.map((item) => {
+        if (item.unitPriceCny == null || item.piecesPerCarton == null || item.cartonCbm == null) {
+          throw new AppError(
+            "هذه الدفعة ليست أوردر صين — لا يمكن إعادة تسعيرها بهذه الطريقة",
+            400,
+            "NOT_CHINA_BATCH",
+          );
+        }
+        const cartonCount = item.cartonCount ?? 0;
+        const row = {
+          cartonCount,
+          piecesPerCarton: item.piecesPerCarton,
+          unitPriceCny: Number(item.unitPriceCny),
+          cartonCbm: Number(item.cartonCbm),
+        };
+        const { Y, A, N, H } = priceChinaRow(row, params);
+        return {
+          item,
+          cartonCount,
+          cartonCostUsd: roundMoney(A),
+          unitCostUsd: roundMoney(N),
+          unitCostIqd: roundMoney(H),
+          cartonCostIqd: roundMoney(A * params.usdToIqd),
+          // Same definition createChinaBatch persisted: the office+shipping add-on
+          // (A − Y) over the carton, converted to dinar.
+          allocatedExtraCost: roundMoney((A - Y) * cartonCount * params.usdToIqd),
+        };
+      });
+
+      const totalExtraCost = roundMoney(
+        recomputed.reduce((s, r) => s + r.allocatedExtraCost, 0),
+      );
+
+      // 1) Batch header + the four inputs.
+      await tx.landedCostImportBatch.update({
+        where: { id: batchId },
+        data: {
+          cbmPriceUsd: params.cbmPriceUsd,
+          officePercent: params.officePercent,
+          cnyPerUsd: params.cnyPerUsd,
+          usdToIqd: params.usdToIqd,
+          totalExtraCost,
+        },
+      });
+
+      // 2) Each row's costs. For a China batch purchasePrice == landedCostPerUnit
+      //    == the dinar landed cost per piece (H), mirroring createChinaBatch.
+      for (const r of recomputed) {
+        await tx.landedCostImportItem.update({
+          where: { id: r.item.id },
+          data: {
+            cartonCostUsd: r.cartonCostUsd,
+            unitCostUsd: r.unitCostUsd,
+            purchasePrice: r.unitCostIqd,
+            landedCostPerUnit: r.unitCostIqd,
+            landedCostPerCarton: r.cartonCostIqd,
+            allocatedExtraCost: r.allocatedExtraCost,
+          },
+        });
+      }
+
+      // 3) The purchase invoice, when one exists. Rebuild it through the normal
+      //    invoice-edit path so stock valuation and the supplier balance follow
+      //    the new line prices, then overwrite product cost with the true landed
+      //    cost (the edit's weighted-average would otherwise blend it away).
+      let oldInvoiceTotal: number | null = null;
+      let newInvoiceTotal: number | null = null;
+      let updatedProducts = 0;
+
+      if (batch.status === LandedCostBatchStatus.PURCHASE_INVOICE_CREATED && batch.purchaseInvoiceId) {
+        oldInvoiceTotal = Number(batch.purchaseInvoice?.totalAmount ?? 0);
+
+        const invoice = await tx.invoice.findUnique({
+          where: { id: batch.purchaseInvoiceId },
+          include: { items: true },
+        });
+        if (!invoice) {
+          throw new AppError("فاتورة الشراء المرتبطة غير موجودة", 404, "INVOICE_NOT_FOUND");
+        }
+
+        // New dinar landed cost per piece, keyed by product. SKIP rows never
+        // reached the invoice, so they are excluded.
+        const priceByProduct = new Map<string, number>();
+        for (const r of recomputed) {
+          if (r.item.action === LandedCostItemAction.SKIP || !r.item.productId) continue;
+          priceByProduct.set(r.item.productId, r.unitCostIqd);
+        }
+
+        const rebuiltItems = invoice.items.map((li) => ({
+          productId: li.productId,
+          warehouseId: li.warehouseId ?? undefined,
+          unit: li.unit,
+          quantity: li.quantity,
+          unitPrice: priceByProduct.get(li.productId) ?? Number(li.unitPrice),
+          notes: li.notes ?? undefined,
+        }));
+
+        const input: CreateInvoiceInput = {
+          customerId: invoice.customerId,
+          type: InvoiceType.PURCHASE,
+          date: invoice.date.toISOString(),
+          discount: Number(invoice.discount),
+          tax: Number(invoice.tax),
+          paidAmount: Number(invoice.paidAmount),
+          paymentType: invoice.paymentType,
+          branchId: invoice.branchId ?? undefined,
+          notes: invoice.notes ?? undefined,
+          priceMode: (invoice.priceMode as PriceMode) ?? "WHOLESALE",
+          items: rebuiltItems,
+        };
+
+        await updateInvoice(invoice.id, input, userId, tx);
+        const fresh = await tx.invoice.findUnique({
+          where: { id: invoice.id },
+          select: { totalAmount: true },
+        });
+        newInvoiceTotal = Number(fresh?.totalAmount ?? 0);
+
+        // Overwrite cost/purchase price with the true landed cost — AFTER the
+        // invoice rebuild, so it supersedes the weighted-average update.
+        for (const [productId, cost] of priceByProduct) {
+          await tx.product.update({
+            where: { id: productId },
+            data: { costPrice: cost, purchasePrice: cost },
+          });
+          updatedProducts++;
+        }
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: "LANDED_COST_REPRICED",
+          entity: "LandedCostImportBatch",
+          recordId: batchId,
+          metadata: {
+            params: { ...params },
+            purchaseInvoiceId: batch.purchaseInvoiceId,
+            oldInvoiceTotal,
+            newInvoiceTotal,
+            updatedItems: recomputed.length,
+            updatedProducts,
+            by: userName ?? null,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      return {
+        batchId,
+        purchaseInvoiceId: batch.purchaseInvoiceId,
+        invoiceNumber: batch.purchaseInvoice?.invoiceNumber ?? null,
+        oldInvoiceTotal,
+        newInvoiceTotal,
+        updatedItems: recomputed.length,
+        updatedProducts,
+        params,
+      };
+    },
+    { maxWait: 10_000, timeout: 60_000 },
+  );
 }
