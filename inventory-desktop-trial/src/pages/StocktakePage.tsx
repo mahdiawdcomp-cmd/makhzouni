@@ -434,6 +434,7 @@ function SessionView({
   const readOnly = useReadOnly()
   const publicUrl = `${PUBLIC_BASE}/${session.publicToken}`
   const [copied, setCopied] = useState(false)
+  const [showByCat, setShowByCat] = useState(false)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<ItemFilter>("ALL")
   const [reasonPrompt, setReasonPrompt] = useState<
@@ -520,6 +521,23 @@ function SessionView({
   const errors = session.items.filter((i) => i.hasError)
   const ok = session.items.filter((i) => i.variance === 0)
   const uncounted = session.items.filter((i) => i.actualQty === null)
+
+  // Variance report grouped by category — which part of the catalogue leaks
+  // the most value. Ordered by total value at stake, biggest first.
+  const byCategory = useMemo(() => {
+    const m = new Map<string, { count: number; shortage: number; overage: number; shortageVal: number; overageVal: number }>()
+    for (const i of session.items) {
+      if (i.variance === null || i.variance === 0) continue
+      const c = i.category ?? "غير مصنّف"
+      const e = m.get(c) ?? { count: 0, shortage: 0, overage: 0, shortageVal: 0, overageVal: 0 }
+      e.count++
+      const val = i.varianceValue ?? 0
+      if (i.variance < 0) { e.shortage += -i.variance; if (val < 0) e.shortageVal += -val }
+      else { e.overage += i.variance; if (val > 0) e.overageVal += val }
+      m.set(c, e)
+    }
+    return [...m.entries()].sort((a, b) => (b[1].shortageVal + b[1].overageVal) - (a[1].shortageVal + a[1].overageVal))
+  }, [session.items])
 
   const counts = useMemo(() => {
     const out = {} as Record<ItemFilter, number>
@@ -611,6 +629,50 @@ function SessionView({
             </p>
           </div>
         </div>
+      )}
+
+      {/* Variance report by category */}
+      {byCategory.length > 0 && (
+        <Card>
+          <CardContent className="p-0">
+            <button
+              type="button"
+              onClick={() => setShowByCat((v) => !v)}
+              className="flex w-full items-center justify-between p-4 text-right text-sm font-semibold"
+            >
+              <span>تقرير الفروقات حسب الفئة ({byCategory.length})</span>
+              <span className="text-slate-400">{showByCat ? "▲" : "▼"}</span>
+            </button>
+            {showByCat && (
+              <div className="overflow-x-auto border-t dark:border-slate-800">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800">
+                    <tr>
+                      <th className="px-3 py-2 text-right font-medium">الفئة</th>
+                      <th className="px-3 py-2 text-center font-medium">مواد</th>
+                      <th className="px-3 py-2 text-center font-medium">نقص</th>
+                      <th className="px-3 py-2 text-center font-medium">زيادة</th>
+                      {hasValue && <th className="px-3 py-2 text-center font-medium">قيمة النقص</th>}
+                      {hasValue && <th className="px-3 py-2 text-center font-medium">قيمة الزيادة</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {byCategory.map(([cat, e]) => (
+                      <tr key={cat}>
+                        <td className="px-3 py-2 font-medium">{cat}</td>
+                        <td className="px-3 py-2 text-center">{e.count}</td>
+                        <td className="px-3 py-2 text-center text-red-600 font-semibold">{e.shortage || "—"}</td>
+                        <td className="px-3 py-2 text-center text-blue-600 font-semibold">{e.overage || "—"}</td>
+                        {hasValue && <td className="px-3 py-2 text-center text-red-600">{e.shortageVal ? fmtD(e.shortageVal) : "—"}</td>}
+                        {hasValue && <td className="px-3 py-2 text-center text-blue-600">{e.overageVal ? fmtD(e.overageVal) : "—"}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Public link */}
