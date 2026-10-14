@@ -250,6 +250,14 @@ function NewSessionCard({
   const [notes, setNotes] = useState("")
   const branchesQ = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQ.data ?? []
+  // The empty value resolves to the first (main) warehouse on the server, which
+  // IS one of these branches — so a hardcoded «المخزن الرئيسي» option listed it
+  // twice. Default to the first real branch instead and list each warehouse
+  // once. The empty fallback option is kept ONLY for a brand-new shop that has
+  // no branch yet (the server then creates «المخزن الرئيسي» on submit).
+  useEffect(() => {
+    if (!warehouseId && branches.length > 0) setWarehouseId(branches[0].id)
+  }, [branches, warehouseId])
 
   return (
     <Card className="border-blue-200 dark:border-blue-800">
@@ -263,7 +271,7 @@ function NewSessionCard({
               onChange={(e) => setWarehouseId(e.target.value)}
               className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
             >
-              <option value="">المخزن الرئيسي</option>
+              {branches.length === 0 && <option value="">المخزن الرئيسي</option>}
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
               ))}
