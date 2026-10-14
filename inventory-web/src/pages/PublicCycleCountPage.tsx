@@ -386,6 +386,25 @@ function ManualMode({
 }) {
   const [localQty, setLocalQty] = useState<Record<string, string>>({})
   const [localUnit, setLocalUnit] = useState<Record<string, "CARTON" | "PIECE">>({})
+  // Default unit for the whole session. A shop count is almost all loose pieces,
+  // a main-warehouse count is cartons — so the worker picks once here instead of
+  // flipping every row. Remembered per link so a reload keeps the choice.
+  const unitKey = `cc-default-unit-${token}`
+  const [defaultUnit, setDefaultUnit] = useState<"CARTON" | "PIECE">(() => {
+    try {
+      return localStorage.getItem(unitKey) === "PIECE" ? "PIECE" : "CARTON"
+    } catch {
+      return "CARTON"
+    }
+  })
+  function changeDefaultUnit(u: "CARTON" | "PIECE") {
+    setDefaultUnit(u)
+    try {
+      localStorage.setItem(unitKey, u)
+    } catch {
+      /* private mode / storage blocked — the in-memory choice still applies */
+    }
+  }
 
   const saveMut = useMutation({
     mutationFn: (p: { productId: string; qty: number; unit: "CARTON" | "PIECE" }) =>
@@ -398,7 +417,7 @@ function ManualMode({
     if (val === undefined || val === "") return
     const qty = Number(val)
     if (isNaN(qty) || qty < 0) return
-    const unit = localUnit[item.productId] ?? "CARTON"
+    const unit = localUnit[item.productId] ?? defaultUnit
     saveMut.mutate({ productId: item.productId, qty, unit })
   }
 
@@ -407,8 +426,29 @@ function ManualMode({
 
   return (
     <div className="space-y-3">
+      <div className="rounded-2xl bg-white p-3 shadow-sm border border-slate-200">
+        <p className="mb-2 text-xs font-semibold text-slate-600">الوحدة الافتراضية للعدّ</p>
+        <div className="flex rounded-lg bg-slate-100 p-0.5">
+          {(["CARTON", "PIECE"] as const).map((u) => (
+            <button
+              key={u}
+              type="button"
+              onClick={() => changeDefaultUnit(u)}
+              className={cn(
+                "flex-1 rounded-md py-1.5 text-xs font-semibold transition",
+                defaultUnit === u ? "bg-white shadow-sm text-slate-900" : "text-slate-500",
+              )}
+            >
+              {u === "CARTON" ? "كارتون" : "قطعة"}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] text-slate-400">
+          تنطبق على كل المواد — وتكدر تغيّرها لأي مادة لحالها.
+        </p>
+      </div>
       {items.map((item) => {
-        const unit = localUnit[item.productId] ?? "CARTON"
+        const unit = localUnit[item.productId] ?? defaultUnit
         const saved = item.actualQty !== null
         const locked = item.approvalStatus !== "PENDING"
         return (
