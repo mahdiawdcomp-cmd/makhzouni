@@ -123,6 +123,90 @@ function readMode(): Mode {
   return isTouchDevice() ? "manual" : "scan"
 }
 
+// ── Offline queue ─────────────────────────────────────────────────────────────
+// A warehouse has weak Wi-Fi, so a save that fails for lack of signal must not
+// lose the count. Failed saves are parked in localStorage (keyed per session
+// token) and replayed automatically when the connection returns, on an interval,
+// and on mount. Each product keeps only its latest queued value.
+
+interface QueuedEntry { productId: string; qty: number; unit: Unit; ts: number }
+
+function queueKey(token: string) { return `stocktake-queue-${token}` }
+
+function readQueue(token: string): QueuedEntry[] {
+  try {
+    const raw = localStorage.getItem(queueKey(token))
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeQueue(token: string, entries: QueuedEntry[]) {
+  try {
+    if (entries.length === 0) localStorage.removeItem(queueKey(token))
+    else localStorage.setItem(queueKey(token), JSON.stringify(entries))
+  } catch {
+    // storage blocked — the in-memory copy still drives this visit
+  }
+}
+
+/** True when the error is a lost-connection failure (no server answer), i.e.
+ * worth queueing for retry. A real 4xx/5xx answer is a logic error — surface it. */
+function isOfflineError(err: unknown) {
+  return !(typeof err === "object" && err !== null && "response" in err && (err as { response?: unknown }).response)
+}
+
+function useOfflineQueue(token: string, onFlushed: () => void) {
+  const [pending, setPending] = useState<QueuedEntry[]>(() => readQueue(token))
+  const flushing = useRef(false)
+
+  const persist = (entries: QueuedEntry[]) => { writeQueue(token, entries); setPending(entries) }
+
+  const enqueue = (entry: QueuedEntry) => {
+    const next = [...readQueue(token).filter((e) => e.productId !== entry.productId), entry]
+    persist(next)
+  }
+
+  const flush = async () => {
+    if (flushing.current) return
+    const entries = readQueue(token)
+    if (entries.length === 0) return
+    flushing.current = true
+    let changed = false
+    try {
+      for (const e of entries) {
+        try {
+          await apiSetQty(token, e.productId, e.qty, e.unit, 0)
+          const remaining = readQueue(token).filter((x) => x.productId !== e.productId)
+          persist(remaining)
+          changed = true
+        } catch (err) {
+          if (isOfflineError(err)) break // still offline — stop, try again later
+          // A real server rejection: drop it so it can't wedge the queue forever.
+          persist(readQueue(token).filter((x) => x.productId !== e.productId))
+          changed = true
+        }
+      }
+    } finally {
+      flushing.current = false
+      if (changed) onFlushed()
+    }
+  }
+
+  useEffect(() => {
+    void flush()
+    const onOnline = () => void flush()
+    window.addEventListener("online", onOnline)
+    const id = window.setInterval(() => void flush(), 15_000)
+    return () => { window.removeEventListener("online", onOnline); window.clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  return { pending, pendingCount: pending.length, enqueue, flush }
+}
+
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export function PublicStocktakePage() {
@@ -190,6 +274,7 @@ function WorkerInterface({
   const [closed, setClosed] = useState(false)
   const [scanMsg, setScanMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [query, setQuery] = useState("")
+  const queue = useOfflineQueue(token, onRefresh)
 
   function setMode(next: Mode) {
     setModeState(next)
@@ -289,6 +374,17 @@ function WorkerInterface({
             <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${percent}%` }} />
           </div>
 
+          {queue.pendingCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void queue.flush()}
+              className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-right text-xs font-medium text-amber-800"
+            >
+              <span>⏳ {queue.pendingCount} عدّة محفوظة محلياً — بانتظار الإنترنت</span>
+              <span className="shrink-0 rounded-md bg-amber-200 px-2 py-0.5">إعادة المزامنة</span>
+            </button>
+          )}
+
           {/* Mode toggle */}
           <div className="mt-3 flex gap-1 rounded-xl bg-slate-100 p-1">
             {([
@@ -351,7 +447,7 @@ function WorkerInterface({
             onScan={(msg) => { setScanMsg(msg); onRefresh() }}
           />
         ) : (
-          <ManualMode token={token} items={session.items} query={query} onSaved={onRefresh} />
+          <ManualMode token={token} items={session.items} query={query} onSaved={onRefresh} queue={queue} />
         )}
       </div>
 
@@ -361,8 +457,14 @@ function WorkerInterface({
           <button
             type="button"
             disabled={submitMut.isPending || filled === 0}
-            onClick={() => {
-              const warn = remaining > 0 ? `\nباقي ${remaining} منتج ما انحسب.` : ""
+            onClick={async () => {
+              // Drain anything parked offline first, so a submit never leaves a
+              // counted-but-unsynced value behind.
+              if (queue.pendingCount > 0) await queue.flush()
+              const stillQueued = queue.pendingCount > 0
+              const warn =
+                (remaining > 0 ? `\nباقي ${remaining} منتج ما انحسب.` : "") +
+                (stillQueued ? `\n⚠️ ${queue.pendingCount} عدّة لسه ما انزامنت (ماكو إنترنت).` : "")
               if (confirm(`هل أنت متأكد من رفع الجرد؟ لن تتمكن من التعديل بعدها.${warn}`))
                 submitMut.mutate()
             }}
@@ -486,18 +588,20 @@ function ScanMode({
 
 // ── Manual Mode ───────────────────────────────────────────────────────────────
 
-type SaveState = { status: "saving" } | { status: "error"; message: string }
+type SaveState = { status: "saving" } | { status: "queued" } | { status: "error"; message: string }
 
 function ManualMode({
   token,
   items,
   query,
   onSaved,
+  queue,
 }: {
   token: string
   items: PublicItem[]
   query: string
   onSaved: () => void
+  queue: ReturnType<typeof useOfflineQueue>
 }) {
   const [countFilter, setCountFilter] = useState<CountFilter>("all")
   const [category, setCategory] = useState<string>("all")
@@ -508,6 +612,9 @@ function ManualMode({
   // fire on iPhone, and the second must not send the same thing again.
   const inFlight = useRef<Record<string, string>>({})
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  // Products this worker has counted THIS visit. Used to warn only once when
+  // writing over a value someone ELSE already entered (multi-worker guard).
+  const editedThisSession = useRef<Set<string>>(new Set())
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((i) => i.category ?? UNCATEGORIZED))).sort((a, b) => a.localeCompare(b, "ar")),
@@ -543,6 +650,15 @@ function ManualMode({
       return
     }
     const unit = localUnit[item.productId] ?? "CARTON"
+
+    // Multi-worker guard: this product already carries a saved count that THIS
+    // worker didn't enter this visit — likely another worker counted it. Confirm
+    // before overwriting so two phones don't silently clobber each other.
+    if (item.actualQty !== null && !editedThisSession.current.has(item.productId)) {
+      const already = describeQty(item.actualQty, item.pcsPerCarton)
+      if (!confirm(`هذه المادة محسوبة مسبقاً (${already}).\nتكتب فوق العدّ السابق؟`)) return
+    }
+
     const key = `${qty}|${unit}`
     if (inFlight.current[item.productId] === key) return
     inFlight.current[item.productId] = key
@@ -550,15 +666,24 @@ function ManualMode({
     if (opts.focusNext) focusNextAfter(item.productId)
     try {
       await apiSetQty(token, item.productId, qty, unit, item.pcsPerCarton)
+      editedThisSession.current.add(item.productId)
       // Clear only if the worker hasn't typed something newer meanwhile.
       setLocalQty((p) => ((p[item.productId] ?? "").trim() === raw ? { ...p, [item.productId]: "" } : p))
       setSaveState((s) => ({ ...s, [item.productId]: undefined }))
       onSaved()
     } catch (err) {
-      setSaveState((s) => ({
-        ...s,
-        [item.productId]: { status: "error", message: workerError(err, "ما انحفظ — اضغط حفظ مرة ثانية") },
-      }))
+      if (isOfflineError(err)) {
+        // No connection — park it for automatic retry instead of losing it.
+        queue.enqueue({ productId: item.productId, qty, unit, ts: Date.now() })
+        editedThisSession.current.add(item.productId)
+        setLocalQty((p) => ((p[item.productId] ?? "").trim() === raw ? { ...p, [item.productId]: "" } : p))
+        setSaveState((s) => ({ ...s, [item.productId]: { status: "queued" } }))
+      } else {
+        setSaveState((s) => ({
+          ...s,
+          [item.productId]: { status: "error", message: workerError(err, "ما انحفظ — اضغط حفظ مرة ثانية") },
+        }))
+      }
     } finally {
       delete inFlight.current[item.productId]
     }
@@ -639,7 +764,7 @@ function ManualMode({
               key={item.id}
               className={cn(
                 "rounded-2xl border bg-white p-4 shadow-sm transition",
-                state?.status === "error" ? "border-red-300" : saved ? "border-emerald-200" : "border-slate-200",
+                state?.status === "error" ? "border-red-300" : state?.status === "queued" ? "border-amber-300" : saved ? "border-emerald-200" : "border-slate-200",
               )}
             >
               <div className="mb-3 flex items-start justify-between gap-3">
@@ -735,6 +860,9 @@ function ManualMode({
 
               {state?.status === "error" && (
                 <p role="alert" className="mt-2 text-sm font-medium text-red-600">{state.message}</p>
+              )}
+              {state?.status === "queued" && (
+                <p className="mt-2 text-sm font-medium text-amber-600">⏳ محفوظ محلياً — راح ينزامن لمن يرجع الإنترنت</p>
               )}
             </div>
           )
