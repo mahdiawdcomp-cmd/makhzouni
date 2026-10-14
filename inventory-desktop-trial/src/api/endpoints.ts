@@ -3221,6 +3221,21 @@ export async function rejectStocktakeItem(sessionId: string, itemId: string) {
   return data.data!
 }
 
+export async function approveAllStocktakeItems(sessionId: string, reason: StockCorrectionReason) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; approvedCount: number }>>(`/stocktake/${sessionId}/approve-all`, { reason })
+  return data.data!
+}
+
+export async function rejectAllStocktakeItems(sessionId: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; rejectedCount: number }>>(`/stocktake/${sessionId}/reject-all`)
+  return data.data!
+}
+
+export async function reopenStocktakeSession(sessionId: string) {
+  const { data } = await api.post<ApiEnvelope<StocktakeSessionDetail>>(`/stocktake/${sessionId}/reopen`)
+  return data.data!
+}
+
 // ── جدولة الجرد الذكي (scheduled smart cycle count) — independent from Stocktake above ──
 export async function listCycleCountSessions() {
   const { data } = await api.get<ApiEnvelope<CycleCountSessionSummary[]>>("/cycle-count")

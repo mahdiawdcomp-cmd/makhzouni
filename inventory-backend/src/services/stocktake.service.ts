@@ -96,7 +96,10 @@ export async function getStocktakeSession(id: string) {
       items: {
         include: {
           product: {
-            select: { id: true, name: true, category: true, imageUrl: true, costPrice: true, purchasePrice: true },
+            // imageUrl is intentionally NOT selected — it can be a heavy base64
+            // string and nothing in the mapped result below uses it. Pulling it
+            // dragged the whole warehouse catalog's images into every session read.
+            select: { id: true, name: true, category: true, costPrice: true, purchasePrice: true },
           },
         },
       },
@@ -295,7 +298,12 @@ export async function updateStocktakeItem(
     select: { id: true, status: true, branchId: true },
   });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
-  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
+  // Only an OPEN session accepts admin edits — once SUBMITTED it is under review
+  // (approve/reject per item), so editing quantities underneath that review would
+  // desync the variances being approved. Reopen the session first. Mirrors
+  // updateCycleCountItem's OPEN-only guard.
+  if (session.status !== StocktakeSessionStatus.OPEN)
+    throw new AppError("الجلسة ليست مفتوحة للتعديل — أعد فتحها أولاً", 400, "SESSION_NOT_OPEN");
 
   const item = await prisma.stocktakeItem.findFirst({
     where: { sessionId, productId },
@@ -683,5 +691,132 @@ export async function rejectStocktakeItem(sessionId: string, itemId: string) {
     });
 
     return { success: true };
+  });
+}
+
+// ─── Admin: Reopen a SUBMITTED session so it accepts edits again ──────────────
+// Already-APPROVED/REJECTED items stay frozen (guarded in approveStocktakeItem /
+// rejectStocktakeItem by the SUBMITTED-status check) — only still-PENDING items
+// become editable again once the session is OPEN. Mirrors reopenCycleCountSession.
+
+export async function reopenStocktakeSession(sessionId: string) {
+  const session = await prisma.stocktakeSession.findUnique({ where: { id: sessionId } });
+  if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
+  if (session.status !== StocktakeSessionStatus.SUBMITTED)
+    throw new AppError("يمكن إعادة فتح جلسة مرفوعة فقط", 400, "SESSION_NOT_SUBMITTED");
+
+  await prisma.stocktakeSession.update({
+    where: { id: sessionId },
+    data: { status: StocktakeSessionStatus.OPEN },
+  });
+
+  return getStocktakeSession(sessionId);
+}
+
+// ─── Admin: Approve every still-PENDING counted item in one transaction ───────
+// Server-side bulk approve — same per-item safety as approveStocktakeItem
+// (adjustWarehouseStock + StockLoss + StockMovement + PENDING-guarded updateMany),
+// looped inside ONE $transaction so the whole batch is atomic. Mirrors
+// approveAllCycleCountItems.
+
+export async function approveAllStocktakeItems(
+  sessionId: string,
+  approvingUserId: string,
+  reason: LossReason,
+) {
+  const session = await prisma.stocktakeSession.findUnique({
+    where: { id: sessionId },
+    include: { items: { include: { product: { select: { name: true } } } } },
+  });
+  if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
+  if (session.status !== StocktakeSessionStatus.SUBMITTED)
+    throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+  if (!session.branchId) throw new AppError("المخزن غير محدد للجلسة", 400, "NO_WAREHOUSE");
+  const branchId = session.branchId;
+
+  const approver = await prisma.user.findUnique({ where: { id: approvingUserId }, select: { name: true } });
+
+  return prisma.$transaction(async (tx) => {
+    let approvedCount = 0;
+    for (const item of session.items) {
+      if ((item.approvalStatus ?? StocktakeApprovalStatus.PENDING) !== StocktakeApprovalStatus.PENDING) continue;
+      if (item.actualQty === null) continue;
+
+      const delta = item.actualQty - item.systemQty;
+      const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
+        productId: item.productId,
+        warehouseId: branchId,
+        deltaPieces: delta,
+        allowNegative: true,
+      });
+
+      let lossId: string | null = null;
+      if (delta !== 0) {
+        const recorded = await recordStockAdjustmentVariance(tx, {
+          warehouseId: branchId,
+          productId: item.productId,
+          productName: item.product.name,
+          deltaPieces: delta,
+          reason,
+          source: "STOCKTAKE",
+          createdBy: approvingUserId,
+        });
+        lossId = recorded.lossId;
+
+        await tx.stockMovement.create({
+          data: {
+            productId: item.productId,
+            branchId,
+            lossId,
+            type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
+            quantity: Math.abs(delta),
+            balanceBefore,
+            balanceAfter,
+            userId: approvingUserId,
+            userName: approver?.name ?? null,
+            note: "تسوية جرد دوري (موافقة الكل)",
+          },
+        });
+        await syncProductTotalStock(tx, item.productId);
+      }
+
+      const updated = await tx.stocktakeItem.updateMany({
+        where: { id: item.id, approvalStatus: StocktakeApprovalStatus.PENDING },
+        data: {
+          approvalStatus: StocktakeApprovalStatus.APPROVED,
+          approvedQty: item.actualQty,
+          reason: delta !== 0 ? reason : null,
+          lossId,
+        },
+      });
+      if (updated.count === 1) approvedCount++;
+    }
+    return { success: true, approvedCount };
+  });
+}
+
+// ─── Admin: Reject every still-PENDING counted item — never touches stock ─────
+
+export async function rejectAllStocktakeItems(sessionId: string) {
+  const session = await prisma.stocktakeSession.findUnique({
+    where: { id: sessionId },
+    include: { items: { select: { id: true, approvalStatus: true, actualQty: true } } },
+  });
+  if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
+  if (session.status !== StocktakeSessionStatus.SUBMITTED)
+    throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+
+  return prisma.$transaction(async (tx) => {
+    let rejectedCount = 0;
+    for (const item of session.items) {
+      if ((item.approvalStatus ?? StocktakeApprovalStatus.PENDING) !== StocktakeApprovalStatus.PENDING) continue;
+      if (item.actualQty === null) continue;
+      const updated = await tx.stocktakeItem.updateMany({
+        where: { id: item.id, approvalStatus: StocktakeApprovalStatus.PENDING },
+        data: { approvalStatus: StocktakeApprovalStatus.REJECTED },
+      });
+      if (updated.count === 1) rejectedCount++;
+    }
+    return { success: true, rejectedCount };
   });
 }

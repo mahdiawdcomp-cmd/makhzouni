@@ -1,6 +1,7 @@
 import { LossReason } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import {
+  approveAllStocktakeItems,
   approveStocktakeItem,
   archiveStocktakeSession,
   closePublicStocktake,
@@ -9,7 +10,9 @@ import {
   getPublicSession,
   getStocktakeSession,
   listStocktakeSessions,
+  rejectAllStocktakeItems,
   rejectStocktakeItem,
+  reopenStocktakeSession,
   scanQrCode,
   setItemQty,
   submitPublicStocktake,
@@ -80,6 +83,22 @@ export const approveItem = asyncHandler(async (req, res) => {
 
 export const rejectItem = asyncHandler(async (req, res) => {
   const data = await rejectStocktakeItem(String(req.params.id), String(req.params.itemId));
+  res.json({ success: true, data });
+});
+
+export const approveAllItems = asyncHandler(async (req, res) => {
+  const { reason } = req.body as { reason: LossReason };
+  const data = await approveAllStocktakeItems(String(req.params.id), String(req.user!.id), reason);
+  res.json({ success: true, data });
+});
+
+export const rejectAllItems = asyncHandler(async (req, res) => {
+  const data = await rejectAllStocktakeItems(String(req.params.id));
+  res.json({ success: true, data });
+});
+
+export const reopenSession = asyncHandler(async (req, res) => {
+  const data = await reopenStocktakeSession(String(req.params.id));
   res.json({ success: true, data });
 });
 

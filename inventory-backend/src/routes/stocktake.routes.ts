@@ -1,12 +1,15 @@
 import { Router } from "express";
 import {
+  approveAllItems,
   approveItem,
   archiveSession,
   closeSession,
   createSession,
   getSession,
   listSessions,
+  rejectAllItems,
   rejectItem,
+  reopenSession,
   submitSession,
   updateItem,
   publicGetSession,
@@ -19,6 +22,7 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
+  stocktakeApproveAllSchema,
   stocktakeApproveItemSchema,
   stocktakeArchiveSchema,
   stocktakeCloseSchema,
@@ -37,8 +41,11 @@ router.patch("/:id/items", authMiddleware, requirePermission("INVENTORY_MANAGE")
 router.post("/:id/submit", authMiddleware, requirePermission("INVENTORY_MANAGE"), submitSession);
 router.post("/:id/close", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeCloseSchema), closeSession);
 router.post("/:id/archive", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeArchiveSchema), archiveSession);
+router.post("/:id/reopen", authMiddleware, requirePermission("INVENTORY_MANAGE"), reopenSession);
 router.post("/:id/items/:itemId/approve", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeApproveItemSchema), approveItem);
 router.post("/:id/items/:itemId/reject", authMiddleware, requirePermission("INVENTORY_MANAGE"), rejectItem);
+router.post("/:id/approve-all", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeApproveAllSchema), approveAllItems);
+router.post("/:id/reject-all", authMiddleware, requirePermission("INVENTORY_MANAGE"), rejectAllItems);
 
 // ── Public routes (no auth — for workers) ────────────────────────────────────
 router.get("/public/:token", publicGetSession);

@@ -1798,6 +1798,13 @@ export const stocktakeApproveItemSchema = z.object({
   }),
 });
 
+export const stocktakeApproveAllSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    reason: lossReasonSchema,
+  }),
+});
+
 export const stocktakeCloseSchema = z.object({
   params: uuidParam,
   body: z.object({

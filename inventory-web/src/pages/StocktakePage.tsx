@@ -12,11 +12,13 @@ import {
   Loader2,
   Plus,
   Printer,
+  RotateCcw,
   Search,
   Check,
   X,
 } from "lucide-react"
 import {
+  approveAllStocktakeItems,
   approveStocktakeItem,
   archiveStocktakeSession,
   closeStocktakeSession,
@@ -24,7 +26,9 @@ import {
   getStocktakeSession,
   listStocktakeSessions,
   getBranches,
+  rejectAllStocktakeItems,
   rejectStocktakeItem,
+  reopenStocktakeSession,
 } from "../api/endpoints"
 import type { StocktakeSessionDetail, StocktakeSessionSummary, StockCorrectionReason } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -89,7 +93,10 @@ export function StocktakePage() {
     queryKey: ["stocktake-session", selectedId],
     queryFn: () => getStocktakeSession(selectedId!),
     enabled: Boolean(selectedId),
-    refetchInterval: (q) => q.state.data?.status === "SUBMITTED" ? false : 15_000,
+    // Keep polling while OPEN (workers still counting) and while SUBMITTED
+    // (a second admin may be reviewing in parallel) — only a CLOSED session is
+    // final and needs no refresh.
+    refetchInterval: (q) => q.state.data?.status === "CLOSED" ? false : 15_000,
   })
 
   const createMut = useMutation({
@@ -378,7 +385,10 @@ function SessionView({
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<ItemFilter>("ALL")
   const [reasonPrompt, setReasonPrompt] = useState<
-    { mode: "one"; itemId: string; options?: StockCorrectionReason[] } | { mode: "bulk"; itemIds: string[]; options?: StockCorrectionReason[] } | null
+    | { mode: "one"; itemId: string; options?: StockCorrectionReason[] }
+    | { mode: "bulk"; itemIds: string[]; options?: StockCorrectionReason[] }
+    | { mode: "all"; options?: StockCorrectionReason[] }
+    | null
   >(null)
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null)
   const qc = useQueryClient()
@@ -395,6 +405,26 @@ function SessionView({
     mutationFn: (itemId: string) => rejectStocktakeItem(session.id, itemId),
     onSuccess: invalidate,
     onError: (err) => showError(err, "تعذر رفض الفرق"),
+  })
+
+  // Server-side bulk approve — one atomic transaction (unlike approveMany's
+  // per-item HTTP loop), approving every still-PENDING counted item at once.
+  const approveAllMut = useMutation({
+    mutationFn: (reason: StockCorrectionReason) => approveAllStocktakeItems(session.id, reason),
+    onSuccess: async (r) => { await invalidate(); toast({ title: `تمت الموافقة على ${r.approvedCount} مادة` }) },
+    onError: (err) => showError(err, "تعذرت الموافقة على الكل"),
+  })
+
+  const rejectAllMut = useMutation({
+    mutationFn: () => rejectAllStocktakeItems(session.id),
+    onSuccess: async (r) => { await invalidate(); toast({ title: `تم رفض ${r.rejectedCount} مادة` }) },
+    onError: (err) => showError(err, "تعذر رفض الكل"),
+  })
+
+  const reopenMut = useMutation({
+    mutationFn: () => reopenStocktakeSession(session.id),
+    onSuccess: async () => { await invalidate(); toast({ title: "تم إعادة فتح الجلسة — تقدر تعدّل وتعيد العدّ" }) },
+    onError: (err) => showError(err, "تعذر إعادة فتح الجلسة"),
   })
 
   // Sequential on purpose: each approval is its own stock-adjust transaction
@@ -459,7 +489,10 @@ function SessionView({
   const hasValue = session.items.some((i) => i.varianceValue !== undefined)
   const stats = session.stats
   const busy = approveMut.isPending || rejectMut.isPending || bulk !== null
+    || approveAllMut.isPending || rejectAllMut.isPending
   const reviewing = session.status === "SUBMITTED"
+  // Every still-counted item awaiting a decision — the target of «الكل».
+  const pendingCounted = session.items.filter((i) => i.actualQty !== null && i.approvalStatus === "PENDING")
 
   return (
     <div className="space-y-4">
@@ -570,10 +603,21 @@ function SessionView({
               </p>
             </div>
           )}
-          <Button onClick={onClose} disabled={readOnly || closing || bulk !== null} title={readOnly ? READ_ONLY_MESSAGE : undefined} variant="outline">
-            <CheckCircle2 className="h-4 w-4" />
-            {closing ? "جاري الإغلاق..." : "إغلاق الجلسة وتأكيد الجرد"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onClose} disabled={readOnly || closing || busy} title={readOnly ? READ_ONLY_MESSAGE : undefined} variant="outline">
+              <CheckCircle2 className="h-4 w-4" />
+              {closing ? "جاري الإغلاق..." : "إغلاق الجلسة وتأكيد الجرد"}
+            </Button>
+            <Button
+              onClick={() => { if (confirm("إعادة فتح الجلسة للتعديل؟ المواد التي تمت الموافقة/الرفض عليها تبقى كما هي.")) reopenMut.mutate() }}
+              disabled={readOnly || busy || reopenMut.isPending}
+              title={readOnly ? READ_ONLY_MESSAGE : "إرجاع الجلسة لحالة العدّ — المعالَجة تبقى كما هي"}
+              variant="outline"
+            >
+              <RotateCcw className="h-4 w-4" />
+              {reopenMut.isPending ? "جاري إعادة الفتح..." : "إعادة فتح الجلسة"}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -598,14 +642,34 @@ function SessionView({
             />
           </div>
           {reviewing && (
-            <Button
-              onClick={() => setReasonPrompt({ mode: "bulk", itemIds: bulkTargets.map((i) => i.id), options: bulkOptions })}
-              disabled={readOnly || busy || bulkTargets.length === 0}
-              title={readOnly ? READ_ONLY_MESSAGE : "الموافقة على كل المواد الظاهرة التي بانتظار المراجعة"}
-            >
-              {bulk ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
-              {bulk ? `جاري الموافقة ${bulk.done}/${bulk.total}` : `موافقة على الظاهر (${bulkTargets.length})`}
-            </Button>
+            <>
+              <Button
+                onClick={() => setReasonPrompt({ mode: "bulk", itemIds: bulkTargets.map((i) => i.id), options: bulkOptions })}
+                disabled={readOnly || busy || bulkTargets.length === 0}
+                variant="outline"
+                title={readOnly ? READ_ONLY_MESSAGE : "الموافقة على المواد الظاهرة فقط (حسب الفلتر/البحث)"}
+              >
+                {bulk ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
+                {bulk ? `جاري الموافقة ${bulk.done}/${bulk.total}` : `موافقة على الظاهر (${bulkTargets.length})`}
+              </Button>
+              <Button
+                onClick={() => setReasonPrompt({ mode: "all" })}
+                disabled={readOnly || busy || pendingCounted.length === 0}
+                title={readOnly ? READ_ONLY_MESSAGE : "الموافقة على كل الفروقات بانتظار المراجعة دفعة واحدة"}
+              >
+                {approveAllMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                موافقة على الكل ({pendingCounted.length})
+              </Button>
+              <Button
+                onClick={() => { if (confirm(`رفض كل الفروقات (${pendingCounted.length})؟ لن تتغيّر الكميات.`)) rejectAllMut.mutate() }}
+                disabled={readOnly || busy || pendingCounted.length === 0}
+                variant="outline"
+                title={readOnly ? READ_ONLY_MESSAGE : "رفض كل الفروقات بانتظار المراجعة — تبقى كميات النظام كما هي"}
+              >
+                {rejectAllMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                رفض الكل
+              </Button>
+            </>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -738,15 +802,28 @@ function SessionView({
 
       {reasonPrompt && (
         <ReasonPromptModal
-          title={reasonPrompt.mode === "bulk" ? `سبب الموافقة على ${reasonPrompt.itemIds.length} مادة` : "سبب الموافقة على الفرق"}
-          description={reasonPrompt.mode === "bulk" ? "سيُطبَّق نفس السبب على كل المواد الظاهرة التي بانتظار المراجعة." : undefined}
+          title={
+            reasonPrompt.mode === "all"
+              ? `سبب الموافقة على كل الفروقات (${pendingCounted.length})`
+              : reasonPrompt.mode === "bulk"
+                ? `سبب الموافقة على ${reasonPrompt.itemIds.length} مادة`
+                : "سبب الموافقة على الفرق"
+          }
+          description={
+            reasonPrompt.mode === "all"
+              ? "سيُطبَّق نفس السبب على كل الفروقات بانتظار المراجعة."
+              : reasonPrompt.mode === "bulk"
+                ? "سيُطبَّق نفس السبب على كل المواد الظاهرة التي بانتظار المراجعة."
+                : undefined
+          }
           options={reasonPrompt.options}
-          loading={approveMut.isPending}
+          loading={approveMut.isPending || approveAllMut.isPending}
           onCancel={() => setReasonPrompt(null)}
           onConfirm={(reason) => {
             const prompt = reasonPrompt
             setReasonPrompt(null)
-            if (prompt.mode === "bulk") void approveMany(prompt.itemIds, reason)
+            if (prompt.mode === "all") approveAllMut.mutate(reason)
+            else if (prompt.mode === "bulk") void approveMany(prompt.itemIds, reason)
             else approveMut.mutate({ itemId: prompt.itemId, reason })
           }}
         />
