@@ -2616,6 +2616,12 @@ model StocktakeItem {
   reason         LossReason?
   lossId         String?                 @map("loss_id") @db.Uuid
   loss           StockLoss?              @relation("StocktakeItemLoss", fields: [lossId], references: [id])
+  // Who approved/rejected this item and when, and why it was rejected. All
+  // nullable: legacy rows and still-PENDING items have none. reviewedBy is a
+  // User id resolved to a name at read time (no relation, to keep it light).
+  reviewedBy     String?                 @map("reviewed_by") @db.Uuid
+  reviewedAt     DateTime?               @map("reviewed_at")
+  rejectReason   String?                 @map("reject_reason")
 
   @@unique([sessionId, productId])
   @@index([sessionId])

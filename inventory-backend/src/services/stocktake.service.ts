@@ -196,6 +196,13 @@ export async function getStocktakeSession(id: string) {
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
+  // Resolve reviewer ids → names in one query (who approved/rejected each item).
+  const reviewerIds = [...new Set(session.items.map((i) => i.reviewedBy).filter((x): x is string => Boolean(x)))];
+  const reviewers = reviewerIds.length
+    ? await prisma.user.findMany({ where: { id: { in: reviewerIds } }, select: { id: true, name: true } })
+    : [];
+  const reviewerName = new Map(reviewers.map((u) => [u.id, u.name]));
+
   const items = session.items.map((item) => {
     // Same cost basis recordStockAdjustmentVariance books on approval:
     // costPrice, falling back to purchasePrice.
@@ -214,6 +221,9 @@ export async function getStocktakeSession(id: string) {
       hasError: item.variance !== null && item.variance !== 0,
       unitCost,
       varianceValue: item.variance !== null ? round2(item.variance * unitCost) : null,
+      reviewedByName: item.reviewedBy ? reviewerName.get(item.reviewedBy) ?? null : null,
+      reviewedAt: item.reviewedAt?.toISOString() ?? null,
+      rejectReason: item.rejectReason ?? null,
     };
   });
 
@@ -709,6 +719,8 @@ export async function approveStocktakeItem(
           approvedQty: item.actualQty,
           reason: null,
           lossId: null,
+          reviewedBy: approvingUserId,
+          reviewedAt: new Date(),
           notes: [item.notes, `فاتورة ${resolution === "SALE" ? "بيع" : "شراء"} #${inv.invoiceNumber}`].filter(Boolean).join(" | "),
         },
       });
@@ -782,6 +794,8 @@ export async function approveStocktakeItem(
         approvedQty: item.actualQty,
         reason: delta !== 0 ? reason : null,
         lossId,
+        reviewedBy: approvingUserId,
+        reviewedAt: new Date(),
       },
     });
     if (updated.count === 0)
@@ -793,7 +807,7 @@ export async function approveStocktakeItem(
 
 // ─── Admin: Reject stocktake item (keep system qty) ───────────────────────────
 
-export async function rejectStocktakeItem(sessionId: string, itemId: string) {
+export async function rejectStocktakeItem(sessionId: string, itemId: string, reviewingUserId?: string, rejectReason?: string) {
   return prisma.$transaction(async (tx) => {
     // Lock the item and re-check approvalStatus (race-safe)
     const item = await tx.stocktakeItem.findUnique({
@@ -808,7 +822,12 @@ export async function rejectStocktakeItem(sessionId: string, itemId: string) {
 
     await tx.stocktakeItem.update({
       where: { id: itemId },
-      data: { approvalStatus: StocktakeApprovalStatus.REJECTED },
+      data: {
+        approvalStatus: StocktakeApprovalStatus.REJECTED,
+        reviewedBy: reviewingUserId ?? null,
+        reviewedAt: new Date(),
+        rejectReason: rejectReason?.trim() ? rejectReason.trim().slice(0, 300) : null,
+      },
     });
 
     return { success: true };
@@ -889,6 +908,8 @@ export async function approveAllStocktakeItems(
             approvedQty: item.actualQty,
             reason: null,
             lossId: null,
+            reviewedBy: approvingUserId,
+            reviewedAt: new Date(),
             notes: [item.notes, `فاتورة ${delta < 0 ? "بيع" : "شراء"} #${inv.invoiceNumber}`].filter(Boolean).join(" | "),
           },
         });
@@ -940,6 +961,8 @@ export async function approveAllStocktakeItems(
           approvedQty: item.actualQty,
           reason: delta !== 0 ? reason : null,
           lossId,
+          reviewedBy: approvingUserId,
+          reviewedAt: new Date(),
         },
       });
       if (updated.count === 1) approvedCount++;
@@ -950,7 +973,7 @@ export async function approveAllStocktakeItems(
 
 // ─── Admin: Reject every still-PENDING counted item — never touches stock ─────
 
-export async function rejectAllStocktakeItems(sessionId: string) {
+export async function rejectAllStocktakeItems(sessionId: string, reviewingUserId?: string) {
   const session = await prisma.stocktakeSession.findUnique({
     where: { id: sessionId },
     include: { items: { select: { id: true, approvalStatus: true, actualQty: true } } },
@@ -966,7 +989,7 @@ export async function rejectAllStocktakeItems(sessionId: string) {
       if (item.actualQty === null) continue;
       const updated = await tx.stocktakeItem.updateMany({
         where: { id: item.id, approvalStatus: StocktakeApprovalStatus.PENDING },
-        data: { approvalStatus: StocktakeApprovalStatus.REJECTED },
+        data: { approvalStatus: StocktakeApprovalStatus.REJECTED, reviewedBy: reviewingUserId ?? null, reviewedAt: new Date() },
       });
       if (updated.count === 1) rejectedCount++;
     }

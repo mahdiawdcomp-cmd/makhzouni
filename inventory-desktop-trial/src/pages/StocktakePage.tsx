@@ -459,7 +459,7 @@ function SessionView({
   })
 
   const rejectMut = useMutation({
-    mutationFn: (itemId: string) => rejectStocktakeItem(session.id, itemId),
+    mutationFn: ({ itemId, reason }: { itemId: string; reason?: string }) => rejectStocktakeItem(session.id, itemId, reason),
     onSuccess: invalidate,
     onError: (err) => showError(err, "تعذر رفض الفرق"),
   })
@@ -889,7 +889,11 @@ function SessionView({
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 w-7 p-0 text-red-600 hover:bg-red-100"
-                                onClick={() => rejectMut.mutate(item.id)}
+                                onClick={() => {
+                                  const r = window.prompt("سبب الرفض (اختياري):")
+                                  if (r === null) return
+                                  rejectMut.mutate({ itemId: item.id, reason: r.trim() || undefined })
+                                }}
                                 disabled={readOnly || busy}
                                 title={readOnly ? READ_ONLY_MESSAGE : "رفض"}
                               >
@@ -898,14 +902,21 @@ function SessionView({
                             </div>
                           )}
                           {item.approvalStatus === "APPROVED" && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
-                              <Check className="h-3 w-3" /> موافق
-                            </span>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
+                                <Check className="h-3 w-3" /> موافق
+                              </span>
+                              {item.reviewedByName && <span className="text-[11px] text-slate-400">{item.reviewedByName}</span>}
+                            </div>
                           )}
                           {item.approvalStatus === "REJECTED" && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
-                              <X className="h-3 w-3" /> مرفوض
-                            </span>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
+                                <X className="h-3 w-3" /> مرفوض
+                              </span>
+                              {item.reviewedByName && <span className="text-[11px] text-slate-400">{item.reviewedByName}</span>}
+                              {item.rejectReason && <span className="text-[11px] text-slate-500" title={item.rejectReason}>“{item.rejectReason}”</span>}
+                            </div>
                           )}
                         </td>
                       )}

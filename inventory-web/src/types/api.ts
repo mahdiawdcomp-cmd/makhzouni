@@ -396,6 +396,9 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
     hasError?: boolean
     unitCost?: number
     varianceValue?: number | null
+    reviewedByName?: string | null
+    reviewedAt?: string | null
+    rejectReason?: string | null
   }>
   stats?: {
     filled: number

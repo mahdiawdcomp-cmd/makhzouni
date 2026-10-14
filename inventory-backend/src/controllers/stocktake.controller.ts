@@ -83,7 +83,8 @@ export const approveItem = asyncHandler(async (req, res) => {
 });
 
 export const rejectItem = asyncHandler(async (req, res) => {
-  const data = await rejectStocktakeItem(String(req.params.id), String(req.params.itemId));
+  const { reason } = (req.body ?? {}) as { reason?: string };
+  const data = await rejectStocktakeItem(String(req.params.id), String(req.params.itemId), String(req.user!.id), reason);
   res.json({ success: true, data });
 });
 
@@ -94,7 +95,7 @@ export const approveAllItems = asyncHandler(async (req, res) => {
 });
 
 export const rejectAllItems = asyncHandler(async (req, res) => {
-  const data = await rejectAllStocktakeItems(String(req.params.id));
+  const data = await rejectAllStocktakeItems(String(req.params.id), String(req.user!.id));
   res.json({ success: true, data });
 });
 

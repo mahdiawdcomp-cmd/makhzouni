@@ -138,6 +138,17 @@ async function applyStartupMigrations() {
     logger.warn("[migration] prospects.group_link_sent_at migration warning:", err);
   }
 
+  // Safety net for stocktake review audit fields: who approved/rejected an item,
+  // when, and why it was rejected. All nullable. No-op once added.
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stocktake_items" ADD COLUMN IF NOT EXISTS "reviewed_by" UUID`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stocktake_items" ADD COLUMN IF NOT EXISTS "reviewed_at" TIMESTAMP(3)`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stocktake_items" ADD COLUMN IF NOT EXISTS "reject_reason" TEXT`);
+    logger.info("[migration] stocktake_items review fields ensured");
+  } catch (err) {
+    logger.warn("[migration] stocktake_items review fields warning:", err);
+  }
+
   // Safety net for manual stock-adjustment audit fields. No-op once added.
   try {
     await prisma.$executeRawUnsafe(`ALTER TABLE "stock_movements" ADD COLUMN IF NOT EXISTS "user_id" UUID`);

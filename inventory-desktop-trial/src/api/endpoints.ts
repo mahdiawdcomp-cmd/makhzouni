@@ -3218,8 +3218,8 @@ export async function approveStocktakeItem(sessionId: string, itemId: string, re
   return data.data!
 }
 
-export async function rejectStocktakeItem(sessionId: string, itemId: string) {
-  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/stocktake/${sessionId}/items/${itemId}/reject`)
+export async function rejectStocktakeItem(sessionId: string, itemId: string, reason?: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/stocktake/${sessionId}/items/${itemId}/reject`, reason ? { reason } : undefined)
   return data.data!
 }
 
