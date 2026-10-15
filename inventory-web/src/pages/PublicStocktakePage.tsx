@@ -357,7 +357,7 @@ function WorkerInterface({
             <div className="min-w-0">
               <p className="text-lg font-bold">جرد المخزن</p>
               <p className="truncate text-xs text-slate-500">
-                {session.branch?.name ?? "المخزن الرئيسي"}
+                {session.branch?.name ?? "—"}
                 {session.notes ? ` · ${session.notes}` : ""}
               </p>
             </div>
@@ -439,7 +439,15 @@ function WorkerInterface({
       </div>
 
       <div className="mx-auto max-w-2xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] pt-4">
-        {mode === "scan" ? (
+        {session.items.length === 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center text-sm text-amber-800">
+            <p className="font-semibold">لا توجد مواد في هذه الجلسة</p>
+            <p className="mt-1 text-amber-700">
+              الجلسة أُنشئت على مخزن «{session.branch?.name ?? "—"}» وهذا المخزن لا يحتوي مواد.
+              راجع الإدارة لإنشاء جلسة على المخزن الصحيح.
+            </p>
+          </div>
+        ) : mode === "scan" ? (
           <ScanMode
             token={token}
             items={session.items}

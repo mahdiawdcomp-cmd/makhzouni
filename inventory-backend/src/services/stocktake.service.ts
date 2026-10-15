@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { InvoiceType, LossReason, PaymentType, Prisma, StockMovementType, StocktakeApprovalStatus, StocktakeSessionStatus, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { adjustWarehouseStock, resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
+import { adjustWarehouseStock, resolveShopWarehouseId, resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
 import { recordStockAdjustmentVariance } from "./stock-loss.service";
 import { createInvoice } from "./invoice.service";
 import { getOrCreateWalkInCustomer } from "./customer.service";
@@ -105,7 +105,16 @@ export async function createStocktakeSession(
   branchId?: string,
   notes?: string,
 ) {
-  const warehouseId = await resolveWarehouseId(prisma, branchId);
+  // When the admin leaves the warehouse picker on the default ("المخزن الرئيسي"
+  // = empty value), resolve to the configured SHOP warehouse — NOT the oldest
+  // active branch. resolveWarehouseId(null) returns the oldest branch, which on
+  // a multi-warehouse tenant is often a depot that holds stock rows for only a
+  // few products, so the session came out nearly empty while the shop's real
+  // stock lived in a different branch. Only fall back to resolveWarehouseId when
+  // no shop warehouse can be determined at all.
+  const warehouseId = branchId
+    ? await resolveWarehouseId(prisma, branchId)
+    : await resolveShopWarehouseId(prisma);
   const stocks = await prisma.productWarehouseStock.findMany({
     where: { warehouseId, product: { deletedAt: null } },
     // Only id/name are snapshotted into stocktakeItem below — a full include

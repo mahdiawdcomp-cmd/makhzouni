@@ -268,7 +268,7 @@ function NewSessionCard({
             onChange={(e) => setBranchId(e.target.value)}
             className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
           >
-            <option value="">المخزن الرئيسي</option>
+            <option value="">المخزن الافتراضي (المحل)</option>
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
