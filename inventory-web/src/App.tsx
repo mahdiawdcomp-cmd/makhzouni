@@ -76,6 +76,7 @@ const LandedCostImportPage = lazyPage(() => import("./pages/LandedCostImportPage
 const LandedCostReviewPage = lazyPage(() => import("./pages/LandedCostReviewPage"), "LandedCostReviewPage")
 const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage"), "PublicStocktakePage")
 const PublicLineCountPage = lazyPage(() => import("./pages/PublicLineCountPage"), "PublicLineCountPage")
+const LineCountsPage = lazyPage(() => import("./pages/LineCountsPage"), "LineCountsPage")
 const LineCountReviewPage = lazyPage(() => import("./pages/LineCountReviewPage"), "LineCountReviewPage")
 const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage"), "PublicCycleCountPage")
 const PublicInvoiceCountPage = lazyPage(() => import("./pages/PublicInvoiceCountPage"), "PublicInvoiceCountPage")
@@ -154,6 +155,7 @@ const router = createBrowserRouter([
           { path: "inventory/data-health", element: s(<DataHealthPage />) },
           { path: "inventory/negative-stock", element: s(<NegativeStockPage />) },
           { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
+          { path: "inventory/line-count", element: f("stocktake", "الجرد", <LineCountsPage />) },
           { path: "inventory/line-count/:id", element: f("stocktake", "الجرد", <LineCountReviewPage />) },
           { path: "inventory/cycle-count", element: s(<CycleCountPage />) },
           { path: "inventory/landed-cost", element: s(<LandedCostImportPage />) },

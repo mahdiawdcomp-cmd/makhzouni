@@ -78,8 +78,8 @@ export function LineCountReviewPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <Button variant="ghost" className="px-0" onClick={() => navigate(`/branches/${s.warehouseId}`)}>
-        <ArrowRight className="h-4 w-4" /> رجوع للمخزن
+      <Button variant="ghost" className="px-0" onClick={() => navigate("/inventory/line-count")}>
+        <ArrowRight className="h-4 w-4" /> رجوع للجرد بالسطور
       </Button>
 
       <Card>

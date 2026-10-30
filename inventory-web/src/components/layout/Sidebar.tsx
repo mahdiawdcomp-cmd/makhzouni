@@ -176,6 +176,7 @@ const navItems: Item[] = [
       { to: "/inventory/transfers", label: "التحويلات", icon: ArrowRightLeft, dotColor: "#38BDF8" },
       { to: "/inventory/landed-cost", label: "تسعيرة أوردر الصين", icon: FileSpreadsheet, dotColor: "#A78BFA" },
       { to: "/inventory/cycle-count", label: "جدولة الجرد الذكي", icon: ClipboardCheck, dotColor: "#22C55E" },
+      { to: "/inventory/line-count", label: "جرد بالسطور", icon: ClipboardCheck, dotColor: "#F59E0B" },
     ],
   },
   {
@@ -476,6 +477,7 @@ const groupedNav: Array<{ leaf: string } | NavSectionDef> = [
       "/inventory/transfers",
       "/inventory/landed-cost",
       "/inventory/cycle-count",
+      "/inventory/line-count",
       "/losses",
       "/reports/purchase-performance",
     ],
