@@ -6,9 +6,10 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "react-router-dom"
-import { CheckCircle2, Package, ScanLine, ClipboardList } from "lucide-react"
+import { CheckCircle2, Package, ScanLine, ClipboardList, Loader2 } from "lucide-react"
 import { api } from "../api/client"
 import { cn } from "../utils/cn"
+import { apiErrorMessage } from "../utils/apiError"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,57 @@ interface PublicSession {
 }
 
 type Mode = "scan" | "manual"
+type Unit = "CARTON" | "PIECE"
+
+function describeQty(pieces: number, pcsPerCarton: number) {
+  const ppc = Math.max(1, pcsPerCarton)
+  if (ppc <= 1) return `${pieces} قطعة`
+  const cartons = Math.floor(pieces / ppc)
+  const loose = pieces % ppc
+  const parts = [`${pieces} قطعة`]
+  if (cartons > 0) parts.push(loose > 0 ? `${cartons} كارتون + ${loose}` : `${cartons} كارتون`)
+  return parts.join(" · ")
+}
+
+/** True when no server answer came back (lost connection) — worth retrying. */
+function isOfflineError(err: unknown) {
+  return !(typeof err === "object" && err !== null && "response" in err && (err as { response?: unknown }).response)
+}
+
+function workerError(err: unknown, fallback: string) {
+  return isOfflineError(err) ? `${fallback} (ماكو اتصال بالإنترنت)` : apiErrorMessage(err, fallback)
+}
+
+/** Arabic-Indic / Persian digits → ASCII, everything else stripped. */
+function digitsOnly(v: string) {
+  return v
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/\D/g, "")
+}
+
+// Saves that failed for lack of signal are parked here (per link) and retried
+// automatically, so a weak warehouse connection never silently drops a count.
+interface QueuedEntry { productId: string; qty: number; unit: Unit }
+const queueKey = (token: string) => `cc-queue-${token}`
+function readQueue(token: string): QueuedEntry[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(queueKey(token)) ?? "[]")
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+function writeQueue(token: string, entries: QueuedEntry[]) {
+  try {
+    if (entries.length === 0) localStorage.removeItem(queueKey(token))
+    else localStorage.setItem(queueKey(token), JSON.stringify(entries))
+  } catch {
+    /* storage blocked — nothing more we can do */
+  }
+}
+
+type SaveState = { status: "saving" } | { status: "queued" } | { status: "error"; message: string }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 
@@ -406,19 +458,94 @@ function ManualMode({
     }
   }
 
-  const saveMut = useMutation({
-    mutationFn: (p: { productId: string; qty: number; unit: "CARTON" | "PIECE" }) =>
-      apiSetQty(token, p.productId, p.qty, p.unit),
-    onSuccess: () => onUpdate(),
-  })
+  const [saveState, setSaveState] = useState<Record<string, SaveState | undefined>>({})
+  const [queuedCount, setQueuedCount] = useState(() => readQueue(token).length)
+  const inFlight = useRef<Set<string>>(new Set())
+  // Products this worker saved on this visit — overwriting those needs no prompt.
+  const editedThisSession = useRef<Set<string>>(new Set())
+  const flushing = useRef(false)
 
-  function save(item: PublicItem) {
-    const val = localQty[item.productId]
-    if (val === undefined || val === "") return
-    const qty = Number(val)
-    if (isNaN(qty) || qty < 0) return
+  async function flushQueue() {
+    if (flushing.current) return
+    const entries = readQueue(token)
+    if (entries.length === 0) return
+    flushing.current = true
+    let changed = false
+    try {
+      for (const e of entries) {
+        try {
+          await apiSetQty(token, e.productId, e.qty, e.unit)
+        } catch (err) {
+          if (isOfflineError(err)) break // still offline — try again later
+          // A real rejection (item already reviewed…): show it, don't wedge the queue.
+          setSaveState((st) => ({ ...st, [e.productId]: { status: "error", message: workerError(err, "ما انحفظ") } }))
+          writeQueue(token, readQueue(token).filter((x) => x.productId !== e.productId))
+          changed = true
+          continue
+        }
+        writeQueue(token, readQueue(token).filter((x) => x.productId !== e.productId))
+        setSaveState((st) => (st[e.productId]?.status === "queued" ? { ...st, [e.productId]: undefined } : st))
+        changed = true
+      }
+    } finally {
+      flushing.current = false
+      setQueuedCount(readQueue(token).length)
+      if (changed) onUpdate()
+    }
+  }
+
+  useEffect(() => {
+    void flushQueue()
+    const onOnline = () => void flushQueue()
+    window.addEventListener("online", onOnline)
+    const id = window.setInterval(() => void flushQueue(), 15_000)
+    return () => { window.removeEventListener("online", onOnline); window.clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  async function save(item: PublicItem) {
+    const raw = (localQty[item.productId] ?? "").trim()
+    if (raw === "") return
+    const qty = Number(raw)
+    if (!Number.isFinite(qty) || qty < 0 || !Number.isInteger(qty)) {
+      setSaveState((st) => ({ ...st, [item.productId]: { status: "error", message: "اكتب رقم صحيح بدون كسور" } }))
+      return
+    }
     const unit = localUnit[item.productId] ?? defaultUnit
-    saveMut.mutate({ productId: item.productId, qty, unit })
+    // Enter then blur fire back-to-back — one save (and one prompt) is enough.
+    if (inFlight.current.has(item.productId)) return
+    inFlight.current.add(item.productId)
+    try {
+      // Another worker (or an earlier visit) already counted this product.
+      if (item.actualQty !== null && !editedThisSession.current.has(item.productId)) {
+        const already = describeQty(item.actualQty, item.pcsPerCarton)
+        if (!confirm(`هذه المادة محسوبة مسبقاً (${already}).\nتكتب فوق العدّ السابق؟`)) return
+      }
+      setSaveState((st) => ({ ...st, [item.productId]: { status: "saving" } }))
+      // Clear the box only if nothing newer was typed — a stale value left behind
+      // would be re-saved in whatever unit the worker flips to next.
+      const clearTyped = () =>
+        setLocalQty((p) => ((p[item.productId] ?? "").trim() === raw ? { ...p, [item.productId]: "" } : p))
+      try {
+        await apiSetQty(token, item.productId, qty, unit)
+        editedThisSession.current.add(item.productId)
+        clearTyped()
+        setSaveState((st) => ({ ...st, [item.productId]: undefined }))
+        onUpdate()
+      } catch (err) {
+        if (isOfflineError(err)) {
+          writeQueue(token, [...readQueue(token).filter((e) => e.productId !== item.productId), { productId: item.productId, qty, unit }])
+          setQueuedCount(readQueue(token).length)
+          editedThisSession.current.add(item.productId)
+          clearTyped()
+          setSaveState((st) => ({ ...st, [item.productId]: { status: "queued" } }))
+        } else {
+          setSaveState((st) => ({ ...st, [item.productId]: { status: "error", message: workerError(err, "ما انحفظ — اضغط حفظ مرة ثانية") } }))
+        }
+      }
+    } finally {
+      inFlight.current.delete(item.productId)
+    }
   }
 
   if (items.length === 0)
@@ -426,6 +553,11 @@ function ManualMode({
 
   return (
     <div className="space-y-3">
+      {queuedCount > 0 && (
+        <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          {queuedCount} عدّ ينتظر الاتصال — راح ينحفظ تلقائياً من يرجع النت. لا تسكّر الصفحة.
+        </p>
+      )}
       <div className="rounded-2xl bg-white p-3 shadow-sm border border-slate-200">
         <p className="mb-2 text-xs font-semibold text-slate-600">الوحدة الافتراضية للعدّ</p>
         <div className="flex rounded-lg bg-slate-100 p-0.5">
@@ -451,12 +583,13 @@ function ManualMode({
         const unit = localUnit[item.productId] ?? defaultUnit
         const saved = item.actualQty !== null
         const locked = item.approvalStatus !== "PENDING"
+        const state = saveState[item.productId]
         return (
           <div
             key={item.id}
             className={cn(
               "rounded-2xl bg-white p-4 shadow-sm border transition",
-              saved ? "border-emerald-200" : "border-slate-200",
+              state?.status === "error" ? "border-red-300" : state?.status === "queued" ? "border-amber-300" : saved ? "border-emerald-200" : "border-slate-200",
             )}
           >
             <div className="flex items-start justify-between mb-3">
@@ -466,7 +599,7 @@ function ManualMode({
               </div>
               {saved && (
                 <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-700 whitespace-nowrap">
-                  ✓ {item.actualQty} قطعة
+                  ✓ {describeQty(item.actualQty ?? 0, item.pcsPerCarton)}
                 </span>
               )}
             </div>
@@ -493,26 +626,42 @@ function ManualMode({
 
                 <div className="flex gap-2">
                   <input
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    min={0}
+                    pattern="[0-9]*"
+                    autoComplete="off"
                     placeholder="0"
                     value={localQty[item.productId] ?? ""}
-                    onChange={(e) => setLocalQty((p) => ({ ...p, [item.productId]: e.target.value }))}
-                    onBlur={() => save(item)}
-                    onKeyDown={(e) => e.key === "Enter" && save(item)}
+                    onChange={(e) => {
+                      const v = digitsOnly(e.target.value)
+                      setLocalQty((p) => ({ ...p, [item.productId]: v }))
+                      if (state?.status === "error") setSaveState((st) => ({ ...st, [item.productId]: undefined }))
+                    }}
+                    onBlur={() => void save(item)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        void save(item)
+                      }
+                    }}
                     className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-400 focus:bg-white"
                     dir="ltr"
                   />
                   <button
                     type="button"
-                    onClick={() => save(item)}
-                    disabled={!localQty[item.productId]}
+                    onClick={() => void save(item)}
+                    disabled={!localQty[item.productId] || state?.status === "saving"}
                     className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
                   >
-                    حفظ
+                    {state?.status === "saving" ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
                   </button>
                 </div>
+                {state?.status === "error" && (
+                  <p role="alert" className="mt-2 text-sm font-medium text-red-600">{state.message}</p>
+                )}
+                {state?.status === "queued" && (
+                  <p className="mt-2 text-sm font-medium text-amber-700">محفوظ على الجهاز — ينرسل من يرجع النت</p>
+                )}
               </>
             )}
           </div>

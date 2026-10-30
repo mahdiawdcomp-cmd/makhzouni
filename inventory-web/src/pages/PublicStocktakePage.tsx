@@ -658,18 +658,23 @@ function ManualMode({
       return
     }
     const unit = localUnit[item.productId] ?? "CARTON"
+    // Enter then blur fire back-to-back — claim the save before the overwrite
+    // prompt so the second call can't open a second prompt.
+    if (inFlight.current[item.productId] !== undefined) return
+    const key = `${qty}|${unit}`
+    inFlight.current[item.productId] = key
 
     // Multi-worker guard: this product already carries a saved count that THIS
     // worker didn't enter this visit — likely another worker counted it. Confirm
     // before overwriting so two phones don't silently clobber each other.
     if (item.actualQty !== null && !editedThisSession.current.has(item.productId)) {
       const already = describeQty(item.actualQty, item.pcsPerCarton)
-      if (!confirm(`هذه المادة محسوبة مسبقاً (${already}).\nتكتب فوق العدّ السابق؟`)) return
+      if (!confirm(`هذه المادة محسوبة مسبقاً (${already}).\nتكتب فوق العدّ السابق؟`)) {
+        delete inFlight.current[item.productId]
+        return
+      }
     }
 
-    const key = `${qty}|${unit}`
-    if (inFlight.current[item.productId] === key) return
-    inFlight.current[item.productId] = key
     setSaveState((s) => ({ ...s, [item.productId]: { status: "saving" } }))
     if (opts.focusNext) focusNextAfter(item.productId)
     try {
@@ -709,6 +714,17 @@ function ManualMode({
   }
 
   function step(item: PublicItem, delta: number) {
+    const ppc = Math.max(1, item.pcsPerCarton)
+    // A saved count with loose pieces (2 كارتون + 5) can't be stepped in whole
+    // cartons without dropping the 5 — switch to pieces and step a carton's worth.
+    if (
+      (localQty[item.productId] ?? "").trim() === "" && item.actualQty !== null && ppc > 1 &&
+      (localUnit[item.productId] ?? "CARTON") === "CARTON" && item.actualQty % ppc !== 0
+    ) {
+      setLocalUnit((p) => ({ ...p, [item.productId]: "PIECE" }))
+      setLocalQty((p) => ({ ...p, [item.productId]: String(Math.max(0, (item.actualQty ?? 0) + delta * ppc)) }))
+      return
+    }
     setLocalQty((p) => {
       const cur = (p[item.productId] ?? "").trim()
       const unit = localUnit[item.productId] ?? "CARTON"
