@@ -75,6 +75,8 @@ const CycleCountPage = lazyPage(() => import("./pages/CycleCountPage"), "CycleCo
 const LandedCostImportPage = lazyPage(() => import("./pages/LandedCostImportPage"), "LandedCostImportPage")
 const LandedCostReviewPage = lazyPage(() => import("./pages/LandedCostReviewPage"), "LandedCostReviewPage")
 const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage"), "PublicStocktakePage")
+const PublicLineCountPage = lazyPage(() => import("./pages/PublicLineCountPage"), "PublicLineCountPage")
+const LineCountReviewPage = lazyPage(() => import("./pages/LineCountReviewPage"), "LineCountReviewPage")
 const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage"), "PublicCycleCountPage")
 const PublicInvoiceCountPage = lazyPage(() => import("./pages/PublicInvoiceCountPage"), "PublicInvoiceCountPage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
@@ -124,6 +126,8 @@ const router = createBrowserRouter([
   { path: "/client/:token", element: s(<ClientPortalPage />) },
   { path: "/client/:token/invoice/:invoiceId", element: s(<PublicInvoicePage />) },
   { path: "/stocktake/:token", element: s(<PublicStocktakePage />) },
+  // «جرد بالسطور» — offline worker link (token is the credential)
+  { path: "/line-count/:token", element: s(<PublicLineCountPage />) },
   { path: "/cycle-count/:token", element: s(<PublicCycleCountPage />) },
   // «جرد الفاتورة» — worker/customer counting link (no login; the token is the credential)
   { path: "/invoice-count/:token", element: s(<PublicInvoiceCountPage />) },
@@ -150,6 +154,7 @@ const router = createBrowserRouter([
           { path: "inventory/data-health", element: s(<DataHealthPage />) },
           { path: "inventory/negative-stock", element: s(<NegativeStockPage />) },
           { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
+          { path: "inventory/line-count/:id", element: f("stocktake", "الجرد", <LineCountReviewPage />) },
           { path: "inventory/cycle-count", element: s(<CycleCountPage />) },
           { path: "inventory/landed-cost", element: s(<LandedCostImportPage />) },
           { path: "inventory/landed-cost/:id", element: s(<LandedCostReviewPage />) },

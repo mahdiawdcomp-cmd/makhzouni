@@ -18,6 +18,17 @@ import {
   publicSubmit,
   publicClose,
 } from "../controllers/stocktake.controller";
+import {
+  cancelLineCountSession,
+  createLineCountSession,
+  decideLineCount,
+  finalizeLineCountSession,
+  getLineCountSession,
+  listLineCountSessions,
+  publicGetLineCountSession,
+  publicSubmitLineCountSession,
+  reopenLineCountSession,
+} from "../controllers/line-count.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
@@ -29,9 +40,23 @@ import {
   stocktakePublicScanSchema,
   stocktakePublicSetQtySchema,
   stocktakeUpdateItemSchema,
+  lineCountCreateSchema,
+  lineCountDecisionSchema,
+  lineCountPublicSubmitSchema,
 } from "../utils/schemas";
 
 const router = Router();
+
+// ── «جرد بالسطور» — registered before "/:id" so "lines" isn't read as an id ──
+router.get("/lines", authMiddleware, requirePermission("INVENTORY_MANAGE"), listLineCountSessions);
+router.post("/lines", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountCreateSchema), createLineCountSession);
+router.get("/lines/:id", authMiddleware, requirePermission("INVENTORY_MANAGE"), getLineCountSession);
+router.post("/lines/:id/decision", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountDecisionSchema), decideLineCount);
+router.post("/lines/:id/finalize", authMiddleware, requirePermission("INVENTORY_MANAGE"), finalizeLineCountSession);
+router.post("/lines/:id/cancel", authMiddleware, requirePermission("INVENTORY_MANAGE"), cancelLineCountSession);
+router.post("/lines/:id/reopen", authMiddleware, requirePermission("INVENTORY_MANAGE"), reopenLineCountSession);
+router.get("/public/lines/:token", publicGetLineCountSession);
+router.post("/public/lines/:token/submit", validate(lineCountPublicSubmitSchema), publicSubmitLineCountSession);
 
 // ── Admin routes (auth required) ─────────────────────────────────────────────
 router.get("/", authMiddleware, requirePermission("INVENTORY_MANAGE"), listSessions);

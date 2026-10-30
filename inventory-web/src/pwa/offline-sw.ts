@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching"
+import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from "workbox-precaching"
 
 declare let self: ServiceWorkerGlobalScope
 
@@ -278,8 +278,10 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request).catch(async () => {
+        // index.html lives in the workbox precache, not APP_CACHE — looking only
+        // in APP_CACHE meant no page could ever be reopened offline.
         const cache = await caches.open(APP_CACHE)
-        return (await cache.match("/index.html")) ?? Response.error()
+        return (await matchPrecache("/index.html")) ?? (await cache.match("/index.html")) ?? Response.error()
       }),
     )
     return

@@ -300,7 +300,7 @@ function NewSessionCard({
 // purchase. Per-tenant (never hardcoded). Shortage sales always go to the
 // built-in walk-in customer «الزبون النقدي», so no setting is needed for those.
 
-function OverageSupplierCard({ readOnly }: { readOnly: boolean }) {
+export function OverageSupplierCard({ readOnly }: { readOnly: boolean }) {
   const qc = useQueryClient()
   const settingsQ = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const suppliersQ = useQuery({ queryKey: ["customers", "suppliers"], queryFn: () => getCustomers({ isSupplier: true, limit: 500 }) })

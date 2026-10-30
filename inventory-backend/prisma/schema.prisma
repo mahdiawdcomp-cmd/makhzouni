@@ -3217,3 +3217,63 @@ model PageView {
   @@index([userId, createdAt])
   @@map("page_views")
 }
+// «جرد بالسطور» — the worker writes the count like an invoice (one line per
+// product entry, duplicates allowed and summed), works offline from a catalog
+// downloaded once, then uploads everything in one submit. Independent from
+// StocktakeSession on purpose: no live per-item saves, no per-item invoices —
+// finalize books ONE cash sale (shortages) + ONE cash purchase (overages).
+model LineCountSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  publicToken       String    @unique @map("public_token")
+  warehouseId       String    @map("warehouse_id") @db.Uuid
+  // OPEN → SUBMITTED (worker uploaded) → FINALIZED | CANCELLED
+  status            String    @default("OPEN")
+  notes             String?
+  createdBy         String    @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  submittedAt       DateTime? @map("submitted_at")
+  finalizedAt       DateTime? @map("finalized_at")
+  finalizedBy       String?   @map("finalized_by") @db.Uuid
+  saleInvoiceId     String?   @map("sale_invoice_id") @db.Uuid
+  purchaseInvoiceId String?   @map("purchase_invoice_id") @db.Uuid
+  lines             LineCountLine[]
+  results           LineCountResult[]
+
+  @@index([warehouseId])
+  @@index([status])
+  @@map("line_count_sessions")
+}
+
+model LineCountLine {
+  id         String           @id @default(uuid()) @db.Uuid
+  sessionId  String           @map("session_id") @db.Uuid
+  session    LineCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  position   Int
+  productId  String           @map("product_id") @db.Uuid
+  qty        Int
+  unit       String           // PIECE | CARTON, as the worker typed it
+  qtyPieces  Int              @map("qty_pieces")
+  writtenAt  DateTime         @map("written_at")
+
+  @@index([sessionId])
+  @@map("line_count_lines")
+}
+
+// One row per counted product, snapshotted at submit: systemQty is the
+// warehouse stock at that moment, countedQty the sum of the worker's lines.
+model LineCountResult {
+  id          String           @id @default(uuid()) @db.Uuid
+  sessionId   String           @map("session_id") @db.Uuid
+  session     LineCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productId   String           @map("product_id") @db.Uuid
+  systemQty   Int              @map("system_qty")
+  countedQty  Int              @map("counted_qty")
+  // Earliest line time — stock movements after it make the variance suspect.
+  firstWrittenAt DateTime      @map("first_written_at")
+  // PENDING | ACCEPTED | REJECTED
+  decision    String           @default("PENDING")
+
+  @@unique([sessionId, productId])
+  @@index([sessionId])
+  @@map("line_count_results")
+}

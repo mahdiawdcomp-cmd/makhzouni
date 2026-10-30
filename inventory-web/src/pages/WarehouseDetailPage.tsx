@@ -8,10 +8,13 @@ import { Badge } from "../components/ui/badge"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { usePageTitle } from "../hooks/usePageTitle"
+import { useReadOnly } from "../hooks/useTenantConfig"
+import { LineCountPanel } from "../components/LineCountPanel"
 
 export function WarehouseDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const readOnly = useReadOnly()
   const branchQuery = useQuery({ queryKey: ["branches", id], queryFn: () => getBranch(id!), enabled: Boolean(id) })
   const branchesQuery = useQuery({ queryKey: ["branches", "all-for-nav"], queryFn: () => getBranches() })
   const summariesQuery = useQuery({ queryKey: ["branches", "summaries"], queryFn: getBranchSummaries })
@@ -80,6 +83,8 @@ export function WarehouseDetailPage() {
           <Metric title="المصاريف" value={summary?.vouchers.expenses ?? 0} money />
         </CardContent>
       </Card>
+
+      <LineCountPanel warehouseId={branch.id} readOnly={readOnly} />
     </div>
   )
 }

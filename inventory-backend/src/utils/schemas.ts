@@ -1896,3 +1896,37 @@ export const loyaltyExclusionSchema = z.object({
     clearPoints: z.boolean().optional(),
   }),
 });
+
+// ── «جرد بالسطور» ──────────────────────────────────────────────────────────
+export const lineCountCreateSchema = z.object({
+  body: z.object({
+    warehouseId: z.string().uuid().optional(),
+    notes: z.string().trim().max(500).optional(),
+  }),
+});
+
+export const lineCountDecisionSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    decision: z.enum(["PENDING", "ACCEPTED", "REJECTED"]),
+    // Omitted = every variance in the session («اقبل الكل» / «ارفض الكل»).
+    productId: z.string().uuid().optional(),
+  }),
+});
+
+export const lineCountPublicSubmitSchema = z.object({
+  params: publicTokenParams,
+  body: z.object({
+    lines: z
+      .array(
+        z.object({
+          productId: z.string().uuid(),
+          qty: z.number().int().min(0).max(10_000_000),
+          unit: z.enum(["PIECE", "CARTON"]),
+          writtenAt: z.string().max(40),
+        }),
+      )
+      .min(1)
+      .max(20_000),
+  }),
+});

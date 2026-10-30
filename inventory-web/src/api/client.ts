@@ -75,16 +75,30 @@ export async function configureTenantApi(): Promise<void> {
 
   const resolverUrl = cleanApiUrl(import.meta.env.VITE_TENANT_CONFIG_URL)
     ?? "https://admin-api.mazbwoni.com/api/tenant-config";
-  const response = await axios.get<{
-    backendUrl: string;
-    status: "ACTIVE" | "SUSPENDED" | "EXPIRED";
-  }>(resolverUrl, { params: { subdomain }, timeout: 10000 });
+  // Last resolved backend, so a page reopened with no signal (an offline
+  // stocktake shift) still boots. Only used when the resolver can't be
+  // reached at all — a real answer (e.g. unregistered shop) still wins.
+  const cacheKey = `tenant_backend_${subdomain}`;
+  let backendUrl: string;
+  try {
+    const response = await axios.get<{
+      backendUrl: string;
+      status: "ACTIVE" | "SUSPENDED" | "EXPIRED";
+    }>(resolverUrl, { params: { subdomain }, timeout: 10000 });
 
-  if (response.data.status !== "ACTIVE") {
-    sessionStorage.setItem("tenant_access_status", response.data.status);
+    if (response.data.status !== "ACTIVE") {
+      sessionStorage.setItem("tenant_access_status", response.data.status);
+    }
+    backendUrl = response.data.backendUrl;
+    try { localStorage.setItem(cacheKey, backendUrl); } catch { /* storage blocked */ }
+  } catch (err) {
+    let cached: string | null = null;
+    try { cached = localStorage.getItem(cacheKey); } catch { /* storage blocked */ }
+    if (!cached || (axios.isAxiosError(err) && err.response)) throw err;
+    backendUrl = cached;
   }
 
-  API_BASE_URL = `${response.data.backendUrl.replace(/\/+$/, "")}/api`;
+  API_BASE_URL = `${backendUrl.replace(/\/+$/, "")}/api`;
   api.defaults.baseURL = API_BASE_URL;
   publicApi.defaults.baseURL = API_BASE_URL;
   sessionStorage.setItem("tenant_subdomain", subdomain);
