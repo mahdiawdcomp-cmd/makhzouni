@@ -1776,7 +1776,7 @@ export const cycleCountPublicSetQtySchema = z.object({
     productId: z.string().uuid(),
     // Rejects negative/NaN/Infinity — matches the loss-quantity validation
     // convention used by createStockLossSchema above.
-    qty: z.coerce.number().min(0).finite(),
+    qty: z.coerce.number().int().min(0).max(10_000_000),
     // Strict: previously unknown unit values silently fell through to being
     // treated as PIECE inside setCycleCountItemQty/setItemQty — reject instead.
     unit: z.enum(["CARTON", "PIECE"]),
@@ -1823,7 +1823,7 @@ export const stocktakePublicSetQtySchema = z.object({
   params: publicTokenParams,
   body: z.object({
     productId: z.string().uuid(),
-    qty: z.coerce.number().min(0).finite(),
+    qty: z.coerce.number().int().min(0).max(10_000_000),
     unit: z.enum(["CARTON", "PIECE"]),
     // Accepted for backward compatibility with the existing frontend payload
     // shape; the service ignores it and reads pcsPerCarton from the DB itself.
@@ -1834,14 +1834,14 @@ export const stocktakePublicSetQtySchema = z.object({
 export const stocktakePublicScanSchema = z.object({
   params: publicTokenParams,
   body: z.object({
-    qrCode: z.string().trim().min(1),
+    qrCode: z.string().trim().min(1).max(200),
   }),
 });
 
 export const cycleCountPublicScanSchema = z.object({
   params: publicTokenParams,
   body: z.object({
-    qrCode: z.string().trim().min(1),
+    qrCode: z.string().trim().min(1).max(200),
   }),
 });
 

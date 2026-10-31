@@ -136,6 +136,11 @@ export function PublicLineCountPage() {
         if (s.status === "SUBMITTED" || s.status === "FINALIZED") {
           setDone(true)
           writeJson(doneKey(token), true)
+        } else if (s.status === "OPEN" && readJson<boolean>(doneKey(token), false)) {
+          // The manager sent it back («أعد للعامل») — the lines are still on
+          // this phone, so let the worker fix them and upload again.
+          removeKey(doneKey(token))
+          setDone(false)
         }
       })
       .catch((err) => {
@@ -181,12 +186,19 @@ export function PublicLineCountPage() {
     if (!writeJson(linesKey(token), lines)) setStorageOk(false)
   }, [lines, token])
 
+  const inFlight = useRef(false)
   const submit = useCallback(async () => {
+    // The online event, the retry timer and a tap can all fire together.
+    if (inFlight.current) return
+    inFlight.current = true
     const current = readJson<Line[]>(linesKey(token), [])
     const payload = current
       .filter((l) => l.qty !== "")
       .map((l) => ({ productId: l.productId, qty: Number(l.qty), unit: l.unit, writtenAt: l.writtenAt }))
-    if (payload.length === 0) return
+    if (payload.length === 0) {
+      inFlight.current = false
+      return
+    }
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -196,8 +208,10 @@ export function PublicLineCountPage() {
       setPendingSubmit(false)
       setDone(true)
     } catch (err) {
-      if (isOfflineError(err)) {
-        // Keep it queued — retried automatically when the signal returns.
+      const status = (err as { response?: { status?: number } })?.response?.status ?? 0
+      if (isOfflineError(err) || status >= 500) {
+        // Keep it queued — retried automatically. A 5xx may even have saved it;
+        // the server answers a repeat with "already submitted".
         writeJson(pendingKey(token), true)
         setPendingSubmit(true)
       } else {
@@ -206,6 +220,7 @@ export function PublicLineCountPage() {
         setSubmitError(apiErrorMessage(err, "ما انرفع الجرد"))
       }
     } finally {
+      inFlight.current = false
       setSubmitting(false)
     }
   }, [token])
@@ -246,8 +261,10 @@ export function PublicLineCountPage() {
       <Shell>
         <div className="flex flex-col items-center gap-3 py-24 text-center">
           <CheckCircle2 className="h-14 w-14 text-emerald-500" />
-          <p className="text-xl font-bold">انرفع الجرد ✓</p>
-          <p className="text-slate-500">تكدر تسدّ الصفحة.</p>
+          <p className="text-xl font-bold">{session.status === "FINALIZED" ? "الجرد معتمد ✓" : "انرفع الجرد ✓"}</p>
+          <p className="text-slate-500">
+            {session.status === "FINALIZED" ? "المدير راجع الجرد واعتمده." : "بانتظار مراجعة المدير. تكدر تسدّ الصفحة."}
+          </p>
         </div>
       </Shell>
     )

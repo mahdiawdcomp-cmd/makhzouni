@@ -180,32 +180,45 @@ export async function getLineCountReview(id: string) {
 }
 
 export async function setLineCountDecision(id: string, decision: LineCountDecision, productId?: string) {
-  const s = await loadSession(id);
-  if (s.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
-  // "All" only touches real variances; matched rows need no decision.
-  const res = await prisma.$executeRaw`
-    UPDATE line_count_results SET decision = ${decision}
-    WHERE session_id = ${id}::uuid
-      AND counted_qty <> system_qty
-      AND (${productId ?? null}::uuid IS NULL OR product_id = ${productId ?? null}::uuid)`;
-  return { updated: res };
+  await loadSession(id);
+  // Locked against finalize/reopen so a decision can't slip in after the
+  // invoices were computed.
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
+    if (rows[0]?.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
+    // "All" only touches real variances; matched rows need no decision.
+    const res = await tx.$executeRaw`
+      UPDATE line_count_results SET decision = ${decision}
+      WHERE session_id = ${id}::uuid
+        AND counted_qty <> system_qty
+        AND (${productId ?? null}::uuid IS NULL OR product_id = ${productId ?? null}::uuid)`;
+    return { updated: res };
+  });
 }
 
 export async function cancelLineCount(id: string) {
-  const s = await loadSession(id);
-  if (s.status === "FINALIZED") throw new AppError("الجلسة معتمدة ولا يمكن إلغاؤها", 400, "LINE_COUNT_FINALIZED");
-  await prisma.lineCountSession.update({ where: { id }, data: { status: "CANCELLED" } });
+  await loadSession(id);
+  // Conditional: a session finalized a moment ago keeps its invoices' status.
+  const r = await prisma.lineCountSession.updateMany({
+    where: { id, status: { in: ["OPEN", "SUBMITTED"] } },
+    data: { status: "CANCELLED" },
+  });
+  if (r.count !== 1) throw new AppError("الجلسة معتمدة أو ملغاة مسبقاً", 400, "LINE_COUNT_FINALIZED");
   return { cancelled: true };
 }
 
 /** Sends a submitted count back to the worker (e.g. «أعد العدّ»). Lines stay. */
 export async function reopenLineCount(id: string) {
-  const s = await loadSession(id);
-  if (s.status !== "SUBMITTED") throw new AppError("يمكن إعادة فتح جلسة مرفوعة فقط", 400, "LINE_COUNT_NOT_SUBMITTED");
-  await prisma.$transaction([
-    prisma.lineCountResult.deleteMany({ where: { sessionId: id } }),
-    prisma.lineCountSession.update({ where: { id }, data: { status: "OPEN", submittedAt: null } }),
-  ]);
+  await loadSession(id);
+  await prisma.$transaction(async (tx) => {
+    // Claim first — racing a finalize, only one of the two can win.
+    const r = await tx.lineCountSession.updateMany({
+      where: { id, status: "SUBMITTED" },
+      data: { status: "OPEN", submittedAt: null },
+    });
+    if (r.count !== 1) throw new AppError("يمكن إعادة فتح جلسة مرفوعة فقط", 400, "LINE_COUNT_NOT_SUBMITTED");
+    await tx.lineCountResult.deleteMany({ where: { sessionId: id } });
+  });
   return { reopened: true };
 }
 
@@ -220,7 +233,7 @@ export async function finalizeLineCount(id: string, userId: string) {
   const accepted = variances.filter((r) => r.decision === "ACCEPTED");
   const products = await prisma.product.findMany({
     where: { id: { in: accepted.map((r) => r.productId) } },
-    select: { id: true, name: true, salePrice: true, costPrice: true, purchasePrice: true },
+    select: { id: true, name: true, salePrice: true, costPrice: true, purchasePrice: true, deletedAt: true },
   });
   const pmap = new Map(products.map((p) => [p.id, p]));
 
@@ -231,7 +244,10 @@ export async function finalizeLineCount(id: string, userId: string) {
   const noPrice: string[] = [];
   for (const r of accepted) {
     const p = pmap.get(r.productId);
-    if (!p) continue;
+    if (!p || p.deletedAt) {
+      noPrice.push(`${p?.name ?? "مادة"} (محذوفة — ارفضها)`);
+      continue;
+    }
     const delta = r.countedQty - r.systemQty;
     if (delta < 0) {
       const price = Math.round(Number(p.salePrice ?? 0));
@@ -244,7 +260,7 @@ export async function finalizeLineCount(id: string, userId: string) {
     }
   }
   if (noPrice.length > 0)
-    throw new AppError(`هذه المواد بلا سعر — عدّلها أو ارفضها: ${noPrice.slice(0, 8).join("، ")}${noPrice.length > 8 ? "…" : ""}`, 400, "LINE_COUNT_NO_PRICE");
+    throw new AppError(`هذه المواد ما تنعتمد — عدّلها أو ارفضها: ${noPrice.slice(0, 8).join("، ")}${noPrice.length > 8 ? "…" : ""}`, 400, "LINE_COUNT_NO_PRICE");
 
   let supplierId = "";
   if (purchaseItems.length > 0) {
@@ -263,6 +279,14 @@ export async function finalizeLineCount(id: string, userId: string) {
         data: { status: "FINALIZED", finalizedAt: new Date(), finalizedBy: userId },
       });
       if (claim.count !== 1) throw new AppError("الجلسة اعتُمدت مسبقاً", 409, "LINE_COUNT_FINALIZED");
+      // The invoices were priced from a read taken before the claim — make sure
+      // nothing changed in between (a decision, or a reopen + resubmit).
+      const now = await tx.lineCountResult.findMany({ where: { sessionId: id } });
+      const key = (r: { productId: string; countedQty: number; systemQty: number; decision: string }) =>
+        `${r.productId}|${r.countedQty}|${r.systemQty}|${r.decision}`;
+      const before = new Set(results.map(key));
+      if (now.length !== results.length || now.some((r) => !before.has(key(r))))
+        throw new AppError("تغيّرت القرارات أثناء الاعتماد — حدّث الصفحة وأعد المحاولة", 409, "LINE_COUNT_CHANGED");
 
       let saleInvoiceId: string | null = null;
       let purchaseInvoiceId: string | null = null;
@@ -276,6 +300,7 @@ export async function finalizeLineCount(id: string, userId: string) {
             paidAmount: saleItems.reduce((t, i) => t + i.quantity * i.unitPrice, 0),
             paymentType: PaymentType.CASH,
             branchId: s.warehouseId,
+            origin: "STOCK_COUNT",
             notes: `${label} — نقص`,
             items: saleItems.map((i) => ({ ...i, warehouseId: s.warehouseId, unit: Unit.PIECE, allowNegativeStock: true })),
           },
@@ -294,6 +319,7 @@ export async function finalizeLineCount(id: string, userId: string) {
             paidAmount: purchaseItems.reduce((t, i) => t + i.quantity * i.unitPrice, 0),
             paymentType: PaymentType.CASH,
             branchId: s.warehouseId,
+            origin: "STOCK_COUNT",
             notes: `${label} — زيادة`,
             items: purchaseItems.map((i) => ({ ...i, warehouseId: s.warehouseId, unit: Unit.PIECE })),
           },
@@ -343,7 +369,7 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
   if (lines.length === 0) throw new AppError("ما مكتوب ولا سطر", 400, "LINE_COUNT_EMPTY");
 
   const ids = [...new Set(lines.map((l) => l.productId))];
-  const products = await prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, pcsPerCarton: true } });
+  const products = await prisma.product.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, pcsPerCarton: true } });
   const ppc = new Map(products.map((p) => [p.id, Math.max(1, p.pcsPerCarton)]));
   const missing = ids.filter((pid) => !ppc.has(pid));
   if (missing.length > 0) throw new AppError("بعض المواد انحذفت من النظام — حدّث الصفحة", 400, "LINE_COUNT_UNKNOWN_PRODUCT");
@@ -388,6 +414,20 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
         select: { productId: true, quantityPieces: true },
       });
       const sys = new Map(stocks.map((x) => [x.productId, x.quantityPieces]));
+      // The shelf was counted at the first line, possibly hours before upload.
+      // Roll the system figure back by whatever moved since, so a sale made
+      // after the count isn't mistaken for an overage (and booked as a purchase).
+      const earliest = [...sums.values()].reduce((m, v) => (v.first < m ? v.first : m), now);
+      const moves = await tx.stockMovement.findMany({
+        where: { branchId: s.warehouseId, productId: { in: ids }, createdAt: { gt: earliest, lte: now } },
+        select: { productId: true, type: true, quantity: true, createdAt: true },
+      });
+      for (const m of moves) {
+        const first = sums.get(m.productId)?.first;
+        if (!first || m.createdAt <= first) continue;
+        const signed = m.type === "IN" ? m.quantity : -m.quantity;
+        sys.set(m.productId, (sys.get(m.productId) ?? 0) - signed);
+      }
       await tx.lineCountResult.createMany({
         data: [...sums.entries()].map(([productId, v]) => ({
           sessionId: s.id,

@@ -123,6 +123,9 @@ export interface CreateInvoiceInput {
    * SALE invoices only.
    */
   redeemPoints?: number;
+  /** Where the invoice came from when not typed by a person — "STOCK_COUNT"
+   * marks count settlements so cash/sales KPIs can leave them out. */
+  origin?: string;
   items: InvoiceItemInput[];
 }
 
@@ -363,7 +366,8 @@ async function applyStockMovement(
   // Kept in the signature: callers still pass it, and the audit/notification
   // block below distinguishes an edit from a fresh sale.
   isEdit = false,
-  priceMode: PriceMode = "WHOLESALE"
+  priceMode: PriceMode = "WHOLESALE",
+  origin: string | null = null,
 ) {
   const product = await tx.product.findUnique({
     where: { id: item.productId },
@@ -618,7 +622,9 @@ async function applyStockMovement(
       where: { id: product.id },
       data: {
         costPrice: newCostPrice,
-        purchasePrice: roundMoney(newUnitCostPerPiece),
+        // A count overage booked as a purchase is not a real purchase price —
+        // keep the supplier's last price.
+        ...(origin === "STOCK_COUNT" ? {} : { purchasePrice: roundMoney(newUnitCostPerPiece) }),
       },
     });
     costSnapshot = newCostPrice;
@@ -642,7 +648,8 @@ async function adjustProductStock(
   productId: string,
   quantityInPieces: number,
   direction: "IN" | "OUT",
-  warehouseId?: string | null
+  warehouseId?: string | null,
+  ledgerNote?: string,
 ) {
   const product = await tx.product.findUnique({
     where: { id: productId },
@@ -653,13 +660,41 @@ async function adjustProductStock(
 
   await ensureLegacyWarehouseStock(tx, product);
   const resolvedWarehouseId = await resolveWarehouseId(tx, warehouseId ?? product.branchId);
-  await adjustWarehouseStock(tx, {
+  const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
     productId,
     warehouseId: resolvedWarehouseId,
     deltaPieces: direction === "IN" ? quantityInPieces : -quantityInPieces,
     allowNegative: true,
   });
+  // The reversal is a real stock event — record it so the ledger still
+  // explains the shelf (it used to vanish along with the original rows).
+  if (ledgerNote && quantityInPieces > 0) {
+    await tx.stockMovement.create({
+      data: {
+        productId,
+        branchId: resolvedWarehouseId,
+        type: direction === "IN" ? StockMovementType.IN : StockMovementType.OUT,
+        quantity: quantityInPieces,
+        balanceBefore,
+        balanceAfter,
+        note: ledgerNote,
+      },
+    });
+  }
   await syncProductTotalStock(tx, productId);
+}
+
+// The ledger prefix that marks rows belonging to a reversed/edited invoice.
+// They keep their history but leave the invoice link, so the invoice can be
+// re-applied or hard-deleted without erasing what physically happened.
+export const INVOICE_LEDGER_PREFIX = "[فاتورة #";
+
+async function detachInvoiceMovements(tx: Db, invoiceId: string, invoiceNumber: string, label: string) {
+  const prefix = `${INVOICE_LEDGER_PREFIX}${invoiceNumber} ${label}] `;
+  await tx.$executeRaw`
+    UPDATE stock_movements
+       SET invoice_id = NULL, note = ${prefix} || COALESCE(note, '')
+     WHERE invoice_id = ${invoiceId}::uuid`;
 }
 
 // Inverse of the WAC blend in applyStockMovement. Removing a purchase of `q`
@@ -731,6 +766,17 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehou
       saleWarehouseId = await resolveShopWarehouseId(tx);
     }
   }
+  // Where each product actually left from, per the sale's own ledger rows —
+  // more exact than "today's shop", which may have changed since.
+  const soldFrom = new Map<string, string>();
+  if (invoice.type === InvoiceType.SALE && !returnWarehouseId) {
+    const outs = await tx.stockMovement.findMany({
+      where: { invoiceId, type: StockMovementType.OUT, branchId: { not: null } },
+      select: { productId: true, branchId: true },
+    });
+    for (const m of outs) if (m.branchId && !soldFrom.has(m.productId)) soldFrom.set(m.productId, m.branchId);
+  }
+  const invoiceNo = String(invoice.invoiceNumber ?? invoice.id);
 
   for (const item of invoice.items) {
     const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
@@ -747,11 +793,12 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehou
       item.productId,
       quantityInPieces,
       isStockInflow(invoice.type) ? "OUT" : "IN",
-      invoice.type === InvoiceType.SALE ? saleWarehouseId : item.warehouseId
+      invoice.type === InvoiceType.SALE ? (soldFrom.get(item.productId) ?? saleWarehouseId) : item.warehouseId,
+      `${INVOICE_LEDGER_PREFIX}${invoiceNo} عكس] إلغاء/تعديل الفاتورة`,
     );
   }
 
-  await tx.stockMovement.deleteMany({ where: { invoiceId } });
+  await detachInvoiceMovements(tx, invoiceId, invoiceNo, "قبل الإلغاء/التعديل");
 
   // Undo any automatic depot→المحل transfer this sale generated.
   //
@@ -805,25 +852,28 @@ async function reverseAutoTransfersForInvoice(tx: Db, invoiceId: string) {
       // المحل gives the pieces back, the depot receives them — the exact
       // inverse of executeTransferWithin. allowNegative because the sale being
       // reversed already happened and today's shop level may be lower.
-      await adjustWarehouseStock(tx, {
+      const back = await adjustWarehouseStock(tx, {
         productId: item.productId,
         warehouseId: transfer.toBranchId,
         deltaPieces: -pieces,
         allowNegative: true,
       });
-      await adjustWarehouseStock(tx, {
+      const home = await adjustWarehouseStock(tx, {
         productId: item.productId,
         warehouseId: transfer.fromBranchId,
         deltaPieces: pieces,
         allowNegative: true,
       });
+      // Compensating rows instead of deleting the originals: the ledger keeps
+      // the transfer AND its reversal, so it still adds up to the shelf.
+      await tx.stockMovement.createMany({
+        data: [
+          { productId: item.productId, branchId: transfer.toBranchId, transferId: transfer.id, type: StockMovementType.OUT, quantity: pieces, balanceBefore: back.balanceBefore, balanceAfter: back.balanceAfter, note: "عكس تحويل تلقائي (إلغاء فاتورة)" },
+          { productId: item.productId, branchId: transfer.fromBranchId, transferId: transfer.id, type: StockMovementType.IN, quantity: pieces, balanceBefore: home.balanceBefore, balanceAfter: home.balanceAfter, note: "عكس تحويل تلقائي (إلغاء فاتورة)" },
+        ],
+      });
       await syncProductTotalStock(tx, item.productId);
     }
-
-    // The movement rows carried the original transfer's before/after balances;
-    // keeping them would misreport the ledger for a transfer that no longer
-    // stands. executeTransferWithin writes them keyed on transferId.
-    await tx.stockMovement.deleteMany({ where: { transferId: transfer.id } });
   }
 }
 
@@ -1146,6 +1196,7 @@ async function createInvoiceInTransaction(
     : await tx.invoice.create({
         data: {
           invoiceNumber,
+          origin: input.origin ?? null,
           type: invoiceType,
           priceMode: input.priceMode ?? "WHOLESALE",
           customerId: input.customerId,
@@ -1192,7 +1243,7 @@ async function createInvoiceInTransaction(
   }> = [];
 
   for (const item of input.items) {
-    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy, Boolean(existingInvoiceId), input.priceMode);
+    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy, Boolean(existingInvoiceId), input.priceMode, input.origin ?? null);
     subtotal = roundMoney(subtotal + pricedItem.totalPrice);
 
     if (pricedItem.wentNegative) {

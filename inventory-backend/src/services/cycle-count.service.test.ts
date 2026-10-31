@@ -226,6 +226,13 @@ const fakeDb: any = {
       Object.assign(session, data);
       return { ...session };
     },
+    // Conditional status claims (OPEN → SUBMITTED, SUBMITTED → OPEN).
+    updateMany: async ({ where, data }: any) => {
+      const session = sessions.get(where.id);
+      if (!session || (where.status !== undefined && session.status !== where.status)) return { count: 0 };
+      Object.assign(session, data);
+      return { count: 1 };
+    },
   },
   cycleCountItem: {
     createMany: async ({ data }: any) => {
@@ -351,7 +358,22 @@ const fakeDb: any = {
   },
   // adjustWarehouseStock()'s row lock — this fake has no real concurrency, so it
   // just reads the current in-memory balance.
-  $queryRaw: async (query: any) => {
+  // Called both as a tagged template (strings, ...values) and with a Prisma.sql object.
+  $queryRaw: async (first: any, ...rest: any[]) => {
+    const query = Array.isArray(first) ? { strings: first, values: rest } : first;
+    const sql = (query?.strings ?? []).join("?");
+    // Atomic scan increment on a cycle-count item.
+    if (sql.includes("UPDATE cycle_count_items")) {
+      const [increment, systemQty, , , itemId] = query.values;
+      const item = items.get(itemId);
+      if (!item) return [];
+      item.actualQty = (item.actualQty ?? 0) + increment;
+      item.systemQty = systemQty;
+      item.variance = item.actualQty - systemQty;
+      return [{ actual_qty: item.actualQty }];
+    }
+    // Session / product row locks — no real concurrency in this fake.
+    if (sql.includes("FOR UPDATE") && !sql.includes("product_warehouse_stocks")) return [];
     const [productId, warehouseId] = query?.values ?? [];
     const stock = stocks.get(stockKey(productId, warehouseId));
     return [{ quantity_pieces: stock?.quantityPieces ?? 0 }];

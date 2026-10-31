@@ -106,6 +106,11 @@ export async function upsertWarehouseStock(
 }
 
 export async function syncProductTotalStock(db: WarehouseDb, productId: string) {
+  // Lock the product row first. Two transactions touching different
+  // warehouses of the same product each summed only their own change and the
+  // last writer won, so the stored total drifted from the warehouse rows.
+  // Holding the lock, the SUM below sees the other transaction's commit.
+  await db.$queryRaw`SELECT id FROM products WHERE id = ${productId}::uuid FOR UPDATE`;
   const [aggregate, product] = await Promise.all([
     db.productWarehouseStock.aggregate({
       where: { productId },

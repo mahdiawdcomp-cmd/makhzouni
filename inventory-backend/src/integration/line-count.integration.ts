@@ -205,4 +205,29 @@ describe("line count", () => {
     assert.equal(await stock(ids.e), 9, "uncounted stays");
     await assert.rejects(() => svc.finalizeLineCount(sessionId, ids.admin), /ليست بانتظار/);
   });
+
+  it("cancelling a sale keeps its ledger rows and adds the reversal", async () => {
+    const inv = await import("../services/invoice.service");
+    const walk = await (await import("../services/customer.service")).getOrCreateWalkInCustomer();
+    const before = await stock(ids.d);
+    const sale = await inv.createInvoice(
+      { customerId: walk.id, type: "SALE" as never, discount: 0, tax: 0, paidAmount: 0,
+        items: [{ productId: ids.d, unit: "PIECE" as never, quantity: 3, unitPrice: 1000 }] },
+      ids.admin,
+    );
+    assert.equal(await stock(ids.d), before! - 3);
+    await inv.cancelInvoice(sale.id);
+    assert.equal(await stock(ids.d), before, "stock restored");
+    const rows = await db.stockMovement.findMany({ where: { productId: ids.d, note: { startsWith: "[فاتورة #" } } });
+    assert.equal(rows.filter((r) => r.type === "OUT").length, 1, "original sale row kept");
+    assert.equal(rows.filter((r) => r.type === "IN").length, 1, "reversal row written");
+    assert.equal(await db.stockMovement.count({ where: { invoiceId: sale.id } }), 0, "detached from invoice");
+  });
+
+  it("count invoices are tagged STOCK_COUNT and stay out of end-of-day cash", async () => {
+    const counted = await db.invoice.findMany({ where: { origin: "STOCK_COUNT" } });
+    assert.equal(counted.length, 2);
+    const eod = await (await import("../services/report.service")).getEndOfDayReport();
+    assert.ok(!eod.sales.count || eod.sales.collected < 5000, "count sale not in collected cash");
+  });
 });

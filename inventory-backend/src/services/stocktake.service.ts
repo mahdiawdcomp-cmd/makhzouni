@@ -60,6 +60,7 @@ async function resolveVarianceViaInvoice(
         paidAmount: qty * unitPrice,
         paymentType: PaymentType.CASH,
         branchId: opts.warehouseId,
+        origin: "STOCK_COUNT",
         notes: `تسوية جرد دوري — بيع نقص غير مسجّل (جلسة ${opts.sessionId})`,
         items: [{ productId: opts.productId, warehouseId: opts.warehouseId, unit: Unit.PIECE, quantity: qty, unitPrice, allowNegativeStock: true }],
       },
@@ -85,6 +86,7 @@ async function resolveVarianceViaInvoice(
       paidAmount: qty * unitPrice,
       paymentType: PaymentType.CASH,
       branchId: opts.warehouseId,
+      origin: "STOCK_COUNT",
       notes: `تسوية جرد دوري — شراء زيادة غير مسجّلة (جلسة ${opts.sessionId})`,
       items: [{ productId: opts.productId, warehouseId: opts.warehouseId, unit: Unit.PIECE, quantity: qty, unitPrice }],
     },
@@ -357,37 +359,23 @@ export async function closePublicStocktake(token: string) {
     },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
-  if (session.status === StocktakeSessionStatus.CLOSED)
-    throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
-
-  // A worker holding the link could previously jump the session straight to
-  // CLOSED. Approval requires SUBMITTED, so every counted variance became
-  // permanently unapprovable and the whole count was discarded with no
-  // StockLoss/StockMovement trace and no way for the admin to reopen it.
-  //
-  // When there is anything counted and still unreviewed, "I'm done" means
-  // SUBMITTED — hand it to the admin — not CLOSED. Only a session with nothing
-  // left to review may be closed from the public link.
+  // The worker's "I'm done" only ever hands the count to the admin (OPEN →
+  // SUBMITTED). Closing is an admin decision — a worker-closed session used to
+  // discard every unreviewed variance.
   const unresolvedCount = session.items.filter(
     (i) =>
       i.actualQty !== null &&
       (i.approvalStatus ?? StocktakeApprovalStatus.PENDING) === StocktakeApprovalStatus.PENDING,
   ).length;
-
-  if (unresolvedCount > 0) {
-    await prisma.stocktakeSession.update({
-      where: { id: session.id },
-      data: { status: StocktakeSessionStatus.SUBMITTED },
-    });
+  if (session.status === StocktakeSessionStatus.SUBMITTED)
     return { success: true, status: "SUBMITTED" as const, unresolvedCount };
-  }
-
-  await prisma.stocktakeSession.update({
-    where: { id: session.id },
-    data: { status: StocktakeSessionStatus.CLOSED, closedAt: new Date(), closedBy: "PUBLIC_WORKER" },
+  if (session.status !== StocktakeSessionStatus.OPEN)
+    throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
+  await prisma.stocktakeSession.updateMany({
+    where: { id: session.id, status: StocktakeSessionStatus.OPEN },
+    data: { status: StocktakeSessionStatus.SUBMITTED },
   });
-
-  return { success: true, status: "CLOSED" as const, unresolvedCount: 0 };
+  return { success: true, status: "SUBMITTED" as const, unresolvedCount };
 }
 
 // ─── Admin: Update a single item quantity ────────────────────────────────────
@@ -414,6 +402,8 @@ export async function updateStocktakeItem(
     where: { sessionId, productId },
   });
   if (!item) throw new AppError("المنتج غير موجود في الجلسة", 404, "ITEM_NOT_FOUND");
+  if ((item.approvalStatus ?? StocktakeApprovalStatus.PENDING) !== StocktakeApprovalStatus.PENDING)
+    throw new AppError("هذه المادة تمت مراجعتها", 400, "ITEM_REVIEWED");
 
   // Re-read the live balance at count time, exactly as the cycle-count worker
   // path does, so the variance the admin reviews reflects reality rather than
@@ -426,7 +416,7 @@ export async function updateStocktakeItem(
         select: { quantityPieces: true },
       })
     : null;
-  const systemQty = liveStock?.quantityPieces ?? item.systemQty;
+  const systemQty = liveStock?.quantityPieces ?? 0;
   const variance = systemQty !== null ? actualQty - systemQty : null;
 
   await prisma.stocktakeItem.update({
@@ -445,21 +435,22 @@ export async function submitStocktakeSession(sessionId: string) {
     include: { items: true },
   });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
-  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
+  if (session.status !== StocktakeSessionStatus.OPEN) throw new AppError("الجلسة ليست مفتوحة", 400, "SESSION_NOT_OPEN");
 
   await prisma.$transaction(async (tx) => {
+    const claim = await tx.stocktakeSession.updateMany({
+      where: { id: sessionId, status: StocktakeSessionStatus.OPEN },
+      data: { status: StocktakeSessionStatus.SUBMITTED },
+    });
+    if (claim.count !== 1) throw new AppError("الجلسة تغيّرت حالتها — حدّث الصفحة", 409, "SESSION_NOT_OPEN");
     for (const item of session.items) {
-      if (item.actualQty !== null) {
+      if (item.actualQty !== null && (item.approvalStatus ?? StocktakeApprovalStatus.PENDING) === StocktakeApprovalStatus.PENDING) {
         await tx.stocktakeItem.update({
           where: { id: item.id },
           data: { variance: item.actualQty - (item.systemQty ?? 0) },
         });
       }
     }
-    await tx.stocktakeSession.update({
-      where: { id: sessionId },
-      data: { status: StocktakeSessionStatus.SUBMITTED },
-    });
   });
 
   return getStocktakeSession(sessionId);
@@ -524,7 +515,10 @@ export async function scanQrCode(token: string, qrCode: string) {
     select: { id: true, status: true, branchId: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
-  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
+  // Only an OPEN session takes worker writes — once submitted the admin is
+  // reviewing, and a late scan would move numbers under their decisions.
+  if (session.status !== StocktakeSessionStatus.OPEN)
+    throw new AppError("الجرد مرفوع للمراجعة أو مغلق — ما تكدر تعدّل", 400, "SESSION_NOT_OPEN");
 
   // Find product by qrCode OR cartonQrCode
   const product = await prisma.product.findFirst({
@@ -546,10 +540,11 @@ export async function scanQrCode(token: string, qrCode: string) {
 
   if (!item)
     throw new AppError("هذا المنتج ليس ضمن قائمة الجرد", 404, "ITEM_NOT_IN_SESSION");
+  if ((item.approvalStatus ?? StocktakeApprovalStatus.PENDING) !== StocktakeApprovalStatus.PENDING)
+    throw new AppError("هذه المادة تمت مراجعتها", 400, "ITEM_REVIEWED");
 
   const isCartonBarcode = product.cartonQrCode === qrCode.trim();
   const increment = isCartonBarcode ? Math.max(1, product.pcsPerCarton) : 1;
-  const newQty = (item.actualQty ?? 0) + increment;
 
   // Same live-refresh fix as setItemQty — see comment there.
   const currentStock = session.branchId
@@ -558,12 +553,18 @@ export async function scanQrCode(token: string, qrCode: string) {
         select: { quantityPieces: true },
       })
     : null;
-  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+  const freshSystemQty = currentStock?.quantityPieces ?? 0;
 
-  await prisma.stocktakeItem.update({
-    where: { id: item.id },
-    data: { actualQty: newQty, systemQty: freshSystemQty, variance: newQty - freshSystemQty },
-  });
+  // Atomic increment: two fast scans (or two phones) each add their carton
+  // instead of both writing "old + 1".
+  const rows = await prisma.$queryRaw<{ actual_qty: number }[]>`
+    UPDATE stocktake_items
+       SET actual_qty = COALESCE(actual_qty, 0) + ${increment},
+           system_qty = ${freshSystemQty},
+           variance = COALESCE(actual_qty, 0) + ${increment} - ${freshSystemQty}
+     WHERE id = ${item.id}::uuid
+     RETURNING actual_qty`;
+  const newQty = Number(rows[0]?.actual_qty ?? 0);
 
   return {
     productId: product.id,
@@ -588,13 +589,18 @@ export async function setItemQty(
     select: { id: true, status: true, branchId: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
-  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
+  // Only an OPEN session takes worker writes — once submitted the admin is
+  // reviewing, and a late scan would move numbers under their decisions.
+  if (session.status !== StocktakeSessionStatus.OPEN)
+    throw new AppError("الجرد مرفوع للمراجعة أو مغلق — ما تكدر تعدّل", 400, "SESSION_NOT_OPEN");
 
   const item = await prisma.stocktakeItem.findFirst({
     where: { sessionId: session.id, productId },
     include: { product: { select: { pcsPerCarton: true } } },
   });
   if (!item) throw new AppError("المنتج غير موجود في الجلسة", 404, "ITEM_NOT_FOUND");
+  if ((item.approvalStatus ?? StocktakeApprovalStatus.PENDING) !== StocktakeApprovalStatus.PENDING)
+    throw new AppError("هذه المادة تمت مراجعتها", 400, "ITEM_REVIEWED");
 
   // Convert cartons to pieces using the ACTUAL pcsPerCarton from the database
   const actualPcsPerCarton = Math.max(1, item.product.pcsPerCarton);
@@ -613,7 +619,7 @@ export async function setItemQty(
         select: { quantityPieces: true },
       })
     : null;
-  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+  const freshSystemQty = currentStock?.quantityPieces ?? 0;
 
   await prisma.stocktakeItem.update({
     where: { id: item.id },
@@ -631,23 +637,25 @@ export async function submitPublicStocktake(token: string) {
     include: { items: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
-  if (session.status === StocktakeSessionStatus.CLOSED)
+  if (session.status === StocktakeSessionStatus.SUBMITTED) return { success: true };
+  if (session.status !== StocktakeSessionStatus.OPEN)
     throw new AppError("الجلسة مغلقة بالفعل", 400, "SESSION_CLOSED");
 
   await prisma.$transaction(async (tx) => {
-    // Calculate variances
+    const claim = await tx.stocktakeSession.updateMany({
+      where: { id: session.id, status: StocktakeSessionStatus.OPEN },
+      data: { status: StocktakeSessionStatus.SUBMITTED },
+    });
+    if (claim.count !== 1) return;
+    // Calculate variances (reviewed items keep what was booked)
     for (const item of session.items) {
-      if (item.actualQty !== null) {
+      if (item.actualQty !== null && (item.approvalStatus ?? StocktakeApprovalStatus.PENDING) === StocktakeApprovalStatus.PENDING) {
         await tx.stocktakeItem.update({
           where: { id: item.id },
           data: { variance: item.actualQty - item.systemQty },
         });
       }
     }
-    await tx.stocktakeSession.update({
-      where: { id: session.id },
-      data: { status: StocktakeSessionStatus.SUBMITTED },
-    });
   });
 
   return { success: true };
@@ -663,6 +671,9 @@ export async function approveStocktakeItem(
   resolution: StocktakeResolution = "LOSS",
 ) {
   return prisma.$transaction(async (tx) => {
+    // Serialise with reopen/approve-all on the same session.
+    const sid = await tx.stocktakeItem.findUnique({ where: { id: itemId }, select: { sessionId: true } });
+    if (sid) await tx.$queryRaw`SELECT id FROM stocktake_sessions WHERE id = ${sid.sessionId}::uuid FOR UPDATE`;
     // Lock the item row for update and re-check approvalStatus (race-safe)
     const item = await tx.stocktakeItem.findUnique({
       where: { id: itemId },
@@ -854,10 +865,13 @@ export async function reopenStocktakeSession(sessionId: string) {
   if (session.status !== StocktakeSessionStatus.SUBMITTED)
     throw new AppError("يمكن إعادة فتح جلسة مرفوعة فقط", 400, "SESSION_NOT_SUBMITTED");
 
-  await prisma.stocktakeSession.update({
-    where: { id: sessionId },
+  // Conditional: an approve-all holding the session lock finishes first, and a
+  // session that moved on meanwhile is not silently reopened.
+  const r = await prisma.stocktakeSession.updateMany({
+    where: { id: sessionId, status: StocktakeSessionStatus.SUBMITTED },
     data: { status: StocktakeSessionStatus.OPEN },
   });
+  if (r.count !== 1) throw new AppError("الجلسة تغيّرت حالتها — حدّث الصفحة", 409, "SESSION_NOT_SUBMITTED");
 
   return getStocktakeSession(sessionId);
 }
@@ -889,52 +903,54 @@ export async function approveAllStocktakeItems(
 
   const approver = await prisma.user.findUnique({ where: { id: approvingUserId }, select: { name: true } });
 
-  return prisma.$transaction(async (tx) => {
-    let approvedCount = 0;
-    for (const item of session.items) {
-      if ((item.approvalStatus ?? StocktakeApprovalStatus.PENDING) !== StocktakeApprovalStatus.PENDING) continue;
-      if (item.actualQty === null) continue;
+  // Claim-first: each item flips PENDING → APPROVED before anything is booked,
+  // so a double click or a concurrent single approve can never book twice.
+  // Invoices are batched: ONE cash sale for shortages, ONE cash purchase for
+  // overages (not one invoice per item).
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM stocktake_sessions WHERE id = ${sessionId}::uuid FOR UPDATE`;
+      const fresh = await tx.stocktakeSession.findUnique({ where: { id: sessionId }, select: { status: true } });
+      if (fresh?.status !== StocktakeSessionStatus.SUBMITTED)
+        throw new AppError("الجلسة تغيّرت حالتها — حدّث الصفحة", 409, "SESSION_NOT_SUBMITTED");
 
-      const delta = item.actualQty - item.systemQty;
+      let approvedCount = 0;
+      const saleLines: { itemId: string; productId: string; quantity: number; unitPrice: number; name: string }[] = [];
+      const purchaseLines: { itemId: string; productId: string; quantity: number; unitPrice: number; name: string }[] = [];
 
-      // SALE_PURCHASE mode: route non-zero variances through a real invoice
-      // (shortage→sale, overage→purchase) exactly like the single-item path.
-      if (mode === "SALE_PURCHASE" && delta !== 0) {
-        const inv = await resolveVarianceViaInvoice(tx, {
-          resolution: delta < 0 ? "SALE" : "PURCHASE",
-          productId: item.productId,
-          warehouseId: branchId,
-          deltaPieces: delta,
-          salePrice: Number(item.product.salePrice ?? 0),
-          unitCost: Number(item.product.costPrice ?? 0) || Number(item.product.purchasePrice ?? 0),
-          createdBy: approvingUserId,
-          sessionId,
-        });
-        const u = await tx.stocktakeItem.updateMany({
+      for (const item of session.items) {
+        if ((item.approvalStatus ?? StocktakeApprovalStatus.PENDING) !== StocktakeApprovalStatus.PENDING) continue;
+        if (item.actualQty === null) continue;
+        const delta = item.actualQty - item.systemQty;
+        const viaInvoice = mode === "SALE_PURCHASE" && delta !== 0;
+
+        const claim = await tx.stocktakeItem.updateMany({
           where: { id: item.id, approvalStatus: StocktakeApprovalStatus.PENDING },
           data: {
             approvalStatus: StocktakeApprovalStatus.APPROVED,
             approvedQty: item.actualQty,
-            reason: null,
-            lossId: null,
+            reason: delta !== 0 && !viaInvoice ? reason : null,
             reviewedBy: approvingUserId,
             reviewedAt: new Date(),
-            notes: [item.notes, `فاتورة ${delta < 0 ? "بيع" : "شراء"} #${inv.invoiceNumber}`].filter(Boolean).join(" | "),
           },
         });
-        if (u.count === 1) approvedCount++;
-        continue;
-      }
+        if (claim.count !== 1) continue;
+        approvedCount++;
+        if (delta === 0) continue;
 
-      const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
-        productId: item.productId,
-        warehouseId: branchId,
-        deltaPieces: delta,
-        allowNegative: true,
-      });
+        if (viaInvoice) {
+          const line = { itemId: item.id, productId: item.productId, quantity: Math.abs(delta), name: item.product.name };
+          if (delta < 0) saleLines.push({ ...line, unitPrice: Number(item.product.salePrice ?? 0) });
+          else purchaseLines.push({ ...line, unitPrice: Number(item.product.costPrice ?? 0) || Number(item.product.purchasePrice ?? 0) });
+          continue;
+        }
 
-      let lossId: string | null = null;
-      if (delta !== 0) {
+        const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
+          productId: item.productId,
+          warehouseId: branchId,
+          deltaPieces: delta,
+          allowNegative: true,
+        });
         const recorded = await recordStockAdjustmentVariance(tx, {
           warehouseId: branchId,
           productId: item.productId,
@@ -944,13 +960,11 @@ export async function approveAllStocktakeItems(
           source: "STOCKTAKE",
           createdBy: approvingUserId,
         });
-        lossId = recorded.lossId;
-
         await tx.stockMovement.create({
           data: {
             productId: item.productId,
             branchId,
-            lossId,
+            lossId: recorded.lossId,
             type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
             quantity: Math.abs(delta),
             balanceBefore,
@@ -961,23 +975,62 @@ export async function approveAllStocktakeItems(
           },
         });
         await syncProductTotalStock(tx, item.productId);
+        await tx.stocktakeItem.update({ where: { id: item.id }, data: { lossId: recorded.lossId } });
       }
 
-      const updated = await tx.stocktakeItem.updateMany({
-        where: { id: item.id, approvalStatus: StocktakeApprovalStatus.PENDING },
-        data: {
-          approvalStatus: StocktakeApprovalStatus.APPROVED,
-          approvedQty: item.actualQty,
-          reason: delta !== 0 ? reason : null,
-          lossId,
-          reviewedBy: approvingUserId,
-          reviewedAt: new Date(),
-        },
-      });
-      if (updated.count === 1) approvedCount++;
-    }
-    return { success: true, approvedCount };
-  });
+      const missing = [
+        ...saleLines.filter((l) => !(l.unitPrice > 0)).map((l) => `${l.name} (سعر البيع)`),
+        ...purchaseLines.filter((l) => !(l.unitPrice > 0)).map((l) => `${l.name} (الكلفة)`),
+      ];
+      if (missing.length > 0)
+        throw new AppError(`هذه المواد بلا سعر — عدّلها أو اختر «هالك»: ${missing.slice(0, 8).join("، ")}${missing.length > 8 ? "…" : ""}`, 400, "NO_PRICE");
+
+      if (saleLines.length > 0) {
+        const walkIn = await getOrCreateWalkInCustomer();
+        const inv = await createInvoice(
+          {
+            customerId: walkIn.id,
+            type: InvoiceType.SALE,
+            discount: 0,
+            tax: 0,
+            paidAmount: saleLines.reduce((t, l) => t + l.quantity * l.unitPrice, 0),
+            paymentType: PaymentType.CASH,
+            branchId,
+            origin: "STOCK_COUNT",
+            notes: `تسوية جرد — بيع نقص غير مسجّل (جلسة ${sessionId})`,
+            items: saleLines.map((l) => ({ productId: l.productId, warehouseId: branchId, unit: Unit.PIECE, quantity: l.quantity, unitPrice: l.unitPrice, allowNegativeStock: true })),
+          },
+          approvingUserId,
+          tx,
+        );
+        await tx.stocktakeItem.updateMany({ where: { id: { in: saleLines.map((l) => l.itemId) } }, data: { notes: `فاتورة بيع #${String(inv.invoiceNumber ?? inv.id)}` } });
+      }
+      if (purchaseLines.length > 0) {
+        const settings = await getSettings();
+        const supplierId = settings.stocktakeOverageSupplierId?.trim();
+        if (!supplierId) throw new AppError("حدّد مورّد فائض الجرد من إعدادات الجرد أولاً", 400, "NO_OVERAGE_SUPPLIER");
+        const inv = await createInvoice(
+          {
+            customerId: supplierId,
+            type: InvoiceType.PURCHASE,
+            discount: 0,
+            tax: 0,
+            paidAmount: purchaseLines.reduce((t, l) => t + l.quantity * l.unitPrice, 0),
+            paymentType: PaymentType.CASH,
+            branchId,
+            origin: "STOCK_COUNT",
+            notes: `تسوية جرد — شراء زيادة غير مسجّلة (جلسة ${sessionId})`,
+            items: purchaseLines.map((l) => ({ productId: l.productId, warehouseId: branchId, unit: Unit.PIECE, quantity: l.quantity, unitPrice: l.unitPrice })),
+          },
+          approvingUserId,
+          tx,
+        );
+        await tx.stocktakeItem.updateMany({ where: { id: { in: purchaseLines.map((l) => l.itemId) } }, data: { notes: `فاتورة شراء #${String(inv.invoiceNumber ?? inv.id)}` } });
+      }
+      return { success: true, approvedCount };
+    },
+    { timeout: 300_000, maxWait: 10_000 },
+  );
 }
 
 // ─── Admin: Reject every still-PENDING counted item — never touches stock ─────

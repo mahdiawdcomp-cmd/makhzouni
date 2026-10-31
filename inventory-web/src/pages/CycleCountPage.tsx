@@ -1,6 +1,8 @@
 // "جدولة الجرد الذكي" (scheduled smart cycle count) — a fully independent
 // page/feature from StocktakePage.tsx (manual "الجرد الدوري"). Do not merge.
 import { useEffect, useState } from "react"
+import { toast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import {
@@ -375,13 +377,20 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
     void qc.invalidateQueries({ queryKey: ["cycle-count-session", session.id] })
     void qc.invalidateQueries({ queryKey: ["cycle-count-sessions"] })
   }
+  // Approvals move stock — refresh every screen that shows it.
+  const invalidateStock = () => {
+    invalidate()
+    for (const key of ["products", "branches", "negative-stock", "stock-history"]) void qc.invalidateQueries({ queryKey: [key] })
+  }
+  const showErr = (err: unknown) => toast({ title: apiErrorMessage(err, "ما تمت العملية"), variant: "destructive" })
 
   const updateItemMut = useMutation({
     mutationFn: ({ productId, actualQty }: { productId: string; actualQty: number }) =>
       updateCycleCountItem(session.id, productId, actualQty),
     onSuccess: invalidate,
+    onError: showErr,
   })
-  const submitMut = useMutation({ mutationFn: () => submitCycleCountSession(session.id), onSuccess: invalidate })
+  const submitMut = useMutation({ mutationFn: () => submitCycleCountSession(session.id), onSuccess: invalidate, onError: showErr })
   const closeMut = useMutation({
     mutationFn: (force: boolean) => closeCycleCountSession(session.id, force),
     onSuccess: invalidate,
@@ -393,24 +402,27 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
           ? `توجد ${n} فروقات لم تتم مراجعتها — إغلاق رغم ذلك؟`
           : "توجد فروقات لم تتم مراجعتها — إغلاق رغم ذلك؟"
         if (confirm(confirmMsg)) closeMut.mutate(true)
-      }
+      } else showErr(err)
     },
   })
-  const reopenMut = useMutation({ mutationFn: () => reopenCycleCountSession(session.id), onSuccess: invalidate })
+  const reopenMut = useMutation({ mutationFn: () => reopenCycleCountSession(session.id), onSuccess: invalidate, onError: showErr })
   const cancelMut = useMutation({
     mutationFn: () => cancelCycleCountSession(session.id),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["cycle-count-sessions"] }); onBack() },
+    onError: showErr,
   })
   const approveMut = useMutation({
     mutationFn: ({ itemId, reason }: { itemId: string; reason: StockCorrectionReason }) => approveCycleCountItem(session.id, itemId, reason),
-    onSuccess: invalidate,
+    onSuccess: invalidateStock,
+    onError: showErr,
   })
-  const rejectMut = useMutation({ mutationFn: (itemId: string) => rejectCycleCountItem(session.id, itemId), onSuccess: invalidate })
+  const rejectMut = useMutation({ mutationFn: (itemId: string) => rejectCycleCountItem(session.id, itemId), onSuccess: invalidate, onError: showErr })
   const approveAllMut = useMutation({
     mutationFn: (reason: StockCorrectionReason) => approveAllCycleCountItems(session.id, reason),
-    onSuccess: invalidate,
+    onSuccess: invalidateStock,
+    onError: showErr,
   })
-  const rejectAllMut = useMutation({ mutationFn: () => rejectAllCycleCountItems(session.id), onSuccess: invalidate })
+  const rejectAllMut = useMutation({ mutationFn: () => rejectAllCycleCountItems(session.id), onSuccess: invalidate, onError: showErr })
 
   function openApprovePrompt(itemId: string, variance: number | null) {
     setReasonPrompt({ type: "approve", itemId, options: variance !== null && variance > 0 ? OVERAGE_REASONS : undefined })

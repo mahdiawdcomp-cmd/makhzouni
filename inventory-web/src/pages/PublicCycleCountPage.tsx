@@ -10,6 +10,7 @@ import { CheckCircle2, Package, ScanLine, ClipboardList, Loader2 } from "lucide-
 import { api } from "../api/client"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
+import { scoreProduct } from "../utils/search"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -197,13 +198,18 @@ function WorkerInterface({
     mutationFn: () => apiSubmit(token),
     onSuccess: () => setSubmitted(true),
   })
+  const submitError = submitMut.isError ? workerError(submitMut.error, "ما انرفع الجرد — حاول مرة ثانية") : null
 
   const categories = ["all", ...Array.from(new Set(session.items.map((i) => i.category ?? "غير مصنّف"))).sort()]
   const categoryItems = session.items.filter(
     (i) => category === "all" || (i.category ?? "غير مصنّف") === category,
   )
   const visibleItems = search.trim()
-    ? categoryItems.filter((i) => i.productName.toLowerCase().includes(search.trim().toLowerCase()))
+    ? categoryItems
+        .map((i) => ({ i, score: scoreProduct({ name: i.productName, itemNumber: i.itemNumber ?? "", qrCode: i.qrCode, cartonQrCode: i.cartonQrCode, category: i.category }, search.trim()) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map((x) => x.i)
     : categoryItems
 
   const filled = session.items.filter((i) => i.actualQty !== null).length
@@ -323,6 +329,7 @@ function WorkerInterface({
           >
             {submitMut.isPending ? "جاري الرفع..." : `✅ رفع الجرد (${filled} منتج)`}
           </button>
+          {submitError && <p role="alert" className="mt-2 text-center text-sm font-medium text-red-600">{submitError}</p>}
           {filled < session.items.length && (
             <p className="text-center text-xs text-slate-400 mt-2">
               {session.items.length - filled} منتج لم يُحسب بعد — يمكنك الرفع والرجوع لاحقاً
@@ -355,13 +362,13 @@ function ScanMode({
   const scanMut = useMutation({
     mutationFn: (qr: string) => apiScan(token, qr),
     onSuccess: (d) => {
-      onScan({ text: `✓ ${productLabel(d)} — ${d.newQty} قطعة`, ok: true })
+      const ppc = items.find((i) => i.productId === d.productId)?.pcsPerCarton ?? 1
+      onScan({ text: `✓ ${productLabel(d)} — ${describeQty(d.newQty, ppc)}`, ok: true })
       setLocalInput("")
       setTimeout(() => inputRef.current?.focus(), 100)
     },
     onError: (e: unknown) => {
-      const message = e instanceof Error ? e.message : "خطأ"
-      onScan({ text: `✗ ${message}`, ok: false })
+      onScan({ text: `✗ ${workerError(e, "ما انسجل")}`, ok: false })
       setLocalInput("")
       setTimeout(() => inputRef.current?.focus(), 100)
     },

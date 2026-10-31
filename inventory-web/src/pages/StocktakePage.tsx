@@ -450,7 +450,11 @@ function SessionView({
   const [resolveAll, setResolveAll] = useState(false)
   const qc = useQueryClient()
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["stocktake-session", session.id] })
+  // Approvals move stock and may write invoices — refresh the screens showing them.
+  const invalidate = () => {
+    for (const key of ["products", "branches", "negative-stock", "stock-history", "invoices", "stocktake-sessions"]) void qc.invalidateQueries({ queryKey: [key] })
+    return qc.invalidateQueries({ queryKey: ["stocktake-session", session.id] })
+  }
 
   const approveMut = useMutation({
     mutationFn: ({ itemId, reason, resolution }: { itemId: string; reason: StockCorrectionReason; resolution?: StocktakeResolution }) => approveStocktakeItem(session.id, itemId, reason, resolution ?? "LOSS"),

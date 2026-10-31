@@ -357,7 +357,7 @@ export async function updateCycleCountItem(
     where: { productId_warehouseId: { productId, warehouseId: session.warehouseId } },
     select: { quantityPieces: true },
   });
-  const systemQty = currentStock?.quantityPieces ?? item.systemQty;
+  const systemQty = currentStock?.quantityPieces ?? 0;
   const variance = actualQty - systemQty;
 
   await prisma.cycleCountItem.update({
@@ -381,18 +381,21 @@ async function performSubmit(sessionId: string) {
     throw new AppError("الجلسة ليست مفتوحة", 400, "SESSION_NOT_OPEN");
 
   await prisma.$transaction(async (tx) => {
+    // Claim OPEN → SUBMITTED first: a double submit or a cancel that landed
+    // meanwhile must not be overwritten.
+    const claim = await tx.cycleCountSession.updateMany({
+      where: { id: sessionId, status: CycleCountSessionStatus.OPEN },
+      data: { status: CycleCountSessionStatus.SUBMITTED, submittedAt: new Date() },
+    });
+    if (claim.count !== 1) throw new AppError("الجلسة ليست مفتوحة", 400, "SESSION_NOT_OPEN");
     for (const item of session.items) {
-      if (item.actualQty !== null) {
+      if (item.actualQty !== null && item.approvalStatus === CycleCountApprovalStatus.PENDING) {
         await tx.cycleCountItem.update({
           where: { id: item.id },
           data: { variance: item.actualQty - item.systemQty },
         });
       }
     }
-    await tx.cycleCountSession.update({
-      where: { id: sessionId },
-      data: { status: CycleCountSessionStatus.SUBMITTED, submittedAt: new Date() },
-    });
   });
 
   const result = await getCycleCountSession(sessionId);
@@ -428,10 +431,11 @@ export async function reopenCycleCountSession(sessionId: string) {
   if (session.status !== CycleCountSessionStatus.SUBMITTED)
     throw new AppError("يمكن إعادة فتح جلسة مرسلة فقط", 400, "SESSION_NOT_SUBMITTED");
 
-  await prisma.cycleCountSession.update({
-    where: { id: sessionId },
+  const r = await prisma.cycleCountSession.updateMany({
+    where: { id: sessionId, status: CycleCountSessionStatus.SUBMITTED },
     data: { status: CycleCountSessionStatus.OPEN, submittedAt: null },
   });
+  if (r.count !== 1) throw new AppError("الجلسة تغيّرت حالتها — حدّث الصفحة", 409, "SESSION_NOT_SUBMITTED");
 
   return getCycleCountSession(sessionId);
 }
@@ -580,23 +584,42 @@ export async function approveAllCycleCountItems(sessionId: string, approvingUser
 
   const approver = await prisma.user.findUnique({ where: { id: approvingUserId }, select: { name: true } });
 
-  return prisma.$transaction(async (tx) => {
-    let approvedCount = 0;
-    for (const item of session.items) {
-      if (item.approvalStatus !== CycleCountApprovalStatus.PENDING || item.actualQty === null) continue;
+  // Claim-first: an item flips PENDING → APPROVED before stock moves, so a
+  // double click or a concurrent single approve never books it twice.
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT id FROM cycle_count_sessions WHERE id = ${sessionId}::uuid FOR UPDATE`;
+      const fresh = await tx.cycleCountSession.findUnique({ where: { id: sessionId }, select: { status: true } });
+      if (fresh?.status !== CycleCountSessionStatus.SUBMITTED)
+        throw new AppError("الجلسة تغيّرت حالتها — حدّث الصفحة", 409, "SESSION_NOT_SUBMITTED");
 
-      const delta = item.actualQty - item.systemQty;
-      const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
-        productId: item.productId,
-        warehouseId: session.warehouseId,
-        deltaPieces: delta,
-        // Matches the sale/transfer policy: never block a legitimate correction
-        // over a stock discrepancy — a deficit surfaces later instead.
-        allowNegative: true,
-      });
+      let approvedCount = 0;
+      for (const item of session.items) {
+        if (item.approvalStatus !== CycleCountApprovalStatus.PENDING || item.actualQty === null) continue;
+        const delta = item.actualQty - item.systemQty;
 
-      let lossId: string | null = null;
-      if (delta !== 0) {
+        const claim = await tx.cycleCountItem.updateMany({
+          where: { id: item.id, approvalStatus: CycleCountApprovalStatus.PENDING },
+          data: {
+            approvalStatus: CycleCountApprovalStatus.APPROVED,
+            approvedQty: item.actualQty,
+            approvedBy: approvingUserId,
+            approvedAt: new Date(),
+            reason: delta !== 0 ? reason : null,
+          },
+        });
+        if (claim.count !== 1) continue;
+        approvedCount++;
+        if (delta === 0) continue;
+
+        const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
+          productId: item.productId,
+          warehouseId: session.warehouseId,
+          deltaPieces: delta,
+          // Matches the sale/transfer policy: never block a legitimate correction
+          // over a stock discrepancy — a deficit surfaces later instead.
+          allowNegative: true,
+        });
         const recorded = await recordStockAdjustmentVariance(tx, {
           warehouseId: session.warehouseId,
           productId: item.productId,
@@ -606,13 +629,11 @@ export async function approveAllCycleCountItems(sessionId: string, approvingUser
           source: "CYCLE_COUNT",
           createdBy: approvingUserId,
         });
-        lossId = recorded.lossId;
-
         await tx.stockMovement.create({
           data: {
             productId: item.productId,
             branchId: session.warehouseId,
-            lossId,
+            lossId: recorded.lossId,
             type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
             quantity: Math.abs(delta),
             balanceBefore,
@@ -622,26 +643,14 @@ export async function approveAllCycleCountItems(sessionId: string, approvingUser
             note: "تسوية جدولة الجرد الذكي (موافقة الكل)",
           },
         });
+        // Keep denormalized legacy stock fields in sync (see approveStocktakeItem).
+        await syncProductTotalStock(tx, item.productId);
+        await tx.cycleCountItem.update({ where: { id: item.id }, data: { lossId: recorded.lossId } });
       }
-
-      // Keep denormalized legacy stock fields in sync (see approveStocktakeItem).
-      if (delta !== 0) await syncProductTotalStock(tx, item.productId);
-
-      const updated = await tx.cycleCountItem.updateMany({
-        where: { id: item.id, approvalStatus: CycleCountApprovalStatus.PENDING },
-        data: {
-          approvalStatus: CycleCountApprovalStatus.APPROVED,
-          approvedQty: item.actualQty,
-          approvedBy: approvingUserId,
-          approvedAt: new Date(),
-          reason: delta !== 0 ? reason : null,
-          lossId,
-        },
-      });
-      if (updated.count === 1) approvedCount++;
-    }
-    return { success: true, approvedCount };
-  });
+      return { success: true, approvedCount };
+    },
+    { timeout: 300_000, maxWait: 10_000 },
+  );
 }
 
 export async function rejectAllCycleCountItems(sessionId: string, reviewingUserId: string) {
@@ -792,19 +801,24 @@ export async function scanCycleCountQrCode(token: string, qrCode: string) {
 
   const isCartonBarcode = product.cartonQrCode === qrCode.trim();
   const increment = isCartonBarcode ? Math.max(1, product.pcsPerCarton) : 1;
-  const newQty = (item.actualQty ?? 0) + increment;
 
   // Same live-refresh fix as setCycleCountItemQty — see comment there.
   const currentStock = await prisma.productWarehouseStock.findUnique({
     where: { productId_warehouseId: { productId: product.id, warehouseId: session.warehouseId } },
     select: { quantityPieces: true },
   });
-  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+  const freshSystemQty = currentStock?.quantityPieces ?? 0;
 
-  await prisma.cycleCountItem.update({
-    where: { id: item.id },
-    data: { actualQty: newQty, systemQty: freshSystemQty, variance: newQty - freshSystemQty },
-  });
+  // Atomic increment: two fast scans (or two phones) each add their carton
+  // instead of both writing "old + 1".
+  const rows = await prisma.$queryRaw<{ actual_qty: number }[]>`
+    UPDATE cycle_count_items
+       SET actual_qty = COALESCE(actual_qty, 0) + ${increment},
+           system_qty = ${freshSystemQty},
+           variance = COALESCE(actual_qty, 0) + ${increment} - ${freshSystemQty}
+     WHERE id = ${item.id}::uuid
+     RETURNING actual_qty`;
+  const newQty = Number(rows[0]?.actual_qty ?? 0);
 
   return {
     productId: product.id,
@@ -850,7 +864,7 @@ export async function setCycleCountItemQty(
     where: { productId_warehouseId: { productId, warehouseId: session.warehouseId } },
     select: { quantityPieces: true },
   });
-  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+  const freshSystemQty = currentStock?.quantityPieces ?? 0;
 
   await prisma.cycleCountItem.update({
     where: { id: item.id },

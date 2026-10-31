@@ -49,7 +49,7 @@ export function LineCountReviewPage() {
     mutationFn: () => finalizeLineCount(id),
     onSuccess: async () => {
       toast({ title: "اعتُمد الجرد وانكتبت الفواتير" })
-      await Promise.all([refresh(), qc.invalidateQueries({ queryKey: ["line-counts"] }), qc.invalidateQueries({ queryKey: ["invoices"] }), qc.invalidateQueries({ queryKey: ["products"] })])
+      await Promise.all([refresh(), ...["line-counts", "invoices", "products", "branches", "negative-stock", "stock-history"].map((k) => qc.invalidateQueries({ queryKey: [k] }))])
     },
     onError: onErr("تعذر الاعتماد"),
   })
@@ -57,7 +57,7 @@ export function LineCountReviewPage() {
     mutationFn: () => reopenLineCount(id),
     onSuccess: async () => {
       toast({ title: "رجع الجرد للعامل — نفس الرابط" })
-      await qc.invalidateQueries({ queryKey: ["line-counts"] })
+      await Promise.all([refresh(), qc.invalidateQueries({ queryKey: ["line-counts"] })])
       navigate(-1)
     },
     onError: onErr("تعذر إعادة الفتح"),
@@ -108,7 +108,16 @@ export function LineCountReviewPage() {
           <h2 className="text-lg font-bold text-red-600">الفروقات ({diffs.length})</h2>
           {editable && diffs.length > 0 && (
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ decision: "ACCEPTED" })}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={decideMut.isPending}
+                onClick={() => {
+                  const moved = diffs.filter((d) => d.movedAfterWriting).length
+                  if (moved > 0 && !confirm(`${moved} مادة صارت عليها حركة بعد ما انكتبت. تقبل الكل؟`)) return
+                  decideMut.mutate({ decision: "ACCEPTED" })
+                }}
+              >
                 <Check className="h-4 w-4" /> اقبل الكل
               </Button>
               <Button size="sm" variant="outline" disabled={decideMut.isPending} onClick={() => decideMut.mutate({ decision: "REJECTED" })}>

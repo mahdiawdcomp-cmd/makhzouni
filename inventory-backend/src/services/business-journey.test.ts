@@ -91,6 +91,16 @@ function withItems(inv: any) {
 // ── Single shared transaction client (no $transaction — services get db directly) ─
 const tx: any = {
   $queryRaw: async () => [],
+  // Reversal detaches an invoice's ledger rows (keeps them, drops the link).
+  $executeRaw: async (strings: TemplateStringsArray, ...values: any[]) => {
+    if (strings.join("?").includes("UPDATE stock_movements")) {
+      const [prefix, invoiceId] = values;
+      let n = 0;
+      for (const m of movements) if (m.invoiceId === invoiceId) { m.invoiceId = null; m.note = `${prefix}${m.note ?? ""}`; n++; }
+      return n;
+    }
+    return 0;
+  },
 
   counter: {
     upsert: async ({ where, create }: any) => {
@@ -173,6 +183,11 @@ const tx: any = {
   stockMovement: {
     create: async ({ data }: any) => { movements.push({ id: `mv-${movements.length + 1}`, ...data }); return data; },
     createMany: async ({ data }: any) => { for (const d of data) movements.push({ id: `mv-${movements.length + 1}`, ...d }); return { count: data.length }; },
+    findMany: async ({ where }: any) =>
+      movements.filter((m) =>
+        (where?.invoiceId === undefined || m.invoiceId === where.invoiceId) &&
+        (where?.type === undefined || m.type === where.type) &&
+        (where?.branchId?.not !== null || m.branchId != null)),
     deleteMany: async ({ where }: any) => {
       for (let i = movements.length - 1; i >= 0; i--) if (movements[i].invoiceId === where.invoiceId) movements.splice(i, 1);
       return { count: 0 };

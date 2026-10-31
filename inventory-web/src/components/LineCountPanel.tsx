@@ -24,10 +24,16 @@ export function LineCountPanel({ warehouseId, readOnly }: { warehouseId: string;
   const listQ = useQuery({ queryKey: ["line-counts", warehouseId], queryFn: () => listLineCounts(warehouseId) })
 
   const copy = (token: string) => {
-    void navigator.clipboard
-      .writeText(lineCountPublicUrl(token))
+    const url = lineCountPublicUrl(token)
+    void Promise.resolve()
+      .then(() => navigator.clipboard.writeText(url))
       .then(() => toast({ title: "انسخ رابط العامل" }))
-      .catch(() => toast({ title: lineCountPublicUrl(token) }))
+      // No clipboard (iOS / http): a prompt keeps the link selectable.
+      .catch(() => window.prompt("انسخ رابط العامل:", url))
+  }
+  const share = (token: string) => {
+    const url = lineCountPublicUrl(token)
+    window.open(`https://wa.me/?text=${encodeURIComponent(`رابط الجرد: ${url}`)}`, "_blank", "noopener")
   }
 
   const createMut = useMutation({
@@ -81,7 +87,10 @@ export function LineCountPanel({ warehouseId, readOnly }: { warehouseId: string;
               </div>
               <div className="flex gap-2">
                 {s.status === "OPEN" && (
-                  <Button variant="outline" size="sm" onClick={() => copy(s.publicToken)}><Copy className="h-4 w-4" /> رابط العامل</Button>
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => copy(s.publicToken)}><Copy className="h-4 w-4" /> رابط العامل</Button>
+                    <Button variant="outline" size="sm" onClick={() => share(s.publicToken)}>واتساب</Button>
+                  </>
                 )}
                 {(s.status === "SUBMITTED" || s.status === "FINALIZED") && (
                   <Button size="sm" onClick={() => navigate(`/inventory/line-count/${s.id}`)}>

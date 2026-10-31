@@ -1389,6 +1389,8 @@ model CatalogProductStat {
 model Invoice {
   id                  String                  @id @default(uuid()) @db.Uuid
   invoiceNumber       String                  @unique @map("invoice_number")
+  // "STOCK_COUNT" for count settlements; null = typed by a person.
+  origin              String?
   priceMode           String                  @default("WHOLESALE") @map("price_mode")
   type                InvoiceType             @default(SALE)
   customerId          String                  @map("customer_id") @db.Uuid

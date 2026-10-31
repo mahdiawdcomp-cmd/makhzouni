@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { resolveShopWarehouseId } from "./warehouse-stock.service";
 
 export interface BranchInput {
   name: string;
@@ -72,6 +73,7 @@ export async function listBranchSummaries() {
     orderBy: [{ isActive: "desc" }, { name: "asc" }],
   });
 
+  const shopId = await resolveShopWarehouseId(prisma).catch(() => null);
   const summaries = await Promise.all(
     branches.map(async (branch) => {
       const [
@@ -106,28 +108,11 @@ export async function listBranchSummaries() {
         prisma.inventoryTransfer.count({ where: { fromBranchId: branch.id } }),
         prisma.inventoryTransfer.count({ where: { toBranchId: branch.id } }),
         prisma.customer.count({ where: { branchId: branch.id, deletedAt: null } }),
-        prisma.invoice.aggregate({
-          where: { branchId: branch.id, type: "SALE", status: "ACTIVE" },
-          _count: { id: true },
-          _sum: { totalAmount: true, paidAmount: true, remainingAmount: true },
-        }),
-        prisma.invoice.aggregate({
-          where: { branchId: branch.id, type: "PURCHASE", status: "ACTIVE" },
-          _count: { id: true },
-          _sum: { totalAmount: true },
-        }),
-        prisma.paymentVoucher.aggregate({
-          where: { branchId: branch.id, type: "RECEIPT" },
-          _sum: { amount: true },
-        }),
-        prisma.paymentVoucher.aggregate({
-          where: { branchId: branch.id, type: "PAYMENT" },
-          _sum: { amount: true },
-        }),
-        prisma.paymentVoucher.aggregate({
-          where: { branchId: branch.id, type: "EXPENSE" },
-          _sum: { amount: true },
-        }),
+        invoiceTotals(branch.id, "SALE", shopId),
+        invoiceTotals(branch.id, "PURCHASE", shopId),
+        voucherTotal(branch.id, "RECEIPT", shopId),
+        voucherTotal(branch.id, "PAYMENT", shopId),
+        voucherTotal(branch.id, "EXPENSE", shopId),
       ]);
 
       const lowStock = stocks.filter(
@@ -153,14 +138,14 @@ export async function listBranchSummaries() {
         customers,
         customerBalance: 0,
         sales: {
-          count: sales._count.id,
-          total: toNumber(sales._sum.totalAmount),
-          paid: toNumber(sales._sum.paidAmount),
-          remaining: toNumber(sales._sum.remainingAmount),
+          count: sales.count,
+          total: sales.total,
+          paid: sales.paid,
+          remaining: sales.remaining,
         },
         purchases: {
-          count: purchases._count.id,
-          total: toNumber(purchases._sum.totalAmount),
+          count: purchases.count,
+          total: purchases.total,
         },
         vouchers: {
           receipts: toNumber(receipts._sum.amount),
@@ -184,4 +169,42 @@ export async function listBranchSummaries() {
   );
 
   return summaries;
+}
+
+// An invoice's header branch_id is almost never set — the warehouse lives on
+// its stock movements. An invoice belongs to the warehouse its stock moved in;
+// one that moved no stock (and has no header branch) is the shop's. Count
+// settlements (origin STOCK_COUNT) are stock corrections, not trade.
+async function invoiceTotals(branchId: string, type: "SALE" | "PURCHASE", shopId: string | null) {
+  const isShop = branchId === shopId;
+  const rows = await prisma.$queryRaw<{ count: bigint; total: unknown; paid: unknown; remaining: unknown }[]>`
+    SELECT COUNT(*) AS count,
+           COALESCE(SUM(i.total_amount), 0) AS total,
+           COALESCE(SUM(i.paid_amount), 0) AS paid,
+           COALESCE(SUM(i.remaining_amount), 0) AS remaining
+      FROM invoices i
+     WHERE i.type::text = ${type}
+       AND i.status::text = 'ACTIVE'
+       AND i.origin IS DISTINCT FROM 'STOCK_COUNT'
+       AND (
+         i.branch_id = ${branchId}::uuid
+         OR EXISTS (SELECT 1 FROM stock_movements m WHERE m.invoice_id = i.id AND m.branch_id = ${branchId}::uuid)
+         OR (${isShop} AND i.branch_id IS NULL
+             AND NOT EXISTS (SELECT 1 FROM stock_movements m WHERE m.invoice_id = i.id))
+       )`;
+  const r = rows[0];
+  return {
+    count: Number(r?.count ?? 0),
+    total: Number(r?.total ?? 0),
+    paid: Number(r?.paid ?? 0),
+    remaining: Number(r?.remaining ?? 0),
+  };
+}
+
+// Vouchers carry no warehouse unless one was picked; unassigned ones are the shop's.
+async function voucherTotal(branchId: string, type: "RECEIPT" | "PAYMENT" | "EXPENSE", shopId: string | null) {
+  const where: Prisma.PaymentVoucherWhereInput =
+    branchId === shopId ? { type, OR: [{ branchId }, { branchId: null }] } : { type, branchId };
+  const agg = await prisma.paymentVoucher.aggregate({ where, _sum: { amount: true } });
+  return { _sum: { amount: agg._sum.amount } };
 }

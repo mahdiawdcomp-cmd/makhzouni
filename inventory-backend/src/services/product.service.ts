@@ -493,7 +493,9 @@ export async function adjustProductStockManual(
 // Manual adjustments only = movements with no invoice/loss/transfer link.
 export async function listManualStockAdjustments(productId: string) {
   const rows = await prisma.stockMovement.findMany({
-    where: { productId, invoiceId: null, lossId: null, transferId: null },
+    // Rows detached from a reversed invoice keep a "[فاتورة #…" note — they
+    // are invoice history, not manual edits.
+    where: { productId, invoiceId: null, lossId: null, transferId: null, OR: [{ note: null }, { NOT: { note: { startsWith: "[فاتورة #" } } }] },
     orderBy: { createdAt: "desc" },
     take: 200,
     include: { branch: { select: { name: true } } },
@@ -555,6 +557,8 @@ export async function listStockHistory(productId: string) {
     } else if (m.lossId) {
       source = "loss";
       reference = m.loss?.reason ?? null;
+    } else if ((m.note ?? "").startsWith("[فاتورة #")) {
+      source = "sale";
     } else if ((m.note ?? "").includes("إنشاء")) {
       source = "create";
     } else {
@@ -842,9 +846,17 @@ export async function updateProduct(
       } else {
         // Single warehouse: global total == that warehouse, so it's unambiguous.
         const warehouseId = await resolveWarehouseId(tx, product.branchId);
-        const targetPieces =
-          existing.warehouseStocks?.find((stock: any) => stock.warehouseId === warehouseId)
-            ?.quantityPieces ?? 0;
+        // An unchanged quantity field is a plain re-save — writing it back would
+        // erase any sale made since the form was opened.
+        if (requestedTotalPieces === currentTotalPieces) {
+          await syncProductTotalStock(tx, id);
+        } else {
+        // Fresh, locked read: the copy loaded with the form may predate a sale.
+        const locked = await tx.$queryRaw<{ quantity_pieces: number }[]>`
+          SELECT quantity_pieces FROM product_warehouse_stocks
+           WHERE product_id = ${id}::uuid AND warehouse_id = ${warehouseId}::uuid
+           FOR UPDATE`;
+        const targetPieces = Number(locked[0]?.quantity_pieces ?? 0);
         await upsertWarehouseStock(tx, {
           productId: id,
           warehouseId,
@@ -863,6 +875,7 @@ export async function updateProduct(
           });
         }
         await syncProductTotalStock(tx, id);
+        }
       }
     }
 

@@ -702,7 +702,9 @@ export async function getEndOfDayReport(date?: string) {
 
   const [invoices, vouchers] = await Promise.all([
     prisma.invoice.findMany({
-      where: { date: { gte: start, lte: end }, status: "ACTIVE" },
+      // Count settlements (origin STOCK_COUNT) are booked "cash" but no money
+      // changed hands — keeping them here made the drawer look short.
+      where: { date: { gte: start, lte: end }, status: "ACTIVE", OR: [{ origin: null }, { origin: { not: "STOCK_COUNT" } }] },
       include: { customer: { select: { name: true } } },
     }),
     prisma.paymentVoucher.findMany({
@@ -824,15 +826,15 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
     last28Returns,
   ] = await Promise.all([
     prisma.invoice.aggregate({
-      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: todayStart, lte: todayEnd } },
+      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: todayStart, lte: todayEnd }, OR: [{ origin: null }, { origin: { not: "STOCK_COUNT" } }] },
       _sum: { totalAmount: true },
     }),
     prisma.invoice.aggregate({
-      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALES_RETURN, date: { gte: todayStart, lte: todayEnd } },
+      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALES_RETURN, date: { gte: todayStart, lte: todayEnd }, OR: [{ origin: null }, { origin: { not: "STOCK_COUNT" } }] },
       _sum: { totalAmount: true },
     }),
     prisma.invoice.aggregate({
-      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: yesterdayStart, lte: yesterdayEnd } },
+      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: yesterdayStart, lte: yesterdayEnd }, OR: [{ origin: null }, { origin: { not: "STOCK_COUNT" } }] },
       _sum: { totalAmount: true },
     }),
     prisma.invoice.aggregate({
