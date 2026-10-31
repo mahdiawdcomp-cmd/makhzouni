@@ -6,7 +6,7 @@
 // invoice to the configured overage supplier for accepted overages, both
 // through createInvoice (the same stock + ledger + profit path as any invoice).
 import { randomBytes } from "crypto";
-import { InvoiceType, PaymentType, Unit } from "@prisma/client";
+import { InvoiceType, PaymentType, Prisma, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { resolveShopWarehouseId, resolveWarehouseId } from "./warehouse-stock.service";
@@ -80,6 +80,35 @@ async function loadSession(id: string) {
   return s;
 }
 
+/** «يمكن العامل غلط بالوحدة»: tries flipping piece↔carton on all the lines,
+ * then on each single line, and suggests a flip only when it explains the
+ * variance almost entirely — within 30% of the system figure AND at most a
+ * fifth of the current gap. Nothing is changed here; the manager applies it
+ * with a click and the item goes back to «بلا قرار». With no system stock
+ * there is nothing to compare against, so no guess is made. */
+export function unitSuggestion(
+  systemQty: number,
+  countedQty: number,
+  ppc: number,
+  live: { id: string; qty: number; unit: string; qtyPieces: number }[],
+) {
+  const size = Math.max(1, ppc);
+  const gap = Math.abs(countedQty - systemQty);
+  if (size <= 1 || systemQty <= 0 || live.length === 0 || gap < size) return null;
+  const flipped = (l: { qty: number; unit: string }) => (l.unit === "CARTON" ? l.qty : l.qty * size);
+  const candidates: string[][] = [live.map((l) => l.id)];
+  if (live.length > 1) for (const l of live) candidates.push([l.id]);
+  let best: { lineIds: string[]; countedQty: number; delta: number } | null = null;
+  for (const ids of candidates) {
+    const set = new Set(ids);
+    const alt = live.reduce((t, l) => t + (set.has(l.id) ? flipped(l) : l.qtyPieces), 0);
+    const altGap = Math.abs(alt - systemQty);
+    if (altGap > Math.round(systemQty * 0.3) || altGap * 5 > gap) continue;
+    if (!best || altGap < Math.abs(best.delta)) best = { lineIds: ids, countedQty: alt, delta: alt - systemQty };
+  }
+  return best;
+}
+
 /** Everything the review page needs: per-product variance, the lines that
  * made it up, a warning when stock moved after the first line was written,
  * and the warehouse products nobody counted. */
@@ -139,7 +168,21 @@ export async function getLineCountReview(id: string) {
       unitPrice: delta < 0 ? salePrice : cost,
       value: Math.abs(delta) * (delta < 0 ? salePrice : cost),
       movedAfterWriting: moved.has(r.productId),
-      lines: (linesBy.get(r.productId) ?? []).map((l) => ({ position: l.position, qty: l.qty, unit: l.unit, qtyPieces: l.qtyPieces, writtenAt: l.writtenAt })),
+      workerCountedQty: r.workerCountedQty,
+      unitSuggestion: unitSuggestion(r.systemQty, r.countedQty, p?.pcsPerCarton ?? 1, (linesBy.get(r.productId) ?? []).filter((l) => !l.deletedAt)),
+      lines: (linesBy.get(r.productId) ?? []).map((l) => ({
+        id: l.id,
+        position: l.position,
+        qty: l.qty,
+        unit: l.unit,
+        qtyPieces: l.qtyPieces,
+        writtenAt: l.writtenAt,
+        source: l.source,
+        originalQty: l.originalQty,
+        originalUnit: l.originalUnit,
+        editedAt: l.editedAt,
+        deleted: l.deletedAt !== null,
+      })),
     };
   });
   items.sort((a, b) => (a.delta === 0 ? 1 : 0) - (b.delta === 0 ? 1 : 0) || b.value - a.value || Math.abs(b.delta) - Math.abs(a.delta));
@@ -173,13 +216,13 @@ export async function getLineCountReview(id: string) {
     finalizedAt: s.finalizedAt,
     saleInvoice: await invoiceNumbers(s.saleInvoiceId),
     purchaseInvoice: await invoiceNumbers(s.purchaseInvoiceId),
-    lineCount: lines.length,
+    lineCount: lines.filter((l) => !l.deletedAt).length,
     items,
     uncounted,
   };
 }
 
-export async function setLineCountDecision(id: string, decision: LineCountDecision, productId?: string) {
+export async function setLineCountDecision(id: string, decision: LineCountDecision, productId?: string, productIds?: string[]) {
   await loadSession(id);
   // Locked against finalize/reopen so a decision can't slip in after the
   // invoices were computed.
@@ -187,6 +230,14 @@ export async function setLineCountDecision(id: string, decision: LineCountDecisi
     const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
     if (rows[0]?.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
     // "All" only touches real variances; matched rows need no decision.
+    if (productIds && productIds.length > 0) {
+      // «اقبل المعروض»: exactly the rows the manager is looking at.
+      const r = await tx.lineCountResult.updateMany({
+        where: { sessionId: id, productId: { in: productIds } },
+        data: { decision },
+      });
+      return { updated: r.count };
+    }
     const res = await tx.$executeRaw`
       UPDATE line_count_results SET decision = ${decision}
       WHERE session_id = ${id}::uuid
@@ -214,7 +265,7 @@ export async function reopenLineCount(id: string) {
     // Claim first — racing a finalize, only one of the two can win.
     const r = await tx.lineCountSession.updateMany({
       where: { id, status: "SUBMITTED" },
-      data: { status: "OPEN", submittedAt: null },
+      data: { status: "OPEN", submittedAt: null, recountProductIds: [] },
     });
     if (r.count !== 1) throw new AppError("يمكن إعادة فتح جلسة مرفوعة فقط", 400, "LINE_COUNT_NOT_SUBMITTED");
     await tx.lineCountResult.deleteMany({ where: { sessionId: id } });
@@ -335,6 +386,179 @@ export async function finalizeLineCount(id: string, userId: string) {
   );
 }
 
+/** Warehouse stock per product as it stood when each product was first
+ * written. The shelf was counted at the first line, possibly hours before
+ * upload, so the live figure is rolled back by whatever moved since — a sale
+ * made after the count must not read as an overage (and become a purchase). */
+async function systemSnapshot(tx: Prisma.TransactionClient, warehouseId: string, firstAt: Map<string, Date>, now: Date) {
+  const ids = [...firstAt.keys()];
+  const stocks = await tx.productWarehouseStock.findMany({
+    where: { warehouseId, productId: { in: ids } },
+    select: { productId: true, quantityPieces: true },
+  });
+  const sys = new Map(stocks.map((x) => [x.productId, x.quantityPieces]));
+  if (ids.length === 0) return sys;
+  const earliest = [...firstAt.values()].reduce((m, v) => (v < m ? v : m), now);
+  const moves = await tx.stockMovement.findMany({
+    where: { branchId: warehouseId, productId: { in: ids }, createdAt: { gt: earliest, lte: now } },
+    select: { productId: true, type: true, quantity: true, createdAt: true },
+  });
+  for (const m of moves) {
+    const first = firstAt.get(m.productId);
+    if (!first || m.createdAt <= first) continue;
+    const signed = m.type === "IN" ? m.quantity : -m.quantity;
+    sys.set(m.productId, (sys.get(m.productId) ?? 0) - signed);
+  }
+  return sys;
+}
+
+// ─── Manager corrections (review page) ──────────────────────────────────────
+// Every correction runs under the session row lock, only while the count waits
+// for review, and puts the product's decision back to PENDING: a changed
+// number is never booked without the manager accepting it again.
+
+async function underReviewLock<T>(id: string, fn: (tx: Prisma.TransactionClient) => Promise<T>) {
+  await loadSession(id);
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
+    if (rows[0]?.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
+    return fn(tx);
+  });
+}
+
+async function productCartonSize(tx: Prisma.TransactionClient, productId: string) {
+  const p = await tx.product.findUnique({ where: { id: productId }, select: { pcsPerCarton: true } });
+  return Math.max(1, p?.pcsPerCarton ?? 1);
+}
+
+const toPieces = (qty: number, unit: string, ppc: number) => (unit === "CARTON" ? qty * ppc : qty);
+
+/** Re-sums a product's live lines into its result. No live line left means
+ * the product counts as never counted — its stock is left untouched. */
+async function recomputeResult(tx: Prisma.TransactionClient, sessionId: string, productId: string) {
+  const result = await tx.lineCountResult.findUnique({ where: { sessionId_productId: { sessionId, productId } } });
+  if (!result) throw new AppError("المادة مو ضمن هذا الجرد", 404, "LINE_COUNT_ITEM_NOT_FOUND");
+  const live = await tx.lineCountLine.findMany({ where: { sessionId, productId, deletedAt: null }, select: { qtyPieces: true } });
+  if (live.length === 0) {
+    await tx.lineCountResult.delete({ where: { id: result.id } });
+    return null;
+  }
+  const counted = live.reduce((t, l) => t + l.qtyPieces, 0);
+  return tx.lineCountResult.update({
+    where: { id: result.id },
+    data: {
+      countedQty: counted,
+      workerCountedQty: result.workerCountedQty ?? result.countedQty,
+      decision: "PENDING",
+    },
+  });
+}
+
+async function liveLine(tx: Prisma.TransactionClient, sessionId: string, lineId: string) {
+  const line = await tx.lineCountLine.findFirst({ where: { id: lineId, sessionId, deletedAt: null } });
+  if (!line) throw new AppError("السطر غير موجود أو محذوف", 404, "LINE_COUNT_LINE_NOT_FOUND");
+  return line;
+}
+
+export async function editLineCountLine(id: string, lineId: string, qty: number, unit: LineCountUnit, userId: string) {
+  return underReviewLock(id, async (tx) => {
+    const line = await liveLine(tx, id, lineId);
+    const ppc = await productCartonSize(tx, line.productId);
+    const u = ppc > 1 ? unit : "PIECE";
+    await tx.lineCountLine.update({
+      where: { id: line.id },
+      data: {
+        qty,
+        unit: u,
+        qtyPieces: toPieces(qty, u, ppc),
+        // Keep what the worker wrote; a second correction doesn't overwrite it.
+        originalQty: line.source === "WORKER" ? (line.originalQty ?? line.qty) : line.originalQty,
+        originalUnit: line.source === "WORKER" ? (line.originalUnit ?? line.unit) : line.originalUnit,
+        editedBy: userId,
+        editedAt: new Date(),
+      },
+    });
+    return recomputeResult(tx, id, line.productId);
+  });
+}
+
+export async function deleteLineCountLine(id: string, lineId: string, userId: string) {
+  return underReviewLock(id, async (tx) => {
+    const line = await liveLine(tx, id, lineId);
+    await tx.lineCountLine.update({ where: { id: line.id }, data: { deletedAt: new Date(), editedBy: userId, editedAt: new Date() } });
+    return recomputeResult(tx, id, line.productId);
+  });
+}
+
+/** «عدّل الكمية»: the manager's own total replaces the worker's lines (kept as a trace). */
+export async function setLineCountProductTotal(id: string, productId: string, qty: number, unit: LineCountUnit, userId: string) {
+  return underReviewLock(id, async (tx) => {
+    const result = await tx.lineCountResult.findUnique({ where: { sessionId_productId: { sessionId: id, productId } } });
+    if (!result) throw new AppError("المادة مو ضمن هذا الجرد", 404, "LINE_COUNT_ITEM_NOT_FOUND");
+    const ppc = await productCartonSize(tx, productId);
+    const u = ppc > 1 ? unit : "PIECE";
+    const now = new Date();
+    await tx.lineCountLine.updateMany({ where: { sessionId: id, productId, deletedAt: null }, data: { deletedAt: now, editedBy: userId, editedAt: now } });
+    const last = await tx.lineCountLine.aggregate({ where: { sessionId: id }, _max: { position: true } });
+    await tx.lineCountLine.create({
+      data: {
+        sessionId: id,
+        position: (last._max.position ?? 0) + 1,
+        productId,
+        qty,
+        unit: u,
+        qtyPieces: toPieces(qty, u, ppc),
+        // The shelf time stays the worker's, so the system snapshot still matches.
+        writtenAt: result.firstWrittenAt,
+        source: "ADMIN",
+        editedBy: userId,
+        editedAt: now,
+      },
+    });
+    return recomputeResult(tx, id, productId);
+  });
+}
+
+/** «صحّح الوحدة»: flips piece↔carton on exactly the lines the manager approved. */
+export async function swapLineCountUnits(id: string, productId: string, lineIds: string[], userId: string) {
+  return underReviewLock(id, async (tx) => {
+    const ppc = await productCartonSize(tx, productId);
+    if (ppc <= 1) throw new AppError("هاي المادة ما إلها كارتون", 400, "LINE_COUNT_NO_CARTON");
+    const lines = await tx.lineCountLine.findMany({ where: { sessionId: id, productId, deletedAt: null, id: { in: lineIds } } });
+    if (lines.length !== new Set(lineIds).size) throw new AppError("السطور تغيّرت — حدّث الصفحة", 409, "LINE_COUNT_CHANGED");
+    const now = new Date();
+    for (const line of lines) {
+      const unit = line.unit === "CARTON" ? "PIECE" : "CARTON";
+      await tx.lineCountLine.update({
+        where: { id: line.id },
+        data: {
+          unit,
+          qtyPieces: toPieces(line.qty, unit, ppc),
+          originalQty: line.source === "WORKER" ? (line.originalQty ?? line.qty) : line.originalQty,
+          originalUnit: line.source === "WORKER" ? (line.originalUnit ?? line.unit) : line.originalUnit,
+          editedBy: userId,
+          editedAt: now,
+        },
+      });
+    }
+    return recomputeResult(tx, id, productId);
+  });
+}
+
+/** «أعد عدّ المختار»: the same link reopens with only these products. */
+export async function requestLineCountRecount(id: string, productIds: string[]) {
+  return underReviewLock(id, async (tx) => {
+    const ids = [...new Set(productIds)];
+    const found = await tx.lineCountResult.count({ where: { sessionId: id, productId: { in: ids } } });
+    if (ids.length === 0 || found !== ids.length) throw new AppError("اختر مواد من هذا الجرد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
+    await tx.lineCountSession.update({
+      where: { id },
+      data: { status: "OPEN", submittedAt: null, recountProductIds: ids, recountRound: { increment: 1 } },
+    });
+    return { reopened: true, products: ids.length };
+  });
+}
+
 // ─── Public (worker link) ───────────────────────────────────────────────────
 
 async function sessionByToken(token: string) {
@@ -348,8 +572,9 @@ export async function publicGetLineCount(token: string) {
   const s = await sessionByToken(token);
   // The whole catalogue is served only while the count is open — a finished
   // link must not keep exposing it to whoever still holds the URL.
+  const recount = s.recountProductIds;
   const products = s.status !== "OPEN" ? [] : await prisma.product.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...(recount.length > 0 ? { id: { in: recount } } : {}) },
     select: { id: true, name: true, itemNumber: true, qrCode: true, cartonQrCode: true, category: true, pcsPerCarton: true },
     orderBy: { name: "asc" },
   });
@@ -359,6 +584,10 @@ export async function publicGetLineCount(token: string) {
     notes: s.notes,
     warehouseName: await warehouseName(s.warehouseId),
     createdAt: s.createdAt,
+    // Non-empty = only these products are to be recounted; the round keys the
+    // phone's local lines so an older round is never re-sent.
+    recountProductIds: recount,
+    recountRound: recount.length > 0 ? s.recountRound : 0,
     products,
   };
 }
@@ -371,6 +600,9 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
   if (lines.length === 0) throw new AppError("ما مكتوب ولا سطر", 400, "LINE_COUNT_EMPTY");
 
   const ids = [...new Set(lines.map((l) => l.productId))];
+  const recount = new Set(s.recountProductIds);
+  if (recount.size > 0 && ids.some((pid) => !recount.has(pid)))
+    throw new AppError("المطلوب إعادة عدّ مواد محددة فقط — حدّث الصفحة", 400, "LINE_COUNT_NOT_IN_RECOUNT");
   const products = await prisma.product.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, pcsPerCarton: true } });
   const ppc = new Map(products.map((p) => [p.id, Math.max(1, p.pcsPerCarton)]));
   const missing = ids.filter((pid) => !ppc.has(pid));
@@ -404,32 +636,23 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
     async (tx) => {
       const claim = await tx.lineCountSession.updateMany({
         where: { id: s.id, status: "OPEN" },
-        data: { status: "SUBMITTED", submittedAt: now },
+        data: { status: "SUBMITTED", submittedAt: now, recountProductIds: [] },
       });
       if (claim.count !== 1) return { alreadySubmitted: true, status: "SUBMITTED" };
-      await tx.lineCountLine.deleteMany({ where: { sessionId: s.id } });
-      await tx.lineCountResult.deleteMany({ where: { sessionId: s.id } });
-      await tx.lineCountLine.createMany({ data: rows });
-      // System quantity snapshot at the moment of upload.
-      const stocks = await tx.productWarehouseStock.findMany({
-        where: { warehouseId: s.warehouseId, productId: { in: ids } },
-        select: { productId: true, quantityPieces: true },
-      });
-      const sys = new Map(stocks.map((x) => [x.productId, x.quantityPieces]));
-      // The shelf was counted at the first line, possibly hours before upload.
-      // Roll the system figure back by whatever moved since, so a sale made
-      // after the count isn't mistaken for an overage (and booked as a purchase).
-      const earliest = [...sums.values()].reduce((m, v) => (v.first < m ? v.first : m), now);
-      const moves = await tx.stockMovement.findMany({
-        where: { branchId: s.warehouseId, productId: { in: ids }, createdAt: { gt: earliest, lte: now } },
-        select: { productId: true, type: true, quantity: true, createdAt: true },
-      });
-      for (const m of moves) {
-        const first = sums.get(m.productId)?.first;
-        if (!first || m.createdAt <= first) continue;
-        const signed = m.type === "IN" ? m.quantity : -m.quantity;
-        sys.set(m.productId, (sys.get(m.productId) ?? 0) - signed);
+      if (recount.size > 0) {
+        // Partial recount: only the recounted products are replaced. Their old
+        // lines stay as a trace; every other product keeps its result and decision.
+        await tx.lineCountLine.updateMany({ where: { sessionId: s.id, productId: { in: ids }, deletedAt: null }, data: { deletedAt: now } });
+        await tx.lineCountResult.deleteMany({ where: { sessionId: s.id, productId: { in: ids } } });
+        const last = await tx.lineCountLine.aggregate({ where: { sessionId: s.id }, _max: { position: true } });
+        const base = last._max.position ?? 0;
+        await tx.lineCountLine.createMany({ data: rows.map((r, i) => ({ ...r, position: base + i + 1 })) });
+      } else {
+        await tx.lineCountLine.deleteMany({ where: { sessionId: s.id } });
+        await tx.lineCountResult.deleteMany({ where: { sessionId: s.id } });
+        await tx.lineCountLine.createMany({ data: rows });
       }
+      const sys = await systemSnapshot(tx, s.warehouseId, new Map([...sums].map(([k, v]) => [k, v.first])), now);
       await tx.lineCountResult.createMany({
         data: [...sums.entries()].map(([productId, v]) => ({
           sessionId: s.id,

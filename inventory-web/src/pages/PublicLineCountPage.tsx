@@ -28,6 +28,9 @@ interface SessionData {
   notes: string | null
   warehouseName: string
   createdAt: string
+  /** Non-empty = the manager sent back only these products for a recount. */
+  recountProductIds?: string[]
+  recountRound?: number
   products: CatalogProduct[]
 }
 
@@ -44,7 +47,8 @@ interface Line {
 // ── Local storage (everything per link) ─────────────────────────────────────
 
 const catKey = (t: string) => `lc-catalog-${t}`
-const linesKey = (t: string) => `lc-lines-${t}`
+// A recount round keeps its own lines, so the first round's lines are never re-sent.
+const linesKey = (t: string, round = 0) => (round > 0 ? `lc-lines-${t}-r${round}` : `lc-lines-${t}`)
 const pendingKey = (t: string) => `lc-pending-submit-${t}`
 const doneKey = (t: string) => `lc-done-${t}`
 
@@ -113,7 +117,17 @@ export function PublicLineCountPage() {
   const [session, setSession] = useState<SessionData | null>(() => readJson<SessionData | null>(catKey(token), null))
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(!session)
-  const [lines, setLines] = useState<Line[]>(() => readJson<Line[]>(linesKey(token), []))
+  const round = session?.recountProductIds?.length ? (session.recountRound ?? 0) : 0
+  const [lines, setLines] = useState<Line[]>(() => readJson<Line[]>(linesKey(token, round), []))
+  // Which round the lines in state belong to. The round can change once the
+  // fresh session arrives; until that round's lines are loaded nothing is
+  // written, so one round's lines never land under another's key.
+  const [linesRound, setLinesRound] = useState(round)
+  useEffect(() => {
+    if (linesRound === round) return
+    setLines(readJson<Line[]>(linesKey(token, round), []))
+    setLinesRound(round)
+  }, [round, linesRound, token])
   const [storageOk, setStorageOk] = useState(true)
   const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine))
   const [offlineReady, setOfflineReady] = useState(false)
@@ -187,15 +201,16 @@ export function PublicLineCountPage() {
 
   // Every change hits storage immediately — a dead battery loses nothing.
   useEffect(() => {
-    if (!writeJson(linesKey(token), lines)) setStorageOk(false)
-  }, [lines, token])
+    if (linesRound !== round) return
+    if (!writeJson(linesKey(token, linesRound), lines)) setStorageOk(false)
+  }, [lines, token, round, linesRound])
 
   const inFlight = useRef(false)
   const submit = useCallback(async () => {
     // The online event, the retry timer and a tap can all fire together.
     if (inFlight.current) return
     inFlight.current = true
-    const current = readJson<Line[]>(linesKey(token), [])
+    const current = readJson<Line[]>(linesKey(token, round), [])
     const payload = current
       .filter((l) => l.qty !== "")
       .map((l) => ({ productId: l.productId, qty: Number(l.qty), unit: l.unit, writtenAt: l.writtenAt }))
@@ -227,7 +242,7 @@ export function PublicLineCountPage() {
       inFlight.current = false
       setSubmitting(false)
     }
-  }, [token])
+  }, [token, round])
 
   // Retry a queued upload whenever we might be back online.
   useEffect(() => {
@@ -278,6 +293,11 @@ export function PublicLineCountPage() {
       <header className="mb-3">
         <h1 className="text-lg font-bold">جرد {session.warehouseName}</h1>
         {session.notes && <p className="text-sm text-slate-500">{session.notes}</p>}
+        {round > 0 && (
+          <p className="mt-2 rounded-xl bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800">
+            المدير يريد تعيد عدّ {session.products.length} مادة بس. اعدّها واكتبها من جديد — إذا ماكو منها شي اكتب 0. المواد اللي ما تكتبها تبقى على عدّك القديم.
+          </p>
+        )}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold", online ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
             {online ? <Wifi className="h-3.5 w-3.5" /> : <CloudOff className="h-3.5 w-3.5" />}
@@ -389,6 +409,7 @@ function LineEditor({
 
   function addLine() {
     if (!picked || qty === "") return
+    if (!confirmBigQty(Number(qty), unit, picked.pcsPerCarton)) return
     setLines((prev) => [...prev, { id: newId(), productId: picked.id, qty, unit, writtenAt: new Date().toISOString() }])
     reset()
   }
@@ -540,6 +561,19 @@ function LineEditor({
       )}
     </div>
   )
+}
+
+/** A typo like 300 cartons for 3 is caught here, while the worker still
+ * stands at the shelf. Thresholds are deliberately loose — only clearly
+ * unusual numbers ask. The worker never sees the system stock. */
+function confirmBigQty(qty: number, unit: Unit, ppc: number) {
+  const size = Math.max(1, ppc)
+  const pieces = unit === "CARTON" ? qty * size : qty
+  const big = unit === "CARTON" ? qty >= 50 : qty >= 500
+  if (!big) return true
+  const as = unit === "CARTON" ? `${qty} كارتون = ${pieces} قطعة` : size > 1 ? `${qty} قطعة (≈ ${Math.floor(qty / size)} كارتون)` : `${qty} قطعة`
+  return confirm(`رقم كبير: ${as}
+متأكد من الكمية والوحدة؟`)
 }
 
 function UnitToggle({ unit, ppc, onChange }: { unit: Unit; ppc: number; onChange: (u: Unit) => void }) {

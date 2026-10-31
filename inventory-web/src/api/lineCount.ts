@@ -31,7 +31,27 @@ export interface LineCountReviewItem {
   unitPrice: number
   value: number
   movedAfterWriting: boolean
-  lines: { position: number; qty: number; unit: "PIECE" | "CARTON"; qtyPieces: number; writtenAt: string }[]
+  /** The worker's own total, set once the manager corrects anything. */
+  workerCountedQty: number | null
+  /** A piece↔carton flip on these lines would explain the variance. Never applied on its own. */
+  unitSuggestion: { lineIds: string[]; countedQty: number; delta: number } | null
+  lines: LineCountLine[]
+}
+
+export type LineCountUnit = "PIECE" | "CARTON"
+
+export interface LineCountLine {
+  id: string
+  position: number
+  qty: number
+  unit: LineCountUnit
+  qtyPieces: number
+  writtenAt: string
+  source: "WORKER" | "ADMIN"
+  originalQty: number | null
+  originalUnit: LineCountUnit | null
+  editedAt: string | null
+  deleted: boolean
 }
 
 export interface LineCountReview {
@@ -58,8 +78,18 @@ export const listLineCounts = (warehouseId?: string) =>
 export const createLineCount = (body: { warehouseId: string; notes?: string }) =>
   api.post("/stocktake/lines", body).then(unwrap<LineCountSummary>)
 export const getLineCount = (id: string) => api.get(`/stocktake/lines/${id}`).then(unwrap<LineCountReview>)
-export const decideLineCount = (id: string, decision: LineCountDecision, productId?: string) =>
-  api.post(`/stocktake/lines/${id}/decision`, { decision, productId }).then(unwrap<{ updated: number }>)
+export const decideLineCount = (id: string, decision: LineCountDecision, productId?: string, productIds?: string[]) =>
+  api.post(`/stocktake/lines/${id}/decision`, { decision, productId, productIds }).then(unwrap<{ updated: number }>)
+export const editLineCountLine = (id: string, lineId: string, qty: number, unit: LineCountUnit) =>
+  api.patch(`/stocktake/lines/${id}/line/${lineId}`, { qty, unit }).then(unwrap<unknown>)
+export const deleteLineCountLine = (id: string, lineId: string) =>
+  api.delete(`/stocktake/lines/${id}/line/${lineId}`).then(unwrap<unknown>)
+export const setLineCountProductTotal = (id: string, productId: string, qty: number, unit: LineCountUnit) =>
+  api.post(`/stocktake/lines/${id}/product/${productId}/total`, { qty, unit }).then(unwrap<unknown>)
+export const swapLineCountUnits = (id: string, productId: string, lineIds: string[]) =>
+  api.post(`/stocktake/lines/${id}/product/${productId}/swap-unit`, { lineIds }).then(unwrap<unknown>)
+export const recountLineCount = (id: string, productIds: string[]) =>
+  api.post(`/stocktake/lines/${id}/recount`, { productIds }).then(unwrap<{ products: number }>)
 export const finalizeLineCount = (id: string) =>
   api.post(`/stocktake/lines/${id}/finalize`, {}, { timeout: 150_000 }).then(unwrap<{ saleInvoiceId: string | null; purchaseInvoiceId: string | null }>)
 export const cancelLineCount = (id: string) => api.post(`/stocktake/lines/${id}/cancel`).then(unwrap<unknown>)

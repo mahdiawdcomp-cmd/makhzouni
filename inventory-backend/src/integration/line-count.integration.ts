@@ -67,6 +67,8 @@ const ids = {
   c: randomUUID(), // shortage → rejected
   d: randomUUID(), // matched
   e: randomUUID(), // never written → uncounted
+  f: randomUUID(), // corrections session: cartons typed as pieces
+  g: randomUUID(), // corrections session: recounted
 };
 
 before(async () => {
@@ -113,6 +115,8 @@ before(async () => {
   await mk(ids.c, 3, 5);
   await mk(ids.d, 4, 7);
   await mk(ids.e, 5, 9);
+  await mk(ids.f, 6, 48, 12);
+  await mk(ids.g, 7, 30);
   const settings = await import("../services/settings.service");
   await settings.updateSettings({ stocktakeOverageSupplierId: ids.supplier, shopWarehouseId: ids.shop } as never);
   svc = await import("../services/line-count.service");
@@ -175,7 +179,9 @@ describe("line count", () => {
     assert.equal(by.get(ids.b)?.countedQty, 12);
     assert.equal(by.get(ids.d)?.delta, 0);
     assert.equal(rev.items[rev.items.length - 1].delta, 0, "matched rows sort last");
-    assert.deepEqual(rev.uncounted.map((u) => u.productId), [ids.e]);
+    const uncounted = rev.uncounted.map((u) => u.productId);
+    assert.ok(uncounted.includes(ids.e));
+    assert.ok(![ids.a, ids.b, ids.c, ids.d].some((p) => uncounted.includes(p)));
     assert.equal(rev.lineCount, 5);
   });
 
@@ -229,5 +235,77 @@ describe("line count", () => {
     assert.equal(counted.length, 2);
     const eod = await (await import("../services/report.service")).getEndOfDayReport();
     assert.ok(!eod.sales.count || eod.sales.collected < 5000, "count sale not in collected cash");
+  });
+});
+
+describe("line count corrections", () => {
+  let sessionId = "";
+  let token = "";
+  const t = () => new Date().toISOString();
+
+  it("suggests the unit flip, applies it only on request, and resets the decision", async () => {
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    sessionId = s.id;
+    token = s.publicToken;
+    await svc.publicSubmitLineCount(token, [
+      { productId: ids.f, qty: 4, unit: "PIECE", writtenAt: t() }, // meant 4 cartons = 48
+      { productId: ids.g, qty: 20, unit: "PIECE", writtenAt: t() }, // sys 30
+    ]);
+    let f = (await svc.getLineCountReview(sessionId)).items.find((i) => i.productId === ids.f)!;
+    assert.equal(f.countedQty, 4, "nothing changes on its own");
+    assert.ok(f.unitSuggestion);
+    assert.equal(f.unitSuggestion!.countedQty, 48);
+    await svc.setLineCountDecision(sessionId, "ACCEPTED", ids.f);
+    await svc.swapLineCountUnits(sessionId, ids.f, f.unitSuggestion!.lineIds, ids.admin);
+    f = (await svc.getLineCountReview(sessionId)).items.find((i) => i.productId === ids.f)!;
+    assert.equal(f.countedQty, 48);
+    assert.equal(f.delta, 0);
+    assert.equal(f.decision, "PENDING", "a changed number needs a fresh decision");
+    assert.equal(f.workerCountedQty, 4);
+    assert.equal(f.lines[0].originalUnit, "PIECE");
+  });
+
+  it("edits a line, sets a manager total, and keeps the worker's lines as a trace", async () => {
+    let g = (await svc.getLineCountReview(sessionId)).items.find((i) => i.productId === ids.g)!;
+    await svc.editLineCountLine(sessionId, g.lines[0].id, 25, "PIECE", ids.admin);
+    g = (await svc.getLineCountReview(sessionId)).items.find((i) => i.productId === ids.g)!;
+    assert.equal(g.countedQty, 25);
+    assert.equal(g.lines[0].originalQty, 20);
+    await svc.setLineCountProductTotal(sessionId, ids.g, 29, "PIECE", ids.admin);
+    g = (await svc.getLineCountReview(sessionId)).items.find((i) => i.productId === ids.g)!;
+    assert.equal(g.countedQty, 29);
+    assert.equal(g.workerCountedQty, 20, "the worker's original total survives every edit");
+    assert.equal(g.lines.filter((l) => l.deleted).length, 1);
+    assert.equal(g.lines.find((l) => !l.deleted)?.source, "ADMIN");
+  });
+
+  it("recounts only the chosen products and keeps the others' decisions", async () => {
+    await svc.setLineCountDecision(sessionId, "ACCEPTED", ids.f); // f is matched now — no-op
+    await svc.setLineCountDecision(sessionId, "REJECTED", ids.g);
+    await svc.requestLineCountRecount(sessionId, [ids.g]);
+    const pub = await svc.publicGetLineCount(token);
+    assert.equal(pub.status, "OPEN");
+    assert.deepEqual(pub.products.map((p) => p.id), [ids.g], "only the recount products are served");
+    assert.equal(pub.recountRound, 1);
+    await assert.rejects(() => svc.publicSubmitLineCount(token, [{ productId: ids.f, qty: 1, unit: "PIECE", writtenAt: t() }]), /محددة/);
+    await svc.publicSubmitLineCount(token, [{ productId: ids.g, qty: 30, unit: "PIECE", writtenAt: t() }]);
+    const rev = await svc.getLineCountReview(sessionId);
+    const g = rev.items.find((i) => i.productId === ids.g)!;
+    const f = rev.items.find((i) => i.productId === ids.f)!;
+    assert.equal(rev.status, "SUBMITTED");
+    assert.equal(g.countedQty, 30);
+    assert.equal(g.decision, "PENDING");
+    assert.equal(f.countedQty, 48, "the other product is untouched");
+    assert.equal((await svc.publicGetLineCount(token)).recountRound, 0, "recount mode ends on upload");
+  });
+
+  it("deleting a product's last line drops it to uncounted — its stock is never touched", async () => {
+    const g = (await svc.getLineCountReview(sessionId)).items.find((i) => i.productId === ids.g)!;
+    await svc.deleteLineCountLine(sessionId, g.lines.find((l) => !l.deleted)!.id, ids.admin);
+    const rev = await svc.getLineCountReview(sessionId);
+    assert.ok(!rev.items.some((i) => i.productId === ids.g));
+    assert.ok(rev.uncounted.some((u) => u.productId === ids.g));
+    await svc.cancelLineCount(sessionId);
+    await assert.rejects(() => svc.editLineCountLine(sessionId, g.lines[0].id, 1, "PIECE", ids.admin), /ليست بانتظار/);
   });
 });

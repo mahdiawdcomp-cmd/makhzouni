@@ -3238,6 +3238,11 @@ model LineCountSession {
   finalizedBy       String?   @map("finalized_by") @db.Uuid
   saleInvoiceId     String?   @map("sale_invoice_id") @db.Uuid
   purchaseInvoiceId String?   @map("purchase_invoice_id") @db.Uuid
+  // «أعد عدّ المختار»: while non-empty the worker link shows only these
+  // products and an upload replaces just their lines. The round keys the
+  // phone's local copy so a recount never resends an older round's lines.
+  recountProductIds String[]  @default([]) @map("recount_product_ids")
+  recountRound      Int       @default(0) @map("recount_round")
   lines             LineCountLine[]
   results           LineCountResult[]
 
@@ -3256,6 +3261,15 @@ model LineCountLine {
   unit       String           // PIECE | CARTON, as the worker typed it
   qtyPieces  Int              @map("qty_pieces")
   writtenAt  DateTime         @map("written_at")
+  // WORKER | ADMIN (a total the manager typed in review)
+  source       String         @default("WORKER")
+  // What the worker wrote, kept on the first manager correction.
+  originalQty  Int?           @map("original_qty")
+  originalUnit String?        @map("original_unit")
+  editedBy     String?        @map("edited_by") @db.Uuid
+  editedAt     DateTime?      @map("edited_at")
+  // Soft delete: a removed line stays visible in review as a trace.
+  deletedAt    DateTime?      @map("deleted_at")
 
   @@index([sessionId])
   @@map("line_count_lines")
@@ -3270,6 +3284,8 @@ model LineCountResult {
   productId   String           @map("product_id") @db.Uuid
   systemQty   Int              @map("system_qty")
   countedQty  Int              @map("counted_qty")
+  // The worker's own total, kept once the manager corrects a line.
+  workerCountedQty Int?        @map("worker_counted_qty")
   // Earliest line time — stock movements after it make the variance suspect.
   firstWrittenAt DateTime      @map("first_written_at")
   // PENDING | ACCEPTED | REJECTED

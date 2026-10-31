@@ -1911,7 +1911,38 @@ export const lineCountDecisionSchema = z.object({
     decision: z.enum(["PENDING", "ACCEPTED", "REJECTED"]),
     // Omitted = every variance in the session («اقبل الكل» / «ارفض الكل»).
     productId: z.string().uuid().optional(),
+    // «اقبل المعروض»: the filtered rows on screen.
+    productIds: z.array(z.string().uuid()).max(20_000).optional(),
   }),
+});
+
+const lineCountQty = {
+  qty: z.number().int().min(0).max(10_000_000),
+  unit: z.enum(["PIECE", "CARTON"]),
+};
+
+export const lineCountLineEditSchema = z.object({
+  params: z.object({ id: z.string().uuid(), lineId: z.string().uuid() }),
+  body: z.object(lineCountQty),
+});
+
+export const lineCountLineParamsSchema = z.object({
+  params: z.object({ id: z.string().uuid(), lineId: z.string().uuid() }),
+});
+
+export const lineCountProductTotalSchema = z.object({
+  params: z.object({ id: z.string().uuid(), productId: z.string().uuid() }),
+  body: z.object(lineCountQty),
+});
+
+export const lineCountSwapUnitSchema = z.object({
+  params: z.object({ id: z.string().uuid(), productId: z.string().uuid() }),
+  body: z.object({ lineIds: z.array(z.string().uuid()).min(1).max(500) }),
+});
+
+export const lineCountRecountSchema = z.object({
+  params: uuidParam,
+  body: z.object({ productIds: z.array(z.string().uuid()).min(1).max(5_000) }),
 });
 
 export const lineCountPublicSubmitSchema = z.object({

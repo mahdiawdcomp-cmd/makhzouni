@@ -28,6 +28,11 @@ import {
   publicGetLineCountSession,
   publicSubmitLineCountSession,
   reopenLineCountSession,
+  deleteLineCountLineHandler,
+  editLineCountLineHandler,
+  requestLineCountRecountHandler,
+  setLineCountProductTotalHandler,
+  swapLineCountUnitsHandler,
 } from "../controllers/line-count.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
@@ -43,6 +48,11 @@ import {
   lineCountCreateSchema,
   lineCountDecisionSchema,
   lineCountPublicSubmitSchema,
+  lineCountLineEditSchema,
+  lineCountLineParamsSchema,
+  lineCountProductTotalSchema,
+  lineCountRecountSchema,
+  lineCountSwapUnitSchema,
 } from "../utils/schemas";
 
 const router = Router();
@@ -55,6 +65,11 @@ router.post("/lines/:id/decision", authMiddleware, requirePermission("INVENTORY_
 router.post("/lines/:id/finalize", authMiddleware, requirePermission("INVENTORY_MANAGE"), finalizeLineCountSession);
 router.post("/lines/:id/cancel", authMiddleware, requirePermission("INVENTORY_MANAGE"), cancelLineCountSession);
 router.post("/lines/:id/reopen", authMiddleware, requirePermission("INVENTORY_MANAGE"), reopenLineCountSession);
+router.post("/lines/:id/recount", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountRecountSchema), requestLineCountRecountHandler);
+router.patch("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineEditSchema), editLineCountLineHandler);
+router.delete("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineParamsSchema), deleteLineCountLineHandler);
+router.post("/lines/:id/product/:productId/total", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountProductTotalSchema), setLineCountProductTotalHandler);
+router.post("/lines/:id/product/:productId/swap-unit", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountSwapUnitSchema), swapLineCountUnitsHandler);
 router.get("/public/lines/:token", publicGetLineCountSession);
 router.post("/public/lines/:token/submit", validate(lineCountPublicSubmitSchema), publicSubmitLineCountSession);
 
