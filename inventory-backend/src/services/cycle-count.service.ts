@@ -757,6 +757,9 @@ export async function getPublicCycleCountSession(token: string) {
   });
 
   if (!session) throw new AppError("الرابط غير صحيح أو منتهي", 404, "SESSION_NOT_FOUND");
+  // A finished session's link stays readable (the worker sees "closed") but
+  // no longer lists the products to whoever still holds the URL.
+  if (session.status === CycleCountSessionStatus.CLOSED || session.status === CycleCountSessionStatus.CANCELLED) session.items = [];
 
   return {
     id: session.id,
@@ -922,15 +925,28 @@ export async function runScheduledCycleCountJob() {
   const itemLimit = Math.max(1, settings.cycleCountItemLimit ?? 20);
   const strategy = (settings.cycleCountStrategy ?? "LEAST_RECENTLY_COUNTED") as CycleCountStrategy;
 
-  await createCycleCountSession({
-    createdBy: systemAdmin.id,
-    warehouseId: warehouse.id,
-    strategy,
-    itemLimit,
-    source: CycleCountSessionSource.SCHEDULED,
-    scheduledFor: new Date(),
-    notes: "جلسة تلقائية — جدولة الجرد الذكي",
-  });
+  // Two app instances (or an overlapping hourly run) could both pass the
+  // "no open session" check above and create two sessions. A transaction-scoped
+  // advisory lock lets exactly one runner through; the loser just skips. The
+  // lock lives as long as this transaction, i.e. across the create below.
+  await prisma.$transaction(
+    async (tx) => {
+      const [{ locked }] = await tx.$queryRaw<{ locked: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtext('cycle-count-scheduled-run')) AS locked`;
+      if (!locked) return;
+      if (await hasOpenScheduledSession(warehouse.id)) return;
 
-  await updateSettings({ cycleCountLastRunAt: new Date().toISOString() });
+      await createCycleCountSession({
+        createdBy: systemAdmin.id,
+        warehouseId: warehouse.id,
+        strategy,
+        itemLimit,
+        source: CycleCountSessionSource.SCHEDULED,
+        scheduledFor: new Date(),
+        notes: "جلسة تلقائية — جدولة الجرد الذكي",
+      });
+
+      await updateSettings({ cycleCountLastRunAt: new Date().toISOString() });
+    },
+    { timeout: 120_000, maxWait: 10_000 },
+  );
 }

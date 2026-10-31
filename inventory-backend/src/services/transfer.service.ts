@@ -1,3 +1,4 @@
+import { withTxRetry } from "../utils/tx-retry";
 import { Prisma, TransferStatus, Unit, StockMovementType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
@@ -276,7 +277,7 @@ export async function createTransfer(input: CreateTransferInput, createdBy: stri
   // allowNegativeStock) and the approval-executor path below, which already
   // always allowed it. Used to reject here, which was the one place in the
   // app that still blocked instead of letting the deficit surface later.
-  return prisma.$transaction((tx) => executeTransferWithin(tx, input, createdBy, true));
+  return withTxRetry(() => prisma.$transaction((tx) => executeTransferWithin(tx, input, createdBy, true)));
 }
 
 // The actual stock movement + transfer record. Used directly (admin immediate)

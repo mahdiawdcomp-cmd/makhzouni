@@ -1,3 +1,4 @@
+import { withTxRetry } from "../utils/tx-retry";
 ﻿import {
   InvoiceStatus,
   InvoiceType,
@@ -1809,9 +1810,11 @@ export async function createInvoice(
   if (db) {
     result = await createInvoiceInTransaction(db, input, createdBy, undefined, undefined, allowedUnitPairs);
   } else {
-    result = await prisma.$transaction(
-      (tx) => createInvoiceInTransaction(tx, input, createdBy, undefined, undefined, allowedUnitPairs),
-      INVOICE_TX_OPTIONS
+    result = await withTxRetry(() =>
+      prisma.$transaction(
+        (tx) => createInvoiceInTransaction(tx, input, createdBy, undefined, undefined, allowedUnitPairs),
+        INVOICE_TX_OPTIONS
+      )
     );
   }
 
@@ -2088,9 +2091,11 @@ export async function updateInvoice(
   if (input.date) await assertPeriodOpen(input.date);
   const result = db
     ? await updateInvoiceInTransaction(db, id, input, updatedBy)
-    : await prisma.$transaction(
-        (tx) => updateInvoiceInTransaction(tx, id, input, updatedBy),
-        INVOICE_TX_OPTIONS
+    : await withTxRetry(() =>
+        prisma.$transaction(
+          (tx) => updateInvoiceInTransaction(tx, id, input, updatedBy),
+          INVOICE_TX_OPTIONS
+        )
       );
 
   announceAgentInvoiceChange(id, "تعديل", updatedBy);
@@ -2144,9 +2149,11 @@ export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: str
   await assertInvoicePeriodOpen(id, db);
   const result = db
     ? await cancelInvoiceInTransaction(db, id, returnWarehouseId)
-    : await prisma.$transaction(
-        (tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId),
-        INVOICE_TX_OPTIONS
+    : await withTxRetry(() =>
+        prisma.$transaction(
+          (tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId),
+          INVOICE_TX_OPTIONS
+        )
       );
 
   announceAgentInvoiceChange(id, "إلغاء", actorId);

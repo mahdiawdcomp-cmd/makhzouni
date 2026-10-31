@@ -346,7 +346,9 @@ async function sessionByToken(token: string) {
 /** Session header + the whole catalogue (no images, no stock numbers). */
 export async function publicGetLineCount(token: string) {
   const s = await sessionByToken(token);
-  const products = await prisma.product.findMany({
+  // The whole catalogue is served only while the count is open — a finished
+  // link must not keep exposing it to whoever still holds the URL.
+  const products = s.status !== "OPEN" ? [] : await prisma.product.findMany({
     where: { deletedAt: null },
     select: { id: true, name: true, itemNumber: true, qrCode: true, cartonQrCode: true, category: true, pcsPerCarton: true },
     orderBy: { name: "asc" },

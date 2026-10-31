@@ -483,6 +483,9 @@ export async function getPublicSession(token: string) {
   });
 
   if (!session) throw new AppError("الرابط غير صحيح أو منتهي", 404, "SESSION_NOT_FOUND");
+  // A finished session's link stays readable (the worker sees "closed") but
+  // no longer lists the products to whoever still holds the URL.
+  if (session.status === StocktakeSessionStatus.CLOSED) session.items = [];
 
   return {
     id: session.id,

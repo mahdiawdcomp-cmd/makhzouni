@@ -372,6 +372,7 @@ const fakeDb: any = {
       item.variance = item.actualQty - systemQty;
       return [{ actual_qty: item.actualQty }];
     }
+    if (sql.includes("pg_try_advisory_xact_lock")) return [{ locked: true }];
     // Session / product row locks — no real concurrency in this fake.
     if (sql.includes("FOR UPDATE") && !sql.includes("product_warehouse_stocks")) return [];
     const [productId, warehouseId] = query?.values ?? [];

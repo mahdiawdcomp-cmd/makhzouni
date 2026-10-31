@@ -129,7 +129,11 @@ export function PublicLineCountPage() {
       .get(`/stocktake/public/lines/${token}`)
       .then(({ data }) => {
         if (cancelled) return
-        const s = (data as { data: SessionData }).data
+        const fetched = (data as { data: SessionData }).data
+        // A finished count comes back without the catalogue — keep the copy on
+        // the phone so the written lines still show their product names.
+        const cached = readJson<SessionData | null>(catKey(token), null)
+        const s = fetched.products.length === 0 && cached ? { ...fetched, products: cached.products } : fetched
         setSession(s)
         setLoadError(null)
         if (!writeJson(catKey(token), s)) setStorageOk(false)
