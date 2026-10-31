@@ -126,6 +126,37 @@ async function exportExcel(s: LineCountReview, th: Thresholds) {
   XLSX.writeFile(wb, `جرد-${s.warehouseName}-${(s.submittedAt ?? s.createdAt).slice(0, 10)}.xlsx`)
 }
 
+/** For checking against the paper count sheets: every line exactly in the
+ * order it was typed, with no system stock and no prices, so it can go to the
+ * person who counted. Corrections show beside what was originally typed. */
+async function exportEntryOrder(s: LineCountReview) {
+  const XLSX = await import("xlsx")
+  const lines = s.items
+    .flatMap((it) => it.lines.map((l) => ({ it, l })))
+    .sort((a, b) => a.l.position - b.l.position)
+  const rows = lines.map(({ it, l }) => {
+    const typedQty = l.originalQty ?? l.qty
+    const typedUnit = l.originalUnit ?? l.unit
+    const corrected = l.originalQty !== null && (l.originalQty !== l.qty || l.originalUnit !== l.unit)
+    return {
+      "التسلسل": l.position,
+      "المادة": it.productName,
+      "رقم المادة": it.itemNumber ?? "",
+      "الكمية": l.source === "ADMIN" ? "" : typedQty,
+      "الوحدة": l.source === "ADMIN" ? "" : unitWord(typedUnit),
+      "ملاحظة": l.source === "ADMIN"
+        ? `مجموع صحّحه المدير: ${l.qty} ${unitWord(l.unit)}${l.deleted ? " (محذوف)" : ""}`
+        : [corrected ? `صُحّح إلى ${l.qty} ${unitWord(l.unit)}` : "", l.deleted ? "محذوف" : ""].filter(Boolean).join(" — "),
+    }
+  })
+  const sheet = XLSX.utils.json_to_sheet(rows)
+  sheet["!views"] = [{ RTL: true }]
+  sheet["!cols"] = [{ wch: 8 }, { wch: 40 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 36 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, sheet, "بترتيب الإدخال")
+  XLSX.writeFile(wb, `مطابقة-جرد-${s.warehouseName}-${(s.submittedAt ?? s.createdAt).slice(0, 10)}.xlsx`)
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export function LineCountReviewPage() {
@@ -264,9 +295,14 @@ export function LineCountReviewPage() {
                 {s.lineCount} سطر · {items.length} مادة محسوبة · <span className="font-semibold text-red-600">{diffs.length} فيها فرق</span> · {matched.length} مطابقة · {s.uncounted.length} ما انحسبت
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => void exportExcel(s, thresholds).catch(onErr("تعذر التصدير"))}>
-              <Download className="h-4 w-4" /> إكسل
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => void exportEntryOrder(s).catch(onErr("تعذر التصدير"))}>
+                <Download className="h-4 w-4" /> إكسل للمطابقة مع الورق
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void exportExcel(s, thresholds).catch(onErr("تعذر التصدير"))}>
+                <Download className="h-4 w-4" /> إكسل الفروقات
+              </Button>
+            </div>
           </div>
 
           {/* Money summary for every variance, decided or not */}
