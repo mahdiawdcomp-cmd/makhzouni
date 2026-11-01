@@ -129,6 +129,32 @@ export async function syncProductTotalStock(db: WarehouseDb, productId: string) 
   return totalPieces;
 }
 
+/** «جرد بالسطور»: a product counted with a variance the manager hasn't
+ * accepted or rejected yet is frozen in that warehouse — nothing leaves it until
+ * the decision, for anyone. Inflows stay open. Released per product the moment
+ * it is decided; a recount keeps the session OPEN with its list, still frozen. */
+export async function assertNotUnderLineCount(db: WarehouseDb, productId: string, warehouseId: string) {
+  const rows = await db.$queryRaw<Array<{ name: string | null; wh: string | null }>>(Prisma.sql`
+    SELECT p."name", b."name" AS wh
+    FROM "line_count_results" r
+    JOIN "line_count_sessions" s ON s."id" = r."session_id"
+    LEFT JOIN "products" p ON p."id" = r."product_id"
+    LEFT JOIN "branches" b ON b."id" = s."warehouse_id"
+    WHERE s."warehouse_id" = ${warehouseId}::uuid
+      AND r."product_id" = ${productId}::uuid
+      AND r."decision" = 'PENDING'
+      AND r."counted_qty" <> r."system_qty"
+      AND (s."status" = 'SUBMITTED' OR (s."status" = 'OPEN' AND cardinality(s."recount_product_ids") > 0))
+    LIMIT 1
+  `);
+  if (rows.length === 0) return;
+  throw new AppError(
+    `"${rows[0].name ?? "المادة"}" بالجرد بـ${rows[0].wh ?? "المخزن"}، تنتظر موافقة المدير — ما تطلع لحد ما ينقبل أو ينرفض فرقها.`,
+    409,
+    "LINE_COUNT_LOCKED"
+  );
+}
+
 export async function adjustWarehouseStock(
   db: WarehouseDb,
   input: {
@@ -158,6 +184,7 @@ export async function adjustWarehouseStock(
   // could not receive a purchase into it until someone corrected the number by
   // hand. Only a withdrawal is ever worth guarding.
   const isWithdrawal = input.deltaPieces < 0;
+  if (isWithdrawal) await assertNotUnderLineCount(db, input.productId, input.warehouseId);
   if (isWithdrawal && !input.allowNegative && balanceAfter < 0) {
     // Named, in Arabic, and with the numbers that matter. The old English
     // "Insufficient warehouse stock. Available: -240" named neither the product

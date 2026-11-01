@@ -69,6 +69,10 @@ const ids = {
   e: randomUUID(), // never written → uncounted
   f: randomUUID(), // corrections session: cartons typed as pieces
   g: randomUUID(), // corrections session: recounted
+  h: randomUUID(), // lock session: shortage → frozen until decided
+  i: randomUUID(), // lock session: matched → never frozen
+  j: randomUUID(), // lock session: uncounted → «أكيد خلصانة»
+  k: randomUUID(), // lock session: uncounted → «أعد عدّها»
 };
 
 before(async () => {
@@ -117,6 +121,10 @@ before(async () => {
   await mk(ids.e, 5, 9);
   await mk(ids.f, 6, 48, 12);
   await mk(ids.g, 7, 30);
+  await mk(ids.h, 8, 10);
+  await mk(ids.i, 9, 6);
+  await mk(ids.j, 10, 4);
+  await mk(ids.k, 11, 3);
   const settings = await import("../services/settings.service");
   await settings.updateSettings({ stocktakeOverageSupplierId: ids.supplier, shopWarehouseId: ids.shop } as never);
   svc = await import("../services/line-count.service");
@@ -307,5 +315,72 @@ describe("line count corrections", () => {
     assert.ok(rev.uncounted.some((u) => u.productId === ids.g));
     await svc.cancelLineCount(sessionId);
     await assert.rejects(() => svc.editLineCountLine(sessionId, g.lines[0].id, 1, "PIECE", ids.admin), /ليست بانتظار/);
+  });
+});
+
+describe("line count lock and uncounted watch", () => {
+  let sessionId = "";
+  let token = "";
+  const t = () => new Date().toISOString();
+  const take = async (productId: string, deltaPieces: number) => {
+    const { adjustWarehouseStock } = await import("../services/warehouse-stock.service");
+    const { prisma } = await import("../config/database");
+    return prisma.$transaction((tx) => adjustWarehouseStock(tx as never, { productId, warehouseId: ids.shop, deltaPieces, allowNegative: true }));
+  };
+
+  it("freezes outflows of an undecided variance only — inflows and matched products stay open", async () => {
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    sessionId = s.id;
+    token = s.publicToken;
+    await svc.publicSubmitLineCount(token, [
+      { productId: ids.h, qty: 7, unit: "PIECE", writtenAt: t() },
+      { productId: ids.i, qty: 6, unit: "PIECE", writtenAt: t() },
+    ]);
+    await assert.rejects(() => take(ids.h, -1), /بالجرد/);
+    await take(ids.h, 1); // a purchase still lands
+    await take(ids.i, -1); // matched — nothing to decide
+  });
+
+  it("«أكيد خلصانة» counts an uncounted product as zero, pending and frozen", async () => {
+    assert.ok((await svc.getLineCountReview(sessionId)).uncounted.some((u) => u.productId === ids.j));
+    await svc.markLineCountGone(sessionId, [ids.j], ids.admin);
+    const j = (await svc.getLineCountReview(sessionId)).items.find((it) => it.productId === ids.j)!;
+    assert.equal(j.countedQty, 0);
+    assert.equal(j.systemQty, 4);
+    assert.equal(j.decision, "PENDING");
+    assert.equal(await stock(ids.j), 4, "nothing booked before acceptance");
+    await assert.rejects(() => take(ids.j, -1), /بالجرد/);
+    await assert.rejects(() => svc.markLineCountGone(sessionId, [ids.j], ids.admin), /محسوبة/);
+  });
+
+  it("an uncounted product can be sent back for counting, and the freeze holds meanwhile", async () => {
+    await svc.requestLineCountRecount(sessionId, [ids.k]);
+    assert.deepEqual((await svc.publicGetLineCount(token)).products.map((p) => p.id), [ids.k]);
+    await assert.rejects(() => take(ids.h, -1), /بالجرد/, "still frozen while the worker recounts");
+    await svc.publicSubmitLineCount(token, [{ productId: ids.k, qty: 3, unit: "PIECE", writtenAt: t() }]);
+    assert.ok((await svc.getLineCountReview(sessionId)).items.some((it) => it.productId === ids.k));
+  });
+
+  it("deciding unfreezes at once; finalize watches every product nobody counted", async () => {
+    await svc.setLineCountDecision(sessionId, "REJECTED", ids.h);
+    await take(ids.h, -1);
+    await svc.setLineCountDecision(sessionId, "ACCEPTED");
+    await svc.finalizeLineCount(sessionId, ids.admin);
+    assert.equal(await stock(ids.j), 0, "accepted zero is booked");
+    const watched = await db.lineCountWatch.findMany({ where: { sessionId } });
+    const wset = new Set(watched.map((w) => w.productId));
+    assert.ok(wset.has(ids.e), "uncounted product is watched");
+    for (const pid of [ids.h, ids.i, ids.j, ids.k]) assert.ok(!wset.has(pid), "counted products are not watched");
+  });
+
+  it("the watch list waits two months and drops anything counted since", async () => {
+    assert.ok(!(await svc.listLineCountWatch(60)).data.some((w) => w.productId === ids.e), "too fresh");
+    await db.lineCountWatch.updateMany({ data: { countedAt: new Date(Date.now() - 70 * 24 * 60 * 60 * 1000) } });
+    const list = (await svc.listLineCountWatch(60)).data;
+    const e = list.find((w) => w.productId === ids.e);
+    assert.ok(e, "never counted, never sold → listed even with stock");
+    assert.equal(e!.stock, 9);
+    assert.equal(e!.times, 2, "missed by both finalized counts");
+    assert.ok(!list.some((w) => w.productId === ids.a), "counted by a later session → cleared");
   });
 });

@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import {
+  assertNotUnderLineCount,
   ensureLegacyWarehouseStock,
   resolveShopWarehouseId,
   resolveWarehouseId,
@@ -447,6 +448,7 @@ export async function adjustProductStockManual(
       const before = lockedRows[0]?.quantity_pieces ?? 0;
       const after = Math.trunc(e.quantityPieces);
       if (after === before) continue;
+      if (after < before) await assertNotUnderLineCount(tx, productId, e.warehouseId);
 
       await tx.productWarehouseStock.update({
         where: { productId_warehouseId: { productId, warehouseId: e.warehouseId } },

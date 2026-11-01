@@ -380,7 +380,26 @@ export async function finalizeLineCount(id: string, userId: string) {
         purchaseInvoiceId = inv.id;
       }
       await tx.lineCountSession.update({ where: { id }, data: { saleInvoiceId, purchaseInvoiceId } });
-      return { saleInvoiceId, purchaseInvoiceId, saleLines: saleItems.length, purchaseLines: purchaseItems.length };
+      // Products with stock that nobody counted are left untouched but watched:
+      // no sale and no later count within two months → «المواد الراكدة».
+      const counted = new Set(now.map((r) => r.productId));
+      const left = await tx.productWarehouseStock.findMany({
+        where: { warehouseId: s.warehouseId, quantityPieces: { not: 0 }, product: { deletedAt: null } },
+        select: { productId: true, quantityPieces: true },
+      });
+      const watched = left.filter((x) => !counted.has(x.productId));
+      if (watched.length > 0)
+        await tx.lineCountWatch.createMany({
+          data: watched.map((x) => ({
+            sessionId: id,
+            warehouseId: s.warehouseId,
+            productId: x.productId,
+            countedAt: s.submittedAt ?? new Date(),
+            systemQty: x.quantityPieces,
+          })),
+          skipDuplicates: true,
+        });
+      return { saleInvoiceId, purchaseInvoiceId, saleLines: saleItems.length, purchaseLines: purchaseItems.length, watched: watched.length };
     },
     { timeout: 120_000, maxWait: 10_000 },
   );
@@ -549,14 +568,114 @@ export async function swapLineCountUnits(id: string, productId: string, lineIds:
 export async function requestLineCountRecount(id: string, productIds: string[]) {
   return underReviewLock(id, async (tx) => {
     const ids = [...new Set(productIds)];
-    const found = await tx.lineCountResult.count({ where: { sessionId: id, productId: { in: ids } } });
-    if (ids.length === 0 || found !== ids.length) throw new AppError("اختر مواد من هذا الجرد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
+    const session = await tx.lineCountSession.findUniqueOrThrow({ where: { id }, select: { warehouseId: true } });
+    const results = await tx.lineCountResult.findMany({ where: { sessionId: id, productId: { in: ids } }, select: { productId: true } });
+    const have = new Set(results.map((r) => r.productId));
+    // An uncounted product («أعد عدّها») qualifies if it holds stock here.
+    const rest = ids.filter((pid) => !have.has(pid));
+    const stocked = rest.length === 0 ? 0 : await tx.productWarehouseStock.count({
+      where: { warehouseId: session.warehouseId, productId: { in: rest }, quantityPieces: { not: 0 }, product: { deletedAt: null } },
+    });
+    if (ids.length === 0 || stocked !== rest.length) throw new AppError("اختر مواد من هذا الجرد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
     await tx.lineCountSession.update({
       where: { id },
       data: { status: "OPEN", submittedAt: null, recountProductIds: ids, recountRound: { increment: 1 } },
     });
     return { reopened: true, products: ids.length };
   });
+}
+
+/** «أكيد خلصانة»: an uncounted product is entered as counted at zero. Like any
+ * other count it waits PENDING — nothing is booked until the manager accepts. */
+export async function markLineCountGone(id: string, productIds: string[], userId: string) {
+  return underReviewLock(id, async (tx) => {
+    const ids = [...new Set(productIds)];
+    if (ids.length === 0) throw new AppError("اختر مواد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
+    const session = await tx.lineCountSession.findUniqueOrThrow({ where: { id }, select: { warehouseId: true, submittedAt: true } });
+    if ((await tx.lineCountResult.count({ where: { sessionId: id, productId: { in: ids } } })) > 0)
+      throw new AppError("بعض المواد صارت محسوبة — حدّث الصفحة", 409, "LINE_COUNT_CHANGED");
+    if ((await tx.product.count({ where: { id: { in: ids }, deletedAt: null } })) !== ids.length)
+      throw new AppError("بعض المواد انحذفت من النظام — حدّث الصفحة", 400, "LINE_COUNT_UNKNOWN_PRODUCT");
+    const now = new Date();
+    // Same moment as the worker's upload, so the snapshot is the stock the
+    // shelf was compared against — later sales already moved stock themselves.
+    const at = session.submittedAt ?? now;
+    const sys = await systemSnapshot(tx, session.warehouseId, new Map(ids.map((pid) => [pid, at])), now);
+    const last = await tx.lineCountLine.aggregate({ where: { sessionId: id }, _max: { position: true } });
+    const base = last._max.position ?? 0;
+    await tx.lineCountLine.createMany({
+      data: ids.map((productId, i) => ({
+        sessionId: id,
+        position: base + i + 1,
+        productId,
+        qty: 0,
+        unit: "PIECE",
+        qtyPieces: 0,
+        writtenAt: at,
+        source: "ADMIN",
+        editedBy: userId,
+        editedAt: now,
+      })),
+    });
+    await tx.lineCountResult.createMany({
+      data: ids.map((productId) => ({ sessionId: id, productId, systemQty: sys.get(productId) ?? 0, countedQty: 0, firstWrittenAt: at })),
+    });
+    return { marked: ids.length };
+  });
+}
+
+/** Watched products still unexplained `days` after the count that missed them:
+ * no sale from that warehouse and no later count of them there. */
+export async function listLineCountWatch(days = 60) {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const rows = await prisma.$queryRaw<Array<{
+    product_id: string; warehouse_id: string; first_missed: Date; last_missed: Date; times: number;
+    name: string; item_number: string; pcs_per_carton: number; warehouse_name: string | null; stock: number;
+  }>>`
+    SELECT w.product_id, w.warehouse_id, MIN(w.counted_at) AS first_missed, MAX(w.counted_at) AS last_missed,
+           COUNT(*)::int AS times, p.name, p.item_number, p.pcs_per_carton, b.name AS warehouse_name,
+           COALESCE(MAX(pws.quantity_pieces), 0)::int AS stock
+    FROM line_count_watches w
+    JOIN products p ON p.id = w.product_id AND p.deleted_at IS NULL
+    LEFT JOIN branches b ON b.id = w.warehouse_id
+    LEFT JOIN product_warehouse_stocks pws ON pws.product_id = w.product_id AND pws.warehouse_id = w.warehouse_id
+    WHERE NOT EXISTS (
+        SELECT 1 FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
+        WHERE ii.product_id = w.product_id
+          AND (ii.warehouse_id = w.warehouse_id OR ii.source_warehouse_id = w.warehouse_id)
+          AND i.type = 'SALE' AND i.status = 'ACTIVE' AND COALESCE(i.origin, '') <> 'STOCK_COUNT'
+          AND i.created_at > w.counted_at)
+      AND NOT EXISTS (
+        SELECT 1 FROM line_count_results r JOIN line_count_sessions s ON s.id = r.session_id
+        WHERE r.product_id = w.product_id AND s.warehouse_id = w.warehouse_id
+          AND s.status IN ('SUBMITTED', 'FINALIZED') AND s.submitted_at > w.counted_at)
+      AND NOT EXISTS (
+        SELECT 1 FROM stocktake_items si JOIN stocktake_sessions ss ON ss.id = si.session_id
+        WHERE si.product_id = w.product_id AND ss.branch_id = w.warehouse_id
+          AND si.actual_qty IS NOT NULL AND ss.created_at > w.counted_at)
+      AND NOT EXISTS (
+        SELECT 1 FROM cycle_count_items ci JOIN cycle_count_sessions cs ON cs.id = ci.session_id
+        WHERE ci.product_id = w.product_id AND cs.warehouse_id = w.warehouse_id
+          AND ci.actual_qty IS NOT NULL AND cs.submitted_at > w.counted_at)
+    GROUP BY w.product_id, w.warehouse_id, p.name, p.item_number, p.pcs_per_carton, b.name
+    HAVING MIN(w.counted_at) <= ${cutoff}
+    ORDER BY MIN(w.counted_at) ASC, p.name ASC`;
+  return {
+    days,
+    count: rows.length,
+    data: rows.map((r) => ({
+      productId: r.product_id,
+      productName: r.name,
+      itemNumber: r.item_number,
+      pcsPerCarton: r.pcs_per_carton,
+      warehouseId: r.warehouse_id,
+      warehouseName: r.warehouse_name,
+      stock: r.stock,
+      firstMissedAt: r.first_missed,
+      lastMissedAt: r.last_missed,
+      times: r.times,
+    })),
+  };
 }
 
 // ─── Public (worker link) ───────────────────────────────────────────────────

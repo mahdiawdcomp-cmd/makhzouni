@@ -3295,3 +3295,22 @@ model LineCountResult {
   @@index([sessionId])
   @@map("line_count_results")
 }
+
+// A product holding stock that a finalized line count never touched. It is
+// watched, not changed: a sale from that warehouse or a later count clears it
+// (computed on read); still uncleared after two months, it shows in «المواد الراكدة».
+model LineCountWatch {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @map("session_id") @db.Uuid
+  warehouseId String   @map("warehouse_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  // When the worker uploaded the count the product was missing from.
+  countedAt   DateTime @map("counted_at")
+  // Warehouse stock at finalize, for context only.
+  systemQty   Int      @map("system_qty")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([sessionId, productId])
+  @@index([warehouseId, productId])
+  @@map("line_count_watches")
+}

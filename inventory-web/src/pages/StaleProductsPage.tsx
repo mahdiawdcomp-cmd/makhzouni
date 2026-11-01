@@ -6,6 +6,7 @@ import dayjs from "dayjs"
 import relativeTime from "dayjs/plugin/relativeTime"
 import "dayjs/locale/ar"
 import { getStaleProducts, bulkDeleteProducts } from "../api/endpoints"
+import { getLineCountWatch } from "../api/lineCount"
 import { Button } from "../components/ui/button"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { toast } from "../components/ui/use-toast"
@@ -31,6 +32,15 @@ export function StaleProductsPage() {
     queryFn: () => getStaleProducts(days),
     staleTime: 60_000,
   })
+
+  // Always two months: products a line count missed, still unexplained since.
+  const watchQ = useQuery({
+    queryKey: ["line-count-watch"],
+    queryFn: () => getLineCountWatch(60),
+    staleTime: 60_000,
+    retry: false,
+  })
+  const watched = watchQ.data?.data ?? []
 
   const products = useMemo(() => data?.data ?? [], [data])
   const allSelected = products.length > 0 && selected.size === products.length
@@ -90,6 +100,44 @@ export function StaleProductsPage() {
           </button>
         ))}
       </div>
+
+      {/* Missed by a line count and unexplained for two months — even with stock */}
+      {watched.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-amber-300 bg-white dark:border-amber-900 dark:bg-slate-950">
+          <div className="bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+            <p className="font-bold text-amber-800 dark:text-amber-200">ما انحسبت بالجرد ({watched.length})</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              العامل ما كتبها بالجرد بالسطور، ومن وقتها ما انباعت ولا انجردت. تأكد منها: يمكن ضايعة أو بمكان ثاني.
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs font-semibold text-slate-500 dark:bg-slate-900">
+              <tr>
+                <th className="px-3 py-2 text-right">المادة</th>
+                <th className="px-3 py-2 text-right">المخزن</th>
+                <th className="px-3 py-2 text-right">الرصيد هسه</th>
+                <th className="px-3 py-2 text-right">الملاحظة</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y dark:divide-slate-800">
+              {watched.map((w) => (
+                <tr key={`${w.productId}-${w.warehouseId}`}>
+                  <td className="px-3 py-2">
+                    <p className="font-medium">{w.productName}</p>
+                    <p className="font-mono text-xs text-slate-400">{w.itemNumber}</p>
+                  </td>
+                  <td className="px-3 py-2">{w.warehouseName ?? "—"}</td>
+                  <td className="px-3 py-2 font-semibold">{w.stock} قطعة</td>
+                  <td className="px-3 py-2 text-amber-700 dark:text-amber-300">
+                    ما انحسبت بجرد يوم {dayjs(w.firstMissedAt).format("YYYY/MM/DD")}
+                    {w.times > 1 && <span className="ms-1 text-xs">(تكررت {w.times} مرات)</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Result summary + delete action */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-amber-50 px-4 py-3 dark:bg-amber-950/20">

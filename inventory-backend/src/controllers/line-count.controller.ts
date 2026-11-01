@@ -7,6 +7,8 @@ import {
   finalizeLineCount,
   getLineCountReview,
   listLineCounts,
+  listLineCountWatch,
+  markLineCountGone,
   publicGetLineCount,
   publicSubmitLineCount,
   reopenLineCount,
@@ -82,4 +84,14 @@ export const swapLineCountUnitsHandler = asyncHandler(async (req, res) => {
 export const requestLineCountRecountHandler = asyncHandler(async (req, res) => {
   const { productIds } = req.body as { productIds: string[] };
   res.json({ success: true, data: await requestLineCountRecount(String(req.params.id), productIds) });
+});
+
+export const markLineCountGoneHandler = asyncHandler(async (req, res) => {
+  const { productIds } = req.body as { productIds: string[] };
+  res.json({ success: true, data: await markLineCountGone(String(req.params.id), productIds, String(req.user!.id)) });
+});
+
+export const listLineCountWatchHandler = asyncHandler(async (req, res) => {
+  const days = Math.min(3650, Math.max(1, Number(req.query.days) || 60));
+  res.json({ success: true, data: await listLineCountWatch(days) });
 });

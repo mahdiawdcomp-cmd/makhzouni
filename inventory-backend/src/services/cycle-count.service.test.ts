@@ -373,6 +373,8 @@ const fakeDb: any = {
       return [{ actual_qty: item.actualQty }];
     }
     if (sql.includes("pg_try_advisory_xact_lock")) return [{ locked: true }];
+    // No line count is under review in this fake — nothing is frozen.
+    if (sql.includes("line_count_results")) return [];
     // Session / product row locks — no real concurrency in this fake.
     if (sql.includes("FOR UPDATE") && !sql.includes("product_warehouse_stocks")) return [];
     const [productId, warehouseId] = query?.values ?? [];

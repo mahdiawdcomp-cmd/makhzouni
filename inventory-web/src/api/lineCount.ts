@@ -90,6 +90,26 @@ export const swapLineCountUnits = (id: string, productId: string, lineIds: strin
   api.post(`/stocktake/lines/${id}/product/${productId}/swap-unit`, { lineIds }).then(unwrap<unknown>)
 export const recountLineCount = (id: string, productIds: string[]) =>
   api.post(`/stocktake/lines/${id}/recount`, { productIds }).then(unwrap<{ products: number }>)
+/** «أكيد خلصانة»: uncounted products entered as counted at zero (still PENDING). */
+export const markLineCountGone = (id: string, productIds: string[]) =>
+  api.post(`/stocktake/lines/${id}/gone`, { productIds }).then(unwrap<{ marked: number }>)
+
+/** A product a finalized count missed and nothing has explained since. */
+export interface LineCountWatchItem {
+  productId: string
+  productName: string
+  itemNumber: string | null
+  pcsPerCarton: number
+  warehouseId: string
+  warehouseName: string | null
+  stock: number
+  firstMissedAt: string
+  lastMissedAt: string
+  times: number
+}
+export const getLineCountWatch = (days = 60) =>
+  api.get("/stocktake/lines/watch", { params: { days } }).then(unwrap<{ days: number; count: number; data: LineCountWatchItem[] }>)
+
 export const finalizeLineCount = (id: string) =>
   api.post(`/stocktake/lines/${id}/finalize`, {}, { timeout: 150_000 }).then(unwrap<{ saleInvoiceId: string | null; purchaseInvoiceId: string | null }>)
 export const cancelLineCount = (id: string) => api.post(`/stocktake/lines/${id}/cancel`).then(unwrap<unknown>)

@@ -30,6 +30,8 @@ import {
   reopenLineCountSession,
   deleteLineCountLineHandler,
   editLineCountLineHandler,
+  listLineCountWatchHandler,
+  markLineCountGoneHandler,
   requestLineCountRecountHandler,
   setLineCountProductTotalHandler,
   swapLineCountUnitsHandler,
@@ -60,12 +62,14 @@ const router = Router();
 // ── «جرد بالسطور» — registered before "/:id" so "lines" isn't read as an id ──
 router.get("/lines", authMiddleware, requirePermission("INVENTORY_MANAGE"), listLineCountSessions);
 router.post("/lines", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountCreateSchema), createLineCountSession);
+router.get("/lines/watch", authMiddleware, requirePermission("INVENTORY_MANAGE"), listLineCountWatchHandler);
 router.get("/lines/:id", authMiddleware, requirePermission("INVENTORY_MANAGE"), getLineCountSession);
 router.post("/lines/:id/decision", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountDecisionSchema), decideLineCount);
 router.post("/lines/:id/finalize", authMiddleware, requirePermission("INVENTORY_MANAGE"), finalizeLineCountSession);
 router.post("/lines/:id/cancel", authMiddleware, requirePermission("INVENTORY_MANAGE"), cancelLineCountSession);
 router.post("/lines/:id/reopen", authMiddleware, requirePermission("INVENTORY_MANAGE"), reopenLineCountSession);
 router.post("/lines/:id/recount", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountRecountSchema), requestLineCountRecountHandler);
+router.post("/lines/:id/gone", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountRecountSchema), markLineCountGoneHandler);
 router.patch("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineEditSchema), editLineCountLineHandler);
 router.delete("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineParamsSchema), deleteLineCountLineHandler);
 router.post("/lines/:id/product/:productId/total", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountProductTotalSchema), setLineCountProductTotalHandler);

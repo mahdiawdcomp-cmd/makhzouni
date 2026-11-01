@@ -15,6 +15,7 @@ import {
   editLineCountLine,
   finalizeLineCount,
   getLineCount,
+  markLineCountGone,
   recountLineCount,
   reopenLineCount,
   setLineCountProductTotal,
@@ -165,7 +166,7 @@ export function LineCountReviewPage() {
   const qc = useQueryClient()
   const readOnly = useReadOnly()
   const [showMatched, setShowMatched] = useState(false)
-  const [showUncounted, setShowUncounted] = useState(false)
+  const [showUncounted, setShowUncounted] = useState(true)
   const [showThresholds, setShowThresholds] = useState(false)
   const [thresholds, setThresholds] = useState<Thresholds>(loadThresholds)
   const [filter, setFilter] = useState<Filter>("all")
@@ -186,7 +187,7 @@ export function LineCountReviewPage() {
     mutationFn: () => finalizeLineCount(id),
     onSuccess: async () => {
       toast({ title: "اعتُمد الجرد وانكتبت الفواتير" })
-      await Promise.all([refresh(), ...["line-counts", "invoices", "products", "branches", "negative-stock", "stock-history"].map((k) => qc.invalidateQueries({ queryKey: [k] }))])
+      await Promise.all([refresh(), ...["line-counts", "line-count-watch", "invoices", "products", "branches", "negative-stock", "stock-history"].map((k) => qc.invalidateQueries({ queryKey: [k] }))])
     },
     onError: onErr("تعذر الاعتماد"),
   })
@@ -207,6 +208,15 @@ export function LineCountReviewPage() {
       await Promise.all([refresh(), qc.invalidateQueries({ queryKey: ["line-counts"] })])
     },
     onError: onErr("تعذر إرسال إعادة العدّ"),
+  })
+
+  const goneMut = useMutation({
+    mutationFn: (productIds: string[]) => markLineCountGone(id, productIds),
+    onSuccess: async () => {
+      toast({ title: "انحسبت صفر — تنتظر قبولك مثل باقي الفروقات" })
+      await refresh()
+    },
+    onError: onErr("تعذر الحفظ"),
   })
 
   const s = q.data
@@ -339,7 +349,17 @@ export function LineCountReviewPage() {
               {!s.saleInvoice && !s.purchaseInvoice && " ما انكتبت فواتير (ماكو فروقات مقبولة)."}
             </p>
           )}
-          {s.status === "OPEN" && <p className="text-sm font-medium text-sky-700">الجرد عند العامل هسه — تكدر تراجعه بعد ما يرفعه.</p>}
+          {s.status === "SUBMITTED" && pending.length > 0 && (
+            <p className="rounded-lg bg-amber-50 p-3 text-sm font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              🔒 {pending.length} مادة مقفولة بـ{s.warehouseName}: ما تطلع منها بيعة ولا تحويل ولا تالف لحد ما تقبلها أو ترفضها. كل مادة تقرر عليها تنفتح فوراً.
+            </p>
+          )}
+          {s.status === "OPEN" && (
+            <p className="text-sm font-medium text-sky-700">
+              الجرد عند العامل هسه — تكدر تراجعه بعد ما يرفعه.
+              {pending.length > 0 && ` المواد اللي ما قررت عليها (${pending.length}) تبقى مقفولة بالمخزن.`}
+            </p>
+          )}
           {s.status === "CANCELLED" && <p className="text-sm text-slate-500">هذا الجرد ملغى.</p>}
         </CardContent>
       </Card>
@@ -480,18 +500,55 @@ export function LineCountReviewPage() {
       {/* Uncounted */}
       {s.uncounted.length > 0 && (
         <section>
-          <button type="button" onClick={() => setShowUncounted((v) => !v)} className="flex items-center gap-1 text-base font-bold text-slate-600">
-            <ChevronDown className={cn("h-4 w-4 transition", showUncounted && "rotate-180")} /> ما انحسبت ({s.uncounted.length}) — أرصدتها ما تتغيّر
+          <button type="button" onClick={() => setShowUncounted((v) => !v)} className="flex items-center gap-1 text-base font-bold text-amber-700">
+            <ChevronDown className={cn("h-4 w-4 transition", showUncounted && "rotate-180")} /> مواد غير مذكورة، يرجى التأكد منها ({s.uncounted.length})
           </button>
           {showUncounted && (
-            <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900">
-              {s.uncounted.map((u) => (
-                <li key={u.productId} className="flex justify-between gap-2 px-4 py-2 text-sm">
-                  <span>{u.productName}</span>
-                  <span className="text-slate-500">بالنظام {qtyText(u.systemQty, u.pcsPerCarton)}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="mt-1 text-xs text-slate-500">
+                {s.status === "FINALIZED"
+                  ? "دخلت المتابعة: إذا ما انباعت ولا انجردت خلال شهرين تطلع بالمواد الراكدة."
+                  : "العامل ما كتبها. أرصدتها ما تتغيّر. اللي تتركها تدخل المتابعة بعد الاعتماد: إذا ما انباعت ولا انجردت خلال شهرين تطلع بالمواد الراكدة."}
+              </p>
+              <ul className="mt-2 divide-y divide-amber-100 rounded-lg border border-amber-200 bg-white dark:divide-slate-800 dark:border-amber-900 dark:bg-slate-900">
+                {s.uncounted.map((u) => (
+                  <li key={u.productId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+                    <span>
+                      {u.productName}
+                      {u.itemNumber && <span className="ms-2 text-xs text-slate-400">{u.itemNumber}</span>}
+                    </span>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-slate-500">بالنظام {qtyText(u.systemQty, u.pcsPerCarton)}</span>
+                      {editable && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={recountMut.isPending}
+                            onClick={() => {
+                              if (window.confirm(`ترجع «${u.productName}» للعامل يعدّها؟ نفس الرابط، وبس هاي المادة.`)) recountMut.mutate([u.productId])
+                            }}
+                          >
+                            أعد عدّها
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-red-300 text-red-700"
+                            disabled={goneMut.isPending}
+                            onClick={() => {
+                              if (window.confirm(`«${u.productName}» خلصانة؟ تنحسب صفر وتطلع فرق نقص، وما تنعتمد إلا بعد ما تقبلها.`)) goneMut.mutate([u.productId])
+                            }}
+                          >
+                            أكيد خلصانة
+                          </Button>
+                        </>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </section>
       )}
