@@ -534,7 +534,7 @@ export async function setSuggestEveryDays(days: number) {
   await prisma.setting.deleteMany({ where: { key: SUGGEST_CACHE_KEY } });
 }
 
-async function computeSuggestions() {
+async function computeSuggestions(exclude: string[] = []) {
   const rows = await prisma.$queryRaw<SuggestionRow[]>`
     SELECT p.id, p.name,
            s.qty::int AS qty,
@@ -551,7 +551,7 @@ async function computeSuggestions() {
         WHERE w.product_id = p.id AND w.status NOT IN ('FAILED', 'SKIPPED_OUT_OF_STOCK')
           AND w.created_at > NOW() - INTERVAL '30 days')`;
 
-  const used = new Set<string>();
+  const used = new Set<string>(exclude);
   const pick = (sorted: SuggestionRow[], reason: SuggestionReason) => {
     const row = sorted.find((r) => !used.has(r.id));
     if (!row) return null;
@@ -570,12 +570,23 @@ export async function getPostSuggestions(refresh = false) {
   const everyDays = await getSuggestEveryDays();
   const periodKey = Math.floor(baghdadDayNumber() / everyDays);
   const cached = await prisma.setting.findUnique({ where: { key: SUGGEST_CACHE_KEY } });
-  const cache = cached?.value as { periodKey?: number; everyDays?: number; picks?: Array<{ productId: string; reason: SuggestionReason }> } | null;
+  const cache = cached?.value as {
+    periodKey?: number; everyDays?: number; picks?: Array<{ productId: string; reason: SuggestionReason }>; shown?: string[];
+  } | null;
 
   let picks = cache?.picks;
-  if (refresh || !picks || cache?.periodKey !== periodKey || cache?.everyDays !== everyDays) {
-    picks = await computeSuggestions();
-    const value = { periodKey, everyDays, picks };
+  const samePeriod = cache?.periodKey === periodKey && cache?.everyDays === everyDays;
+  if (refresh || !picks || !samePeriod) {
+    // «اقتراحات ثانية» skips everything already shown this period, per reason;
+    // once a reason runs dry it starts over instead of leaving a gap.
+    let shown = samePeriod ? cache?.shown ?? cache?.picks?.map((p) => p.productId) ?? [] : [];
+    if (!refresh) shown = [];
+    const fresh = await computeSuggestions(shown);
+    const fallback = fresh.length < 3 ? await computeSuggestions(fresh.map((p) => p.productId)) : [];
+    picks = (["HIGH_QTY", "HIGH_VALUE", "STAGNANT"] as const)
+      .map((r) => fresh.find((p) => p.reason === r) ?? fallback.find((p) => p.reason === r))
+      .filter((p): p is { productId: string; reason: SuggestionReason } => !!p);
+    const value = { periodKey, everyDays, picks, shown: [...new Set([...shown, ...picks.map((p) => p.productId)])] };
     await prisma.setting.upsert({ where: { key: SUGGEST_CACHE_KEY }, create: { key: SUGGEST_CACHE_KEY, value }, update: { value } });
   }
 
