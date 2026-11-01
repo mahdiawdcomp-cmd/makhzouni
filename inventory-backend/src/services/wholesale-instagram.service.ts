@@ -502,3 +502,111 @@ async function finalizeSuccess(postId: string, igMediaId: string, token: string)
     data: { status: "PUBLISHED", permalink, publishedAt: new Date(), errorMessage: null },
   });
 }
+
+// ── Post suggestions (3 picks per period) ───────────────────────────────────
+//
+// Every period (1 or 2 days, Setting wholesaleInstagramSuggestEveryDays) the
+// page proposes three in-stock products that have photos and weren't posted
+// in the last 30 days: the biggest quantity, the most money sitting in stock
+// (qty × costPrice), and the longest without a sale. Picks are frozen in the
+// Setting wholesaleInstagramSuggestions for the whole period so they don't
+// reshuffle on every page load; the three are always distinct products.
+
+export type SuggestionReason = "HIGH_QTY" | "HIGH_VALUE" | "STAGNANT";
+
+type SuggestionRow = { id: string; name: string; qty: number; value: number; last_sale: Date | null };
+
+const SUGGEST_FREQ_KEY = "wholesaleInstagramSuggestEveryDays";
+const SUGGEST_CACHE_KEY = "wholesaleInstagramSuggestions";
+
+function baghdadDayNumber(d = new Date()) {
+  return Math.floor((d.getTime() + 3 * 3600_000) / 86_400_000);
+}
+
+export async function getSuggestEveryDays(): Promise<number> {
+  const row = await prisma.setting.findUnique({ where: { key: SUGGEST_FREQ_KEY } });
+  return row?.value === 2 ? 2 : 1;
+}
+
+export async function setSuggestEveryDays(days: number) {
+  if (days !== 1 && days !== 2) throw new AppError("القيمة لازم تكون 1 أو 2", 400, "INVALID_FREQUENCY");
+  await prisma.setting.upsert({ where: { key: SUGGEST_FREQ_KEY }, create: { key: SUGGEST_FREQ_KEY, value: days }, update: { value: days } });
+  await prisma.setting.deleteMany({ where: { key: SUGGEST_CACHE_KEY } });
+}
+
+async function computeSuggestions() {
+  const rows = await prisma.$queryRaw<SuggestionRow[]>`
+    SELECT p.id, p.name,
+           s.qty::int AS qty,
+           (s.qty * p.cost_price)::float AS value,
+           (SELECT MAX(i.date) FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
+             WHERE ii.product_id = p.id AND i.type = 'SALE' AND i.status = 'ACTIVE') AS last_sale
+    FROM products p
+    JOIN (SELECT product_id, SUM(quantity_pieces) AS qty FROM product_warehouse_stocks GROUP BY product_id) s
+      ON s.product_id = p.id
+    WHERE p.deleted_at IS NULL AND s.qty > 0
+      AND (p.image_url IS NOT NULL OR EXISTS (SELECT 1 FROM product_catalog_images c WHERE c.product_id = p.id))
+      AND NOT EXISTS (
+        SELECT 1 FROM wholesale_instagram_posts w
+        WHERE w.product_id = p.id AND w.status NOT IN ('FAILED', 'SKIPPED_OUT_OF_STOCK')
+          AND w.created_at > NOW() - INTERVAL '30 days')`;
+
+  const used = new Set<string>();
+  const pick = (sorted: SuggestionRow[], reason: SuggestionReason) => {
+    const row = sorted.find((r) => !used.has(r.id));
+    if (!row) return null;
+    used.add(row.id);
+    return { productId: row.id, reason };
+  };
+  const never = (r: SuggestionRow) => (r.last_sale ? new Date(r.last_sale).getTime() : 0);
+  return [
+    pick([...rows].sort((a, b) => b.qty - a.qty), "HIGH_QTY"),
+    pick([...rows].sort((a, b) => b.value - a.value), "HIGH_VALUE"),
+    pick([...rows].sort((a, b) => never(a) - never(b) || b.qty - a.qty), "STAGNANT"),
+  ].filter((p): p is { productId: string; reason: SuggestionReason } => p !== null);
+}
+
+export async function getPostSuggestions(refresh = false) {
+  const everyDays = await getSuggestEveryDays();
+  const periodKey = Math.floor(baghdadDayNumber() / everyDays);
+  const cached = await prisma.setting.findUnique({ where: { key: SUGGEST_CACHE_KEY } });
+  const cache = cached?.value as { periodKey?: number; everyDays?: number; picks?: Array<{ productId: string; reason: SuggestionReason }> } | null;
+
+  let picks = cache?.picks;
+  if (refresh || !picks || cache?.periodKey !== periodKey || cache?.everyDays !== everyDays) {
+    picks = await computeSuggestions();
+    const value = { periodKey, everyDays, picks };
+    await prisma.setting.upsert({ where: { key: SUGGEST_CACHE_KEY }, create: { key: SUGGEST_CACHE_KEY, value }, update: { value } });
+  }
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: picks.map((p) => p.productId) }, deletedAt: null },
+    select: {
+      id: true, name: true, imageUrl: true, costPrice: true,
+      warehouseStocks: { select: { quantityPieces: true } },
+      catalogImages: { select: { url: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+    },
+  });
+  const lastSales = await prisma.$queryRaw<Array<{ product_id: string; last_sale: Date }>>`
+    SELECT ii.product_id, MAX(i.date) AS last_sale FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
+    WHERE ii.product_id = ANY(${picks.map((p) => p.productId)}::uuid[]) AND i.type = 'SALE' AND i.status = 'ACTIVE'
+    GROUP BY ii.product_id`;
+
+  const items = picks.flatMap((p) => {
+    const prod = products.find((x) => x.id === p.productId);
+    if (!prod) return [];
+    const qty = totalStock({ openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 0, warehouseStocks: prod.warehouseStocks });
+    const last = lastSales.find((s) => s.product_id === p.productId)?.last_sale ?? null;
+    return [{
+      reason: p.reason,
+      productId: prod.id,
+      name: prod.name,
+      imageUrl: prod.imageUrl ?? prod.catalogImages[0]?.url ?? null,
+      stock: qty,
+      stockValue: Math.round(qty * Number(prod.costPrice)),
+      lastSaleAt: last,
+    }];
+  });
+  const nextAt = new Date(((periodKey + 1) * everyDays * 86_400_000) - 3 * 3600_000);
+  return { everyDays, nextRefreshAt: nextAt, items };
+}

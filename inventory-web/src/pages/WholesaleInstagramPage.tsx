@@ -9,6 +9,9 @@ import {
   getWholesaleInstagramAccounts,
   getWholesaleInstagramPosts,
   getWholesaleInstagramStockAlerts,
+  getWholesaleInstagramSuggestions,
+  setWholesaleInstagramSuggestFrequency,
+  type WholesaleInstagramSuggestion,
   type WholesaleInstagramPost,
 } from "../api/endpoints"
 import type { Product } from "../types/api"
@@ -20,7 +23,7 @@ import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 import { WholesaleInstagramPrepareModal } from "../components/wholesale-instagram/WholesaleInstagramPrepareModal"
-import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Trash2 } from "lucide-react"
+import { AlertTriangle, CheckCircle2, ExternalLink, Lightbulb, Loader2, RefreshCw, Trash2 } from "lucide-react"
 import { Instagram } from "../components/instagram/InstagramIcon"
 
 // «إنستغرام الجملة» — standalone management page for wholesale Product
@@ -212,6 +215,7 @@ function ProductsTab({ connected }: { connected: { id: string; username: string 
 
   return (
     <div className="space-y-3">
+      <SuggestionsCard accountId={accountId} />
       <div className="flex flex-wrap items-center gap-2">
         <Input placeholder="ابحث باسم المنتج أو الرقم..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs" />
         <select value={accountId} onChange={(e) => setAccountId(e.target.value)}
@@ -247,6 +251,122 @@ function ProductsTab({ connected }: { connected: { id: string; username: string 
         </div>
       )}
     </div>
+  )
+}
+
+// ── اقتراحات النشر ─────────────────────────────────────────────────────────────
+// كل يوم (أو يوم بعد يوم) تطلع 3 مواد: الأكثر كمية، الأكثر فلوس بالمخازن، والأطول
+// بدون بيع. الاقتراحات ثابتة طول الفترة، وما يقترح مادة انعرضت آخر 30 يوم.
+
+const REASON_LABEL: Record<WholesaleInstagramSuggestion["reason"], { title: string; cls: string }> = {
+  HIGH_QTY: { title: "أكثر كمية بالمخازن", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+  HIGH_VALUE: { title: "أكثر فلوس بالمخازن", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
+  STAGNANT: { title: "صار له هواي ما انباع", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
+}
+
+function daysSince(iso: string | null): string {
+  if (!iso) return "ما انباع ولا مرة"
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  return days <= 0 ? "انباع اليوم" : `آخر بيع قبل ${days} يوم`
+}
+
+function SuggestionsCard({ accountId }: { accountId: string }) {
+  const qc = useQueryClient()
+  const [created, setCreated] = useState<Set<string>>(new Set())
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const { data, isLoading } = useQuery({
+    queryKey: ["wig-suggestions"],
+    queryFn: () => getWholesaleInstagramSuggestions(),
+  })
+
+  async function refresh() {
+    setRefreshing(true)
+    try {
+      qc.setQueryData(["wig-suggestions"], await getWholesaleInstagramSuggestions(true))
+      setCreated(new Set())
+    } catch (error) {
+      toast({ title: apiErrorMessage(error), variant: "destructive" })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  async function changeFrequency(everyDays: 1 | 2) {
+    try {
+      qc.setQueryData(["wig-suggestions"], await setWholesaleInstagramSuggestFrequency(everyDays))
+    } catch (error) {
+      toast({ title: apiErrorMessage(error), variant: "destructive" })
+    }
+  }
+
+  async function makeDraft(productId: string) {
+    if (!accountId) { toast({ title: "اختر حساب انستغرام أولاً", variant: "destructive" }); return }
+    setBusyId(productId)
+    try {
+      await createWholesaleInstagramPost({ productId, accountId })
+      setCreated((prev) => new Set(prev).add(productId))
+      void qc.invalidateQueries({ queryKey: ["wig-posts"] })
+      toast({ title: "✓ انسوّت المسودة", description: "كمّل الصور والكابشن من تبويب «المسودات»" })
+    } catch (error) {
+      toast({ title: apiErrorMessage(error), variant: "destructive" })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <Lightbulb className="h-4 w-4 text-amber-500" /> اقتراحات النشر
+            {data && <span className="text-xs font-normal text-slate-400">الاقتراح الجاي: {formatBaghdad(data.nextRefreshAt)}</span>}
+          </p>
+          <div className="flex items-center gap-2 text-xs">
+            <select value={data?.everyDays ?? 1} onChange={(e) => void changeFrequency(Number(e.target.value) as 1 | 2)}
+              className="rounded-md border border-slate-300 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+              <option value={1}>كل يوم</option>
+              <option value={2}>يوم بعد يوم</option>
+            </select>
+            <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>
+              <RefreshCw className={cn("ml-1 h-3 w-3", refreshing && "animate-spin")} /> اقتراحات ثانية
+            </Button>
+          </div>
+        </div>
+
+        {isLoading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : !data || data.items.length === 0 ? (
+          <p className="py-4 text-center text-sm text-slate-500">ماكو مواد تنفع للاقتراح هسه</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {data.items.map((s) => {
+              const label = REASON_LABEL[s.reason]
+              const done = created.has(s.productId)
+              return (
+                <div key={s.reason} className="flex gap-2 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                  <div className="h-20 w-20 shrink-0 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
+                    {s.imageUrl && <img src={s.imageUrl} className="h-full w-full object-cover" />}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <span className={cn("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold", label.cls)}>{label.title}</span>
+                    <p className="truncate text-sm font-medium">{s.name}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {s.stock.toLocaleString("en-US")} قطعة · {s.stockValue.toLocaleString("en-US")} د.ع
+                    </p>
+                    <p className="text-[11px] text-slate-400">{daysSince(s.lastSaleAt)}</p>
+                    <Button size="sm" className="h-7 bg-pink-600 px-2 text-xs hover:bg-pink-700" disabled={done || busyId === s.productId}
+                      onClick={() => void makeDraft(s.productId)}>
+                      {busyId === s.productId ? <Loader2 className="ml-1 h-3 w-3 animate-spin" /> : null}
+                      {done ? "✓ انسوّت مسودة" : "سوّي مسودة"}
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

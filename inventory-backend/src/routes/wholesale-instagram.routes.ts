@@ -26,6 +26,8 @@ import {
   publishNow,
   listStockAlerts,
   dismissStockAlert,
+  getPostSuggestions,
+  setSuggestEveryDays,
 } from "../services/wholesale-instagram.service";
 
 // «إنستغرام الجملة» — routes completely independent of /instagram (retail).
@@ -76,6 +78,17 @@ router.put("/suggested-times", requirePermission("MANAGE_WHOLESALE_INSTAGRAM"), 
   });
   invalidateSettingsCache();
   res.json({ success: true, data: { times } });
+}));
+
+// ── Post suggestions (3 products per day / every other day) ─────────────────
+
+router.get("/suggestions", requireAnyPermission(...READ), asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await getPostSuggestions(req.query.refresh === "1") });
+}));
+
+router.put("/suggestions/frequency", requirePermission("MANAGE_WHOLESALE_INSTAGRAM"), asyncHandler(async (req, res) => {
+  await setSuggestEveryDays(Number((req.body as { everyDays?: unknown }).everyDays));
+  res.json({ success: true, data: await getPostSuggestions() });
 }));
 
 // ── Product image gallery (source images for "pick from product photos") ────

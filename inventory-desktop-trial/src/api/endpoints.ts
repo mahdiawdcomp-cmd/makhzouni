@@ -4216,6 +4216,32 @@ export async function saveWholesaleInstagramSuggestedTimes(times: string[]) {
   return data.data?.times ?? []
 }
 
+export interface WholesaleInstagramSuggestion {
+  reason: "HIGH_QTY" | "HIGH_VALUE" | "STAGNANT"
+  productId: string
+  name: string
+  imageUrl: string | null
+  stock: number
+  stockValue: number
+  lastSaleAt: string | null
+}
+
+export interface WholesaleInstagramSuggestions {
+  everyDays: number
+  nextRefreshAt: string
+  items: WholesaleInstagramSuggestion[]
+}
+
+export async function getWholesaleInstagramSuggestions(refresh = false) {
+  const { data } = await api.get<ApiEnvelope<WholesaleInstagramSuggestions>>("/wholesale-instagram/suggestions", { params: refresh ? { refresh: "1" } : undefined })
+  return data.data!
+}
+
+export async function setWholesaleInstagramSuggestFrequency(everyDays: 1 | 2) {
+  const { data } = await api.put<ApiEnvelope<WholesaleInstagramSuggestions>>("/wholesale-instagram/suggestions/frequency", { everyDays })
+  return data.data!
+}
+
 export async function getWholesaleProductGallery(productId: string) {
   const { data } = await api.get<ApiEnvelope<{ images: string[] }>>(`/wholesale-instagram/products/${productId}/gallery`)
   return data.data?.images ?? []
