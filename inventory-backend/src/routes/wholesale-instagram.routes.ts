@@ -28,6 +28,7 @@ import {
   dismissStockAlert,
   getPostSuggestions,
   setSuggestEveryDays,
+  getPostingReminder,
 } from "../services/wholesale-instagram.service";
 
 // «إنستغرام الجملة» — routes completely independent of /instagram (retail).
@@ -78,6 +79,12 @@ router.put("/suggested-times", requirePermission("MANAGE_WHOLESALE_INSTAGRAM"), 
   });
   invalidateSettingsCache();
   res.json({ success: true, data: { times } });
+}));
+
+// ── Posting reminder — any logged-in employee (no Instagram permission needed) ──
+
+router.get("/posting-reminder", asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await getPostingReminder() });
 }));
 
 // ── Post suggestions (3 products per day / every other day) ─────────────────

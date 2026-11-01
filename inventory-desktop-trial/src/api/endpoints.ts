@@ -4232,6 +4232,11 @@ export interface WholesaleInstagramSuggestions {
   items: WholesaleInstagramSuggestion[]
 }
 
+export async function getWholesaleInstagramPostingReminder() {
+  const { data } = await api.get<ApiEnvelope<{ show: boolean; daysSince: number; lastPublishedAt: string | null; thresholdDays: number }>>("/wholesale-instagram/posting-reminder")
+  return data.data!
+}
+
 export async function getWholesaleInstagramSuggestions(refresh = false) {
   const { data } = await api.get<ApiEnvelope<WholesaleInstagramSuggestions>>("/wholesale-instagram/suggestions", { params: refresh ? { refresh: "1" } : undefined })
   return data.data!

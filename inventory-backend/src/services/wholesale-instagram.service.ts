@@ -621,3 +621,32 @@ export async function getPostSuggestions(refresh = false) {
   const nextAt = new Date(((periodKey + 1) * everyDays * 86_400_000) - 3 * 3600_000);
   return { everyDays, nextRefreshAt: nextAt, items };
 }
+
+// ── Posting reminder (shown to every employee) ───────────────────────────────
+// Only meaningful once an account is connected. "Last post" = the newest
+// PUBLISHED wholesale post; with none ever published, counts from when the
+// first account was connected.
+
+export const POSTING_REMINDER_DAYS = 4;
+
+export async function getPostingReminder() {
+  const account = await prisma.instagramAccount.findFirst({
+    where: { status: "connected" },
+    orderBy: { createdAt: "asc" },
+    select: { createdAt: true },
+  });
+  if (!account) return { show: false, daysSince: 0, lastPublishedAt: null, thresholdDays: POSTING_REMINDER_DAYS };
+  const last = await prisma.wholesaleInstagramPost.findFirst({
+    where: { status: "PUBLISHED", publishedAt: { not: null } },
+    orderBy: { publishedAt: "desc" },
+    select: { publishedAt: true },
+  });
+  const since = last?.publishedAt ?? account.createdAt;
+  const daysSince = Math.floor((Date.now() - since.getTime()) / 86_400_000);
+  return {
+    show: daysSince >= POSTING_REMINDER_DAYS,
+    daysSince,
+    lastPublishedAt: last?.publishedAt ?? null,
+    thresholdDays: POSTING_REMINDER_DAYS,
+  };
+}

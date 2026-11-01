@@ -12,6 +12,7 @@ import { useUiStore } from "../../store/uiStore"
 import { PwaStatusBar } from "../PwaStatusBar"
 import { SystemHealthBar } from "../SystemHealthBar"
 import { MissingImageBanner } from "../MissingImageBanner"
+import { InstagramPostingReminder } from "../InstagramPostingReminder"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
 import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
@@ -371,6 +372,7 @@ export function AppLayout() {
 
         {/* In-stock products missing an image (admin-only, one line, no notifications) */}
         <MissingImageBanner />
+        <InstagramPostingReminder />
 
         {/* Desktop header */}
         <div className="hidden lg:block">
