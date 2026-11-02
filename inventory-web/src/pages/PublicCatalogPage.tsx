@@ -2247,7 +2247,7 @@ function CatalogShop({
         })()}
       </>
     ),
-    incoming: <IncomingRow tk={tk} phone={visitorPhone || customerPhone} customerName={customerName} allowPrices={allowPrices} />,
+    incoming: <IncomingRow tk={tk} phone={visitorPhone || customerPhone} sessionToken={accessToken || visitorToken} customerName={customerName} allowPrices={allowPrices} />,
     // Both rows deliberately ignore the filters — they are the shop's picks,
     // not a slice of the current search — so they stand down entirely the
     // moment the shopper narrows anything.
@@ -4469,8 +4469,8 @@ const fullImageCache = new Map<string, string>()
  * changes the quantity rather than queueing a second promise, which is what
  * the server's one-per-person rule enforces.
  */
-function IncomingRow({ tk, phone, customerName, allowPrices }: {
-  tk: ThemeTokens; phone: string; customerName: string; allowPrices: boolean
+function IncomingRow({ tk, phone, sessionToken, customerName, allowPrices }: {
+  tk: ThemeTokens; phone: string; sessionToken: string; customerName: string; allowPrices: boolean
 }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState<IncomingItem | null>(null)
@@ -4494,8 +4494,8 @@ function IncomingRow({ tk, phone, customerName, allowPrices }: {
   const maxReserve = (it: IncomingItem) => cartonsOf(it) || it.quantityPieces || 9999
 
   const query = useQuery({
-    queryKey: ["catalog-incoming", phone],
-    queryFn: () => getPublicIncomingItems(phone),
+    queryKey: ["catalog-incoming", sessionToken],
+    queryFn: () => getPublicIncomingItems(sessionToken),
     staleTime: 60_000,
   })
   const items = query.data?.items ?? []
@@ -4503,7 +4503,7 @@ function IncomingRow({ tk, phone, customerName, allowPrices }: {
 
   const reserveMut = useMutation({
     mutationFn: () => reserveIncomingItem({
-      itemId: open!.id, phone, name: customerName || undefined, quantity: qty,
+      itemId: open!.id, token: sessionToken, name: customerName || undefined, quantity: qty,
     }),
     onSuccess: () => {
       setOpen(null)
@@ -4514,7 +4514,7 @@ function IncomingRow({ tk, phone, customerName, allowPrices }: {
   // An anonymous guest has no phone on file, and reserving without one fails
   // server-side — so the row simply does not appear rather than offering a
   // button that answers «تعذر الحجز» whatever they do.
-  if (items.length === 0 || !phone) return null
+  if (items.length === 0 || !phone || !sessionToken) return null
 
   return (
     <div className="px-3 pt-3">

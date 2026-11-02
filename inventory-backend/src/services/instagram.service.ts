@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { encryptSecret, decryptSecret } from "../utils/crypto";
@@ -102,6 +103,34 @@ export function oauthRedirectUri(): string {
   return `${base}/api/public/instagram/oauth-callback`;
 }
 
+// The OAuth `state` is signed and short-lived. Plain base64 JSON let anyone
+// craft a callback that connected their own Instagram to the shop without an
+// admin session, or bounced visitors to any https site via returnTo.
+const STATE_TTL_MS = 30 * 60_000;
+const stateSecret = () => process.env.JWT_SECRET || process.env.CREDENTIALS_ENCRYPTION_KEY || "makhzouni-dev";
+const signState = (body: string) => createHmac("sha256", stateSecret()).update(`ig-oauth:${body}`).digest("base64url");
+
+function makeOauthState(returnTo: string) {
+  const body = Buffer.from(JSON.stringify({ returnTo, n: randomBytes(12).toString("base64url"), exp: Date.now() + STATE_TTL_MS })).toString("base64url");
+  return `${body}.${signState(body)}`;
+}
+
+/** The returnTo inside a genuine, unexpired state — or null for anything else. */
+export function parseOauthState(state: string): { returnTo: string } | null {
+  const [body, sig] = String(state ?? "").split(".");
+  if (!body || !sig) return null;
+  const expected = Buffer.from(signState(body));
+  const given = Buffer.from(sig);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(body, "base64url").toString()) as { returnTo?: string; exp?: number };
+    if (!parsed.exp || parsed.exp < Date.now()) return null;
+    return { returnTo: parsed.returnTo || "/settings" };
+  } catch {
+    return null;
+  }
+}
+
 export async function getOauthUrl(returnTo: string): Promise<string> {
   const { appId } = await getInstagramAppConfig();
   if (!appId) {
@@ -116,7 +145,7 @@ export async function getOauthUrl(returnTo: string): Promise<string> {
     redirect_uri: oauthRedirectUri(),
     scope: OAUTH_SCOPES,
     response_type: "code",
-    state: Buffer.from(JSON.stringify({ returnTo })).toString("base64url"),
+    state: makeOauthState(returnTo),
   });
   return `https://www.instagram.com/oauth/authorize?${qs}`;
 }
@@ -169,6 +198,9 @@ export async function connectWithToken(userAccessToken: string) {
 }
 
 export async function handleOauthCallback(code: string, state: string): Promise<string> {
+  // Checked before the code is exchanged: only a connect an admin started counts.
+  const verified = parseOauthState(state);
+  if (!verified) throw new AppError("رابط ربط انستغرام منتهي أو غير صالح — ابدأ الربط من جديد", 400, "IG_STATE_INVALID");
   const { appId, appSecret } = await getInstagramAppConfig();
   const form = new URLSearchParams({
     client_id: appId,
@@ -188,13 +220,7 @@ export async function handleOauthCallback(code: string, state: string): Promise<
     access_token: shortJson.access_token,
   });
   await upsertAccountFromToken(long.access_token, new Date(Date.now() + long.expires_in * 1000));
-  let returnTo = "/settings";
-  try {
-    returnTo = (JSON.parse(Buffer.from(state, "base64url").toString()) as { returnTo?: string }).returnTo || returnTo;
-  } catch {
-    /* keep default */
-  }
-  return returnTo;
+  return verified.returnTo;
 }
 
 export function serializeAccount(a: {

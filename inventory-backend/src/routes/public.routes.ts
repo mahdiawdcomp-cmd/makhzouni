@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { authMiddleware } from "../middleware/auth.middleware";
 import { postCatalogFunnel, getCatalogPurchaseHistory } from "../controllers/catalog-experience.controller";
 import { getCatalogSeoProduct, getCatalogSeoImage, getCatalogSeoIndex } from "../controllers/catalog-seo.controller";
 import { timingSafeEqual } from "node:crypto";
@@ -231,7 +232,7 @@ router.get("/media/:token", asyncHandler(async (req, res) => {
 // Instagram OAuth callback (Meta redirects here) → connects accounts, then
 // bounces the admin back to the web settings page.
 router.get("/instagram/oauth-callback", asyncHandler(async (req, res) => {
-  const { handleOauthCallback } = await import("../services/instagram.service");
+  const { handleOauthCallback, parseOauthState } = await import("../services/instagram.service");
   // returnTo is a FULL https URL sent by the tenant's own web app (kept in
   // state) — never hardcode a tenant domain here.
   const fallback = process.env.FRONTEND_PUBLIC_URL?.trim() || "";
@@ -243,10 +244,9 @@ router.get("/instagram/oauth-callback", asyncHandler(async (req, res) => {
     const returnTo = safeUrl(await handleOauthCallback(code, state));
     res.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}igconnect=ok`);
   } catch (error) {
-    let returnTo = fallback;
-    try {
-      returnTo = safeUrl((JSON.parse(Buffer.from(state, "base64url").toString()) as { returnTo?: string }).returnTo || fallback);
-    } catch { /* keep fallback */ }
+    // Only a signed state may choose where the visitor lands.
+    const parsed = parseOauthState(state);
+    const returnTo = parsed ? safeUrl(parsed.returnTo) : fallback;
     const msg = encodeURIComponent(error instanceof Error ? error.message : "connect failed");
     res.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}igconnect=error&igerror=${msg}`);
   }
@@ -464,8 +464,10 @@ router.post("/client/:token/arrivals", validate(portalTokenSchema), postArrivalS
 router.delete("/client/:token/arrivals/:subId", validate(portalArrivalDeleteSchema), deleteArrivalSubscription);
 router.get("/vapid-key", getVapidKey);
 
-// Store display screen — returns basic product info for a TV/display
-router.get("/display-products", catalogLimiter, asyncHandler(async (_req, res) => {
+// Store display screen — returns basic product info for a TV/display.
+// Opened from the sidebar by a signed-in user, so it needs that session: open
+// to anyone it handed wholesale prices and stock to whoever found the URL.
+router.get("/display-products", catalogLimiter, authMiddleware, asyncHandler(async (_req, res) => {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     select: {

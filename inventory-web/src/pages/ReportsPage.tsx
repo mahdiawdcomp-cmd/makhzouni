@@ -1,4 +1,5 @@
 import { QueryErrorBox } from "../components/ui/query-error"
+import { useFeatureEnabled } from "../hooks/useTenantConfig"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
@@ -50,9 +51,13 @@ export function ReportsPage() {
   const canViewProfits = useAuthStore((s) => s.canViewProfitReports)()
   // Assistant, profits & store-brain all expose profit figures — hidden together
   // when the profit-visibility capability is revoked (even for a second admin).
-  const gated = (id: Tab) => id === "profits" || id === "store-brain" || id === "assistant"
-  const visibleTabs = TABS.filter((t) => canViewProfits || !gated(t.id))
-  const activeTab: Tab = !canViewProfits && gated(tab) ? "sales" : tab
+  const gated = (id: Tab) => id === "profits" || id === "store-brain" || id === "assistant" || id === "margins"
+  // The server gates the end-of-day report on the tenant's dailyClosing feature;
+  // without it the tab only ever spun «جاري التحميل».
+  const dailyClosing = useFeatureEnabled("dailyClosing")
+  const hidden = (id: Tab) => (!canViewProfits && gated(id)) || (!dailyClosing && id === "end-of-day")
+  const visibleTabs = TABS.filter((t) => !hidden(t.id))
+  const activeTab: Tab = hidden(tab) ? "sales" : tab
 
   return (
     <div className="space-y-4">
@@ -306,6 +311,7 @@ function SalesTab() {
 
   return (
     <div className="space-y-4">
+      {report.isError && <QueryErrorBox title="تعذر تحميل تقرير المبيعات" onRetry={() => void report.refetch()} />}
       <div className="flex flex-wrap items-center gap-3">
         <Input type="date" className="w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input type="date" className="w-auto" value={to}   onChange={(e) => setTo(e.target.value)} />
@@ -345,12 +351,13 @@ function SalesTab() {
 
 // ─── Store Brain Tab («عقل المحل») ───────────────────────────────────────────
 function StoreBrainTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["store-brain"],
     queryFn: () => getStoreBrainReport(),
   })
 
   if (isLoading) return <div className="py-10 text-center text-slate-400">جاري التحميل...</div>
+  if (isError) return <QueryErrorBox title="تعذر تحميل عقل المحل" onRetry={() => void refetch()} />
   if (!data) return <div className="py-10 text-center text-slate-400">لا توجد بيانات</div>
 
   const c = data.comparison
@@ -719,6 +726,7 @@ function TopCustomersTab() {
 
   return (
     <div className="space-y-4">
+      {report.isError && <QueryErrorBox title="تعذر تحميل أفضل الزبائن" onRetry={() => void report.refetch()} />}
       <div className="flex flex-wrap items-center gap-3">
         <Input type="date" className="w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input type="date" className="w-auto" value={to}   onChange={(e) => setTo(e.target.value)} />
@@ -841,7 +849,7 @@ function EndOfDayTab() {
         </div>
       ) : null}
 
-      {!d ? <div className="text-center text-slate-400 py-8">جاري التحميل...</div> : (
+      {report.isError ? <QueryErrorBox title="تعذر تحميل تقرير نهاية اليوم" onRetry={() => void report.refetch()} /> : !d ? <div className="text-center text-slate-400 py-8">جاري التحميل...</div> : (
         <>
           {/* Cash vs Credit banner */}
           <div className="grid gap-3 sm:grid-cols-3">
@@ -919,6 +927,7 @@ function InventoryTab() {
   const data = report.data
   return (
     <div className="space-y-4">
+      {report.isError && <QueryErrorBox title="تعذر تحميل تقرير المخزون" onRetry={() => void report.refetch()} />}
       <div className="grid gap-4 md:grid-cols-2">
         <MetricCard title="إجمالي قيمة الشراء" value={data?.totals.purchaseValue ?? 0} />
         <MetricCard title="إجمالي قيمة البيع"  value={data?.totals.saleValue ?? 0} color="text-emerald-600" />

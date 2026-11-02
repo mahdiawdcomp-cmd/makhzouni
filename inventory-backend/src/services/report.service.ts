@@ -81,23 +81,22 @@ function dateFilter(from?: string, to?: string): Prisma.DateTimeFilter | undefin
   return Object.keys(filter).length ? filter : undefined;
 }
 
+// Bucketed by the shop's own calendar day. It used the server's zone (UTC), so
+// a sale between midnight and 03:00 Baghdad landed on the previous day and the
+// dashboard's seven bars were labelled a day early.
 function labelFor(date: Date, groupBy: "day" | "week" | "month") {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  if (groupBy === "month") return `${year}-${month}`;
+  const key = shopDayKey(date); // YYYY-MM-DD
+  if (groupBy === "month") return key.slice(0, 7);
 
   if (groupBy === "week") {
-    const firstDay = new Date(date.getFullYear(), 0, 1);
-    const pastDays = Math.floor(
-      (startOfDay(date).getTime() - firstDay.getTime()) / 86400000
-    );
-    const week = Math.ceil((pastDays + firstDay.getDay() + 1) / 7);
+    const [year, month, day] = key.split("-").map(Number);
+    const firstDay = new Date(Date.UTC(year, 0, 1));
+    const pastDays = Math.floor((Date.UTC(year, month - 1, day) - firstDay.getTime()) / 86400000);
+    const week = Math.ceil((pastDays + firstDay.getUTCDay() + 1) / 7);
     return `${year}-W${String(week).padStart(2, "0")}`;
   }
 
-  return `${year}-${month}-${day}`;
+  return key;
 }
 
 export function invoiceRevenueRatio(invoice: {
@@ -163,7 +162,8 @@ export async function getDashboardReport() {
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
   const sevenDaysAgo = startOfDay(addDays(now, -6));
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  // The shop's month, not the server's (UTC) one.
+  const monthStart = zonedDayRange(`${shopDayKey(now).slice(0, 7)}-01`, assistantTimezone()).start;
 
   const [
     todaySales,
@@ -725,7 +725,7 @@ export async function getEndOfDayReport(date?: string) {
   const creditSales = saleInvoices.filter((i) => i.paymentType !== "CASH");
 
   return {
-    date: start.toISOString().slice(0, 10),
+    date: shopDayKey(start),
     sales: {
       count: saleInvoices.length,
       returnCount: salesReturns.length,

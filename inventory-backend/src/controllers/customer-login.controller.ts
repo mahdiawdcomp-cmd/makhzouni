@@ -18,9 +18,11 @@ import {
   type TargetGroup,
 } from "../services/storefront-credentials.service";
 import { sendInvitesToGroup } from "../services/storefront-invite.service";
+import { getSettings } from "../services/settings.service";
 import {
   listPublicIncomingItems,
   reserveIncomingItem,
+  shopperFromToken,
   listMyReservations,
   listIncomingItems,
   createIncomingItem,
@@ -78,15 +80,20 @@ export const requestPriceAccessCtrl = asyncHandler(async (req, res) => {
 /* ── «احجز البضاعة القادمة الجديدة» ───────────────────────────────── */
 
 export const publicIncomingItemsCtrl = asyncHandler(async (req, res) => {
+  const shopper = await shopperFromToken(req.query.token ? String(req.query.token) : undefined);
+  const guestPrices = (await getSettings()).catalogGuestPricesVisible === true;
   const [items, mine] = await Promise.all([
-    listPublicIncomingItems(),
-    listMyReservations(String(req.query.phone ?? "")),
+    listPublicIncomingItems(Boolean(shopper?.allowPrices) || guestPrices),
+    shopper ? listMyReservations(shopper.phone) : Promise.resolve({}),
   ]);
   res.json({ success: true, data: { items, mine } });
 });
 
 export const reserveIncomingCtrl = asyncHandler(async (req, res) => {
-  const data = await reserveIncomingItem(req.body);
+  const body = req.body as { itemId: string; token: string; name?: string; quantity?: number; note?: string };
+  const shopper = await shopperFromToken(body.token);
+  if (!shopper) throw new AppError("سجّل دخولك بالكتلوك حتى تحجز", 403, "SHOPPER_REQUIRED");
+  const data = await reserveIncomingItem({ ...body, phone: shopper.phone });
   res.status(201).json({ success: true, data });
 });
 

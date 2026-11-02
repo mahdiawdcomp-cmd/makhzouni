@@ -369,7 +369,10 @@ export const incomingItemIdSchema = z.object({ params: z.object({ id: z.string()
 export const reserveIncomingSchema = z.object({
   body: z.object({
     itemId: z.string().uuid(),
-    phone: z.string().trim().min(5).max(40),
+    // The storefront session (customer catalog token or visitor session); the
+    // phone is taken from it, not from the body.
+    token: z.string().trim().min(10).max(200),
+    phone: z.string().trim().max(40).optional(),
     name: z.string().trim().max(120).optional(),
     quantity: z.coerce.number().int().min(1).max(9999).optional(),
     note: z.string().trim().max(500).optional(),
@@ -849,6 +852,9 @@ export const listInvoicesSchema = z.object({
     paymentType: z.enum(["CASH", "CREDIT", "PARTIAL"]).optional(),
     from: dateString.optional(),
     to: dateString.optional(),
+    // Invoice number or party name, matched on the server — the list only
+    // returns the newest rows, so a browser-side search missed older invoices.
+    search: z.string().trim().max(100).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(1000).default(20),
   }),

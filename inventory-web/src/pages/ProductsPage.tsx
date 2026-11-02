@@ -453,6 +453,9 @@ export function ProductsPage() {
   // Optional opening-stock split across warehouses (pieces per warehouse), used
   // on initial product entry only.
   const [dist, setDist] = useState<Record<string, number>>({})
+  // The per-warehouse figures as the dialog opened — only the ones the operator
+  // changed are sent, so an untouched warehouse is never rewritten from a stale copy.
+  const [distInitial, setDistInitial] = useState<Record<string, number>>({})
   // True once the operator actually touches a quantity field in this dialog.
   // Edit mode used to ALWAYS resend absolute per-warehouse quantities taken
   // from the cached list, so renaming a product at 10:05 silently rewound a
@@ -691,6 +694,7 @@ export function ProductsPage() {
       initialDist[ws.warehouseId] = ws.quantityPieces
     }
     setDist(initialDist)
+    setDistInitial(initialDist)
     setQtyDirty(false)
     // The list payload no longer carries the full imageUrl (only thumbnailUrl).
     // Show the thumbnail immediately, then fetch the full image so the editor
@@ -774,9 +778,10 @@ export function ProductsPage() {
       delete payload.openingBalancePcs
       delete payload.cartonsAvailable
     } else if (editing && activeWarehouses.length > 1) {
-      // Edit mode with a deliberate quantity change: send the full
-      // per-warehouse distribution. Backend applies each value and recomputes.
-      payload.warehouseDistribution = distEntries
+      // Edit mode with a deliberate quantity change: send only the warehouses
+      // whose number was changed. Each value is absolute on the backend, so
+      // resending an untouched warehouse would erase a sale made meanwhile.
+      payload.warehouseDistribution = distEntries.filter((d) => d.pieces !== (distInitial[d.warehouseId] ?? 0))
       // Strip raw quantity fields — they'll be derived from distribution by the backend.
       delete payload.openingBalancePcs
       delete payload.cartonsAvailable

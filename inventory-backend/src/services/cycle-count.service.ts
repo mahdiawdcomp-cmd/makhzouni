@@ -40,16 +40,15 @@ function makeToken() {
 
 /** Builds the absolute worker-link URL from the tenant's own catalogPublicUrl
  * setting (multi-tenant safe — never hardcode a tenant host). */
-function buildCycleCountPublicUrl(publicToken: string, catalogPublicUrl?: string): string {
-  let origin = "https://app.mazbwoni.com";
-  if (catalogPublicUrl) {
-    try {
-      origin = new URL(catalogPublicUrl).origin;
-    } catch {
-      // keep fallback
-    }
+// No fallback host: the platform domain proxies /api to ONE tenant's backend,
+// so a guessed host sent workers a link that answered «رمز غير صالح».
+function buildCycleCountPublicUrl(publicToken: string, catalogPublicUrl?: string): string | null {
+  if (!catalogPublicUrl) return null;
+  try {
+    return `${new URL(catalogPublicUrl).origin}/cycle-count/${publicToken}`;
+  } catch {
+    return null;
   }
-  return `${origin}/cycle-count/${publicToken}`;
 }
 
 interface StrategyPoolEntry {
@@ -213,6 +212,8 @@ async function notifyWorkerOfNewSession(warehouseId: string, publicToken: string
   if (!branch?.phone) return;
 
   const link = buildCycleCountPublicUrl(publicToken, settings?.catalogPublicUrl);
+  // The link is still on the cycle-count page; only the WhatsApp nudge needs a host.
+  if (!link) return;
   const message = `📋 جرد ذكي جديد لمخزن ${branch.name}\nافتح الرابط وابدأ العد:\n${link}`;
   await sendWhatsAppText(normalizePhone(branch.phone), message);
 }

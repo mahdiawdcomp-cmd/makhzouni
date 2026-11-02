@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { QueryErrorBox } from "../components/ui/query-error"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Activity,
@@ -266,6 +267,8 @@ export function AnalyzedErrorsPage() {
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin opacity-50" />
         </div>
+      ) : logsQuery.isError ? (
+        <QueryErrorBox title="تعذر تحميل سجل الأخطاء" onRetry={() => void logsQuery.refetch()} />
       ) : rows.length === 0 ? (
         <div className="glass flex flex-col items-center gap-2 rounded-xl py-12 text-center">
           <CheckCircle2 className="h-8 w-8 text-emerald-400" />

@@ -410,6 +410,8 @@ const READ_ONLY_ALLOWED_PREFIXES: readonly string[] = [
   "/health",      // health checks
   "/auth",        // login/logout/refresh/change-password must never be locked out
   "/realtime",    // SSE stream (read)
+  "/activity/page-view", // own navigation log — sent on every page change, so
+                         // refusing it toasted «read-only» on every click
 ];
 
 /**

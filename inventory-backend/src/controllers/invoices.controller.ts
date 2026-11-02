@@ -117,7 +117,11 @@ export const getCustomerProductHistoryForProduct = asyncHandler(async (req, res)
 export const addInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
 
-  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
+  // A till sale can't wait at the counter for the owner: a cashier with
+  // ACCESS_POS sells directly. Anything else from staff without invoice rights
+  // (purchases, returns) still goes to approval.
+  const posSale = hasPermission(user, "ACCESS_POS") && (req.body?.type ?? "SALE") === "SALE";
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES") && !posSale) {
     res.status(202).json(
       await queueInvoiceApproval("CREATE_INVOICE", { body: req.body }, user.id)
     );

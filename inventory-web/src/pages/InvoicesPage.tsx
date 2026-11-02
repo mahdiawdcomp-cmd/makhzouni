@@ -123,25 +123,34 @@ export function InvoicesPage() {
   })
 
   const [returnWarehouseId, setReturnWarehouseId] = useState("")
+  // A 202 means the request waits for the owner — the invoice is unchanged.
+  const alertIfQueued = (res: unknown) => {
+    const r = res as { approvalId?: string; message?: string } | undefined
+    if (r?.approvalId) alert(`${r.message ?? "انرسل الطلب لموافقة المدير"} — الفاتورة ما تتغير لحد ما يوافق.`)
+  }
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelInvoice(id, returnWarehouseId || undefined),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setCancelId(null)
       setReturnWarehouseId("")
+      alertIfQueued(res)
       void qc.invalidateQueries({ queryKey: ["invoices"] })
       void qc.invalidateQueries({ queryKey: ["customers"] })
     },
+    onError: (err: Error) => { alert(err.message || "تعذر إلغاء الفاتورة") },
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => permanentDeleteInvoice(id, returnWarehouseId || undefined),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setDeleteId(null)
       setReturnWarehouseId("")
+      alertIfQueued(res)
       void qc.invalidateQueries({ queryKey: ["invoices"] })
       void qc.invalidateQueries({ queryKey: ["customers"] })
     },
+    onError: (err: Error) => { alert(err.message || "تعذر حذف الفاتورة") },
   })
   const { data: warehousesList = [] } = useQuery({
     queryKey: ["branches"],
@@ -186,6 +195,8 @@ export function InvoicesPage() {
       appliedFilters.paymentType === "CASH" || appliedFilters.paymentType === "CREDIT" || appliedFilters.paymentType === "PARTIAL"
         ? appliedFilters.paymentType
         : undefined,
+    // Searched on the server so invoices older than the newest 500 are found.
+    search: debouncedQuery.trim().length >= 2 ? debouncedQuery.trim() : undefined,
   })
 
   const invoices = invoicesQuery.data ?? []

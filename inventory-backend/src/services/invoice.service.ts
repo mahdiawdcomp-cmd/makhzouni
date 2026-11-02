@@ -81,6 +81,7 @@ export interface ListInvoicesQuery {
   branchId?: string;
   from?: string;
   to?: string;
+  search?: string;
   page: number;
   limit: number;
 }
@@ -1719,6 +1720,14 @@ export async function listInvoices(query: ListInvoicesQuery) {
     ...(query.type ? { type: query.type } : {}),
     ...(query.paymentType ? { paymentType: query.paymentType } : {}),
     ...(dateFilter ? { date: dateFilter } : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { invoiceNumber: { contains: query.search, mode: "insensitive" as const } },
+            { customer: { name: { contains: query.search, mode: "insensitive" as const } } },
+          ],
+        }
+      : {}),
   };
   const skip = (query.page - 1) * query.limit;
 

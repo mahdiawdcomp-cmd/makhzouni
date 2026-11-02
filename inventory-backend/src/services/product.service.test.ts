@@ -196,6 +196,8 @@ mock.module("./warehouse-stock.service", {
     ensureLegacyWarehouseStock: async ()                     => {},
     upsertWarehouseStock:     async (...a: any[])            => upsertStockSpy(...a),
     syncProductTotalStock:    async (...a: any[])            => syncStockSpy(...a),
+    // No line count is under review in this fake — nothing is frozen.
+    assertNotUnderLineCount:  async () => undefined,
     normalizeProductStock:    (total: number, pcs: number)   => ({
       openingBalancePcs: total % pcs,
       cartonsAvailable:  Math.floor(total / pcs),

@@ -218,7 +218,7 @@ export const getCatalogDesignCtrl = asyncHandler(async (_req, res) => {
 
 export const updateCatalogDesignCtrl = asyncHandler(async (req, res) => {
   const {
-    primaryColor, bgColor, defaultTheme, logoUrl, welcomeMessage, bannerEnabled, bannerImages, footer,
+    primaryColor, bgColor, defaultTheme, logoUrl, welcomeMessage, bannerEnabled, bannerImages, footer, trust,
   } = req.body as {
     primaryColor?: string;
     bgColor?: string;
@@ -243,7 +243,15 @@ export const updateCatalogDesignCtrl = asyncHandler(async (req, res) => {
       minOrder?: string;
       cashOnDelivery?: boolean;
     };
+    trust?: {
+      badges?: Array<{ enabled?: boolean; text?: string }>;
+      lowStockCartons?: number;
+    };
   };
+  // Trust badges and the «باقي كمية قليلة» threshold were sent but never
+  // written, so the page said «تم الحفظ» and they came back off.
+  const badge = (i: number) => trust?.badges?.[i];
+  const lowStock = trust?.lowStockCartons;
 
   await updateSettings({
     catalogDesignPrimaryColor: primaryColor,
@@ -270,6 +278,14 @@ export const updateCatalogDesignCtrl = asyncHandler(async (req, res) => {
     catalogDesignFooterDeliveryTime: footer?.deliveryTime,
     catalogDesignFooterMinOrder: footer?.minOrder,
     catalogDesignFooterCashOnDelivery: footer?.cashOnDelivery,
+    catalogDesignTrust1Enabled: badge(0)?.enabled,
+    catalogDesignTrust1Text: badge(0)?.text,
+    catalogDesignTrust2Enabled: badge(1)?.enabled,
+    catalogDesignTrust2Text: badge(1)?.text,
+    catalogDesignTrust3Enabled: badge(2)?.enabled,
+    catalogDesignTrust3Text: badge(2)?.text,
+    catalogDesignLowStockCartons:
+      lowStock === undefined || lowStock === null ? undefined : Math.max(0, Math.min(1000, Math.trunc(Number(lowStock)) || 0)),
   });
 
   res.json({ success: true, message: "Catalog design updated" });

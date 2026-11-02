@@ -3,7 +3,7 @@ import { useTenantConfig } from "./hooks/useTenantConfig"
 import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage"
 import WebPlatformDisabledPage from "./pages/WebPlatformDisabledPage"
 import { createBrowserRouter, Link, Navigate, RouterProvider } from "react-router-dom"
-import { AdminRoute, PermissionRoute, ProtectedRoute } from "./components/ProtectedRoute"
+import { AdminRoute, AnyPermissionRoute, PermissionRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
 import { PosLayout } from "./components/layout/PosLayout"
 import { FeatureGate } from "./components/FeatureGate"
@@ -187,8 +187,10 @@ const router = createBrowserRouter([
           // Settings holds the WhatsApp/Telegram/Meta credentials — the sidebar
           // already hides it behind MANAGE_SETTINGS, so the route must enforce
           // the same thing or the URL is an open door.
+          // Admin-only like the server routes they save through (PUT /settings and
+          // /areas are adminOnly — they carry the shop's messaging credentials).
           {
-            element: <PermissionRoute permission="MANAGE_SETTINGS" />,
+            element: <AdminRoute />,
             children: [
               { path: "settings", element: s(<SettingsPage />) },
               // Behind MANAGE_SETTINGS with the rest of the shop's own setup:
@@ -202,6 +204,12 @@ const router = createBrowserRouter([
           // explicit permission (ADMIN passes by role) so it is never something
           // a rep has by default, and the URL enforces the same rule the sidebar
           // shows.
+          // Reviewers («الموافقات» / «قبول التحويلات») open it too; the server
+          // narrows what each one sees by request type.
+          {
+            element: <AnyPermissionRoute permissions={["MANAGE_APPROVALS", "MANAGE_TRANSFERS"]} />,
+            children: [{ path: "approvals", element: s(<ApprovalsPage />) }],
+          },
           {
             element: <PermissionRoute permission="MANAGE_CUSTOMER_OFFERS" />,
             children: [{ path: "customer-offers", element: s(<CustomerOffersPage />) }],
@@ -210,7 +218,6 @@ const router = createBrowserRouter([
             element: <AdminRoute />,
             children: [
               { path: "users", element: s(<UsersPage />) },
-              { path: "approvals", element: s(<ApprovalsPage />) },
           { path: "activity-log", element: s(<ActivityLogPage />) },
               { path: "personal-debts", element: s(<PersonalDebtsPage />) },
               { path: "audit-logs", element: f("auditLog", "سجل التدقيق", <AuditLogsPage />) },

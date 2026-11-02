@@ -125,8 +125,9 @@ export function VoucherDetailPage() {
     mutationFn: () =>
       updateVoucher(id!, {
         amount: Number(editAmountDisplay.replace(/,/g, "")),
-        notes: editNotes || undefined,
-        description: editDescription || undefined,
+        // "" clears the field; undefined would mean «no change» and keep it.
+        notes: editNotes,
+        description: editDescription,
       }),
     onSuccess: () => {
       setEditOpen(false)

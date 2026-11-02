@@ -316,15 +316,16 @@ export interface IncomingItem {
   sourceBatchItemId?: string | null
 }
 
-export async function getPublicIncomingItems(phone = "") {
+/** `token` is the storefront session (catalog access or visitor) — it decides prices and «mine». */
+export async function getPublicIncomingItems(token = "") {
   const { data } = await api.get<ApiEnvelope<{ items: IncomingItem[]; mine: Record<string, number> }>>(
-    "/public/catalog/incoming", { params: phone ? { phone } : {} },
+    "/public/catalog/incoming", { params: token ? { token } : {} },
   )
   return data.data ?? { items: [], mine: {} }
 }
 
 export async function reserveIncomingItem(payload: {
-  itemId: string; phone: string; name?: string; quantity?: number; note?: string
+  itemId: string; token: string; name?: string; quantity?: number; note?: string
 }) {
   const { data } = await api.post<ApiEnvelope<{ ok: boolean; quantity: number }>>(
     "/public/catalog/incoming/reserve", payload,
@@ -1795,8 +1796,8 @@ export async function getLastCustomerTransaction(id: string) {
 }
 
 export async function getCustomerInvoices(customerId: string) {
-  const { data } = await api.get<PagedResponse<Invoice>>("/invoices", { params: { customerId, limit: 100 } })
-  return data.data ?? []
+  // Every invoice of the customer, not just the newest 100.
+  return fetchAllPages<Invoice>("/invoices", { customerId })
 }
 
 export async function getInvoices(params?: {
@@ -1806,6 +1807,7 @@ export async function getInvoices(params?: {
   type?: "SALE" | "PURCHASE" | "SALES_RETURN"
   paymentType?: "CASH" | "CREDIT" | "PARTIAL"
   customerId?: string
+  search?: string
   page?: number
   limit?: number
 }) {
@@ -2004,8 +2006,12 @@ export async function downloadCustomerImageInvoiceExcelBlob(id: string) {
 }
 
 export async function getVouchers(params?: { customerId?: string; type?: "RECEIPT" | "PAYMENT" | "EXPENSE"; limit?: number; showCancelled?: boolean }) {
-  const { data } = await api.get<PagedResponse<Voucher>>("/vouchers", { params: { limit: 1000, ...params } })
-  return data.data ?? []
+  // An explicit limit asks for one page; otherwise every voucher, not just the newest 1000.
+  if (params?.limit !== undefined) {
+    const { data } = await api.get<PagedResponse<Voucher>>("/vouchers", { params })
+    return data.data ?? []
+  }
+  return fetchAllPages<Voucher>("/vouchers", { ...params })
 }
 
 export async function getVoucher(id: string) {
@@ -3729,7 +3735,8 @@ export interface DisplayData {
 }
 
 export async function getDisplayProducts() {
-  const { data } = await publicApi.get<{ success: boolean; data: DisplayData }>("/public/display-products")
+  // Signed-in only — opened from the sidebar in the same browser session.
+  const { data } = await api.get<{ success: boolean; data: DisplayData }>("/public/display-products")
   return data.data
 }
 

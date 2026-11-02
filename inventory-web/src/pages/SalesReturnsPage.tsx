@@ -85,8 +85,12 @@ export function SalesReturnsPage() {
   const [originalInvoiceId, setOriginalInvoiceId] = useState<string | undefined>()
   const [originalInvoiceQuery, setOriginalInvoiceQuery] = useState("")
   const originalInvoicesQuery = useQuery({
-    queryKey: ["invoices", "sales-return-source", selectedCustomer?.id],
-    queryFn: () => getInvoices({ customerId: selectedCustomer!.id, type: "SALE", status: "ACTIVE", limit: 50 }),
+    queryKey: ["invoices", "sales-return-source", selectedCustomer?.id, originalInvoiceQuery.trim()],
+    // The newest 50 by default; a typed number is searched across all of them.
+    queryFn: () => getInvoices({
+      customerId: selectedCustomer!.id, type: "SALE", status: "ACTIVE", limit: 50,
+      search: originalInvoiceQuery.trim().length >= 2 ? originalInvoiceQuery.trim() : undefined,
+    }),
     enabled: Boolean(selectedCustomer?.id),
   })
   const originalInvoiceOptions = (originalInvoicesQuery.data ?? []).filter((inv) =>
@@ -196,9 +200,9 @@ export function SalesReturnsPage() {
         setOriginalInvoiceQuery("")
         void queryClient.invalidateQueries({ queryKey: ["customers"] })
       },
-      onError: () => {
-        clientRequestIdRef.current = crypto.randomUUID()
-      },
+      // The SAME key is kept on error: if the request reached the server and only
+      // the answer was lost, the retry returns that return instead of booking a
+      // second one (stock back twice, customer credited twice).
     })
   }
 

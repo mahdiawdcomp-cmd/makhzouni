@@ -10,6 +10,16 @@ describe("resourceForPath", () => {
     assert.equal(resourceForPath("/api/whatsapp-chat/messages"), "whatsapp-chat");
   });
 
+  test("counts, China import and quiet screens never trigger a full refresh", () => {
+    assert.equal(resourceForPath("/api/cycle-count/public/tok/item"), "stocktake");
+    assert.equal(resourceForPath("/api/landed-cost/batches/1/items/2"), "products");
+    assert.equal(resourceForPath("/api/wholesale-instagram/drafts"), null);
+    assert.equal(resourceForPath("/api/telegram-channel/test"), null);
+    assert.equal(resourceForPath("/api/campaigns/1/send"), null);
+    assert.equal(resourceForPath("/api/agent/chat"), null);
+    assert.equal(resourceForPath("/api/sales-agent/receipts"), "vouchers");
+  });
+
   test("an unmapped staff route still falls back to a full refresh", () => {
     assert.equal(resourceForPath("/api/something-new"), "all");
   });

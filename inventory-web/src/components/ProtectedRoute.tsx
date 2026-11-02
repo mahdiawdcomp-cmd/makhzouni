@@ -36,3 +36,9 @@ export function PermissionRoute({ permission }: { permission: UserPermission }) 
   const hasPermission = useAuthStore((state) => state.hasPermission)
   return hasPermission(permission) ? <Outlet /> : <Navigate to="/" replace />
 }
+
+/** Any one of the permissions opens the page (ADMIN passes via hasPermission). */
+export function AnyPermissionRoute({ permissions }: { permissions: UserPermission[] }) {
+  const hasPermission = useAuthStore((state) => state.hasPermission)
+  return permissions.some((p) => hasPermission(p)) ? <Outlet /> : <Navigate to="/" replace />
+}

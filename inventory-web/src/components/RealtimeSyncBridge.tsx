@@ -50,7 +50,8 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   reports: ["reports", "dashboard-report"],
   settings: ["settings", "message-templates", "whatsapp-status"],
   "stock-losses": ["stock-losses", "products", "product", "product-movement", "dashboard-report", "reports"],
-  stocktake: ["stocktake", "stocktake-sessions", "stocktake-session", "products"],
+  // Line counts and cycle counts broadcast "stocktake" too.
+  stocktake: ["stocktake", "stocktake-sessions", "stocktake-session", "products", "line-counts", "line-count", "line-count-watch", "cycle-count-sessions", "cycle-count-session"],
   transfers: ["transfers", "products", "branches"],
   users: ["users"],
   vouchers: ["vouchers", "voucher", "customers", "dashboard-report", "reports"],

@@ -99,6 +99,8 @@ function isGroup(item: Item): item is Group {
 function permissionForItem(item: Item): UserPermission | null {
   if ("to" in item && item.to === "/") return null
   const path = "basePath" in item ? item.basePath : item.to
+  // The count screens answer to «جرد المخزون» on the server, not product management.
+  if (["/inventory/stocktake", "/inventory/line-count", "/inventory/cycle-count"].some((p) => path.startsWith(p))) return "INVENTORY_MANAGE"
   if (path.startsWith("/inventory")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/invoices") || path.startsWith("/pos") || path.startsWith("/quotations")) return "MANAGE_INVOICES"
   if (path.startsWith("/vouchers")) return "MANAGE_VOUCHERS"
@@ -523,7 +525,7 @@ const groupedNav: Array<{ leaf: string } | NavSectionDef> = [
     id: "admin",
     label: "الإدارة",
     icon: ShieldCheck,
-    paths: ["/approvals", "/error-logs", "/invoice-designer", "/settings", "/super-admin"],
+    paths: ["/approvals", "/error-logs", "/activity-log", "/invoice-designer", "/settings", "/super-admin"],
   },
 ]
 
@@ -776,7 +778,7 @@ export function Sidebar() {
     if (isAdmin) return true
     // Inventory group: visible when user can see at least one child (products or transfers)
     if (isGroup(item) && item.id === "inventory") {
-      return permissions.includes("MANAGE_PRODUCTS") || permissions.includes("VARIETY_CONVERT")
+      return permissions.includes("MANAGE_PRODUCTS") || permissions.includes("VARIETY_CONVERT") || permissions.includes("INVENTORY_MANAGE")
     }
     // Transfers leaf: VARIETY_CONVERT or MANAGE_PRODUCTS are both sufficient
     if ("to" in item && item.to === "/inventory/transfers") {
@@ -793,6 +795,10 @@ export function Sidebar() {
       return permissions.includes("ACCESS_POS") || permissions.includes("MANAGE_INVOICES")
     }
     const perm = permissionForItem(item)
+    // Settings, areas and the invoice designer save through admin-only routes
+    // (they hold the shop's WhatsApp/Telegram keys): showing them to a staff
+    // MANAGE_SETTINGS holder only led to a 403 on every save.
+    if (perm === "MANAGE_SETTINGS") return false
     return perm === null || permissions.includes(perm)
   }
 

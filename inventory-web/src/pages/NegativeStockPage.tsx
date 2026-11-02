@@ -42,7 +42,14 @@ export function NegativeStockPage() {
         notes: `تعديل رصيد سالب — ${vars.product.name}`,
         items: [{ productId: vars.product.id, quantity: vars.fix.transferablePieces, unit: "PIECE" }],
       }),
-    onSuccess: (_res, vars) => {
+    onSuccess: (res, vars) => {
+      // Staff transfers wait for approval — the balance is not fixed yet, so
+      // the row stays and the toast says so.
+      if ((res as { approvalId?: string } | undefined)?.approvalId) {
+        toast({ title: "انرسل التحويل للموافقة", description: "الرصيد يتصحح بعد ما يوافق المدير." })
+        void qc.invalidateQueries({ queryKey: ["transfers"], refetchType: "none" })
+        return
+      }
       toast({ title: `تم تحويل ${fmt(vars.fix.transferablePieces)} قطعة إلى ${vars.fix.toWarehouseName}` })
       setDone((prev) => new Set(prev).add(vars.product.id))
       void qc.invalidateQueries({ queryKey: ["products"], refetchType: "none" })

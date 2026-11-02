@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react"
+import { useAuthStore } from "../store/authStore"
 import { cancelStockLoss, createStockLoss, getBranches, listStockLosses } from "../api/endpoints"
 import type { Branch, LossReason, StockLoss } from "../types/api"
 import { useProducts } from "../hooks/useProducts"
@@ -45,6 +46,8 @@ export function LossesPage() {
 
   const [open, setOpen] = useState(false)
   const [cancelTarget, setCancelTarget] = useState<StockLoss | null>(null)
+  // Recording damage is open to the warehouse worker; cancelling stays with product managers.
+  const canCancel = useAuthStore((s) => s.hasPermission("MANAGE_PRODUCTS"))
 
   // Form state
   const [date, setDate] = useState(localDateStr())
@@ -172,7 +175,7 @@ export function LossesPage() {
                         are the trace of a correction already applied elsewhere —
                         cancelling one would double-apply it, so the backend
                         rejects it and the button must not be offered. */}
-                    {!loss.cancelledAt && (loss.source ?? "MANUAL") === "MANUAL" && (
+                    {!loss.cancelledAt && (loss.source ?? "MANUAL") === "MANUAL" && canCancel && (
                       <Button variant="ghost" size="sm" onClick={() => setCancelTarget(loss)}>
                         <Trash2 className="h-4 w-4 text-rose-500" />
                       </Button>

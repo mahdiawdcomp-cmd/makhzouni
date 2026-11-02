@@ -67,8 +67,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const user = get().user
     if (!user || user.role === "ADMIN") return false
     const perms = user.permissions ?? []
-    // POS-only: staff with zero permissions or whose only permission is ACCESS_POS
-    return perms.length === 0 || perms.every((p) => p === "ACCESS_POS")
+    // POS-only: staff whose only permission is ACCESS_POS. A staff account with
+    // no permissions at all used to land here too, but the server lets it read
+    // no customers and sell nothing, so the till could never work for it.
+    return perms.length > 0 && perms.every((p) => p === "ACCESS_POS")
   },
   // «المندوب» — a restriction, not a power, so an ADMIN does NOT pass by
   // default the way it does for ordinary capabilities. Only an account the

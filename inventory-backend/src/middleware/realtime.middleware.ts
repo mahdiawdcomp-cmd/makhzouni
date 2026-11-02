@@ -105,6 +105,13 @@ function resourceForPath(path: string): RealtimeResource | null {
   // the page — including the ~4.75 MB products catalogue — refetched at
   // once. That's the multi-second freeze reported after every WhatsApp send.
   if (clean.startsWith("/api/whatsapp")) return "whatsapp-chat";
+  if (clean.startsWith("/api/cycle-count")) return "stocktake";
+  if (clean.startsWith("/api/landed-cost")) return "products";
+  if (clean.startsWith("/api/customer-offers")) return "customers";
+  // Screens nobody else watches live: no broadcast at all. Left unlisted they
+  // fell through to "all", and every save (a worker's count line, one draft per
+  // product in a loop) made every open tab refetch the whole app.
+  if (/^\/api\/(instagram|wholesale-instagram|campaigns|prospects|inbound-messages|message-templates|telegram[a-z-]*|requested-products|product-reviews|personal-debts|voice|ocr|agent|error-logs|balance-migration)(\/|$)/.test(clean)) return null;
 
   return "all";
 }

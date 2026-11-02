@@ -89,9 +89,11 @@ export const getNegativeStock = asyncHandler(async (_req, res) => {
 
 export const bulkDelete = asyncHandler(async (req, res) => {
   requireUser(req.user);
-  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String).filter((id) => uuid.test(id)) : [];
   const result = await bulkDeleteProducts(ids);
-  res.json({ success: true, message: `تم حذف ${result.deleted} مادة`, ...result });
+  const note = result.skipped > 0 ? ` — وتركت ${result.skipped} لأن بيها رصيد أو جرد مفتوح` : "";
+  res.json({ success: true, message: `تم حذف ${result.deleted} مادة${note}`, ...result });
 });
 
 export const backfillThumbs = asyncHandler(async (_req, res) => {

@@ -1,4 +1,5 @@
 import prisma from "../config/database";
+import { invalidateSettingsCache } from "./settings.service";
 import { AppError } from "../utils/app-error";
 import { decryptSecret } from "../utils/crypto";
 import { totalStock } from "../utils/product-stock";
@@ -532,6 +533,8 @@ export async function setSuggestEveryDays(days: number) {
   if (days !== 1 && days !== 2) throw new AppError("القيمة لازم تكون 1 أو 2", 400, "INVALID_FREQUENCY");
   await prisma.setting.upsert({ where: { key: SUGGEST_FREQ_KEY }, create: { key: SUGGEST_FREQ_KEY, value: days }, update: { value: days } });
   await prisma.setting.deleteMany({ where: { key: SUGGEST_CACHE_KEY } });
+  // getSettings() caches every key; keep it from serving the old frequency.
+  invalidateSettingsCache();
 }
 
 async function computeSuggestions(exclude: string[] = []) {
@@ -588,6 +591,7 @@ export async function getPostSuggestions(refresh = false) {
       .filter((p): p is { productId: string; reason: SuggestionReason } => !!p);
     const value = { periodKey, everyDays, picks, shown: [...new Set([...shown, ...picks.map((p) => p.productId)])] };
     await prisma.setting.upsert({ where: { key: SUGGEST_CACHE_KEY }, create: { key: SUGGEST_CACHE_KEY, value }, update: { value } });
+    invalidateSettingsCache();
   }
 
   const products = await prisma.product.findMany({

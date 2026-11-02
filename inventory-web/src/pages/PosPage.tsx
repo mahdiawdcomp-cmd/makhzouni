@@ -885,7 +885,10 @@ export function POSPage() {
       // NOT for the walk-in account: its change is handed back in cash at the
       // counter, and recording it would drift the walk-in balance negative forever.
       const walkIn = /^0+$/.test((selectedCustomer?.phone ?? "").replace(/\D/g, "") || "x")
-      if (change > 0 && selectedCustomer && !walkIn) {
+      // 202: the sale went to the owner for approval (or waits offline) — it is
+      // NOT an invoice yet, so no surplus voucher and no «تم الحفظ».
+      const saved = Boolean(response?.data?.id)
+      if (saved && change > 0 && selectedCustomer && !walkIn) {
         try {
           await createReceipt({ customerId: selectedCustomer.id, amount: change, type: "RECEIPT", clientRequestId: `${clientRequestIdRef.current}:overpay` })
         } catch {
@@ -937,7 +940,15 @@ export function POSPage() {
         })
       }
 
-      setMessage(`✓ فاتورة ${response.data?.invoiceNumber ?? ""} — تم الحفظ`)
+      setMessage(
+        saved
+          ? `✓ فاتورة ${response.data?.invoiceNumber ?? ""} — تم الحفظ`
+          : response?.approvalId
+            ? "📨 البيعة انرسلت لموافقة المدير — ما صارت فاتورة بعد"
+            : response?.queued
+              ? "⏳ البيعة محفوظة بالجهاز وتنرفع أول ما يرجع النت"
+              : "⚠️ ما تأكدنا إن البيعة انحفظت — راجع الفواتير",
+      )
       setItems([])
       setPaid("")
       setDiscount(0)

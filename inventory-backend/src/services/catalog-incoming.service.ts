@@ -37,7 +37,30 @@ export type IncomingItemInput = {
  * an item is enough to take it down without deleting the reservations people
  * have already made against it.
  */
-export async function listPublicIncomingItems() {
+/**
+ * Who is reserving, from the storefront session — never from a phone the
+ * caller types. A phone alone let anyone read or overwrite a stranger's
+ * reservation. Accepts the customer's catalog token or a visitor session.
+ */
+export async function shopperFromToken(token?: string): Promise<{ phone: string; allowPrices: boolean } | null> {
+  const t = String(token ?? "").trim();
+  if (!t) return null;
+  try {
+    const { getCatalogAccess } = await import("./catalog.service");
+    const access = await getCatalogAccess(t);
+    const phone = normalizePhone(String(access.customer.phone ?? ""));
+    if (phone) return { phone, allowPrices: Boolean(access.allowPrices) };
+  } catch {
+    /* not a customer token — try a visitor session */
+  }
+  const { resolveVisitorSession } = await import("./catalog-visitor.service");
+  const visitor = await resolveVisitorSession(t);
+  if (!visitor) return null;
+  const phone = normalizePhone(visitor.phone);
+  return phone ? { phone, allowPrices: Boolean(visitor.pricesUnlocked) } : null;
+}
+
+export async function listPublicIncomingItems(showPrices = true) {
   const rows = await prisma.catalogIncomingItem.findMany({
     // Arrived goods leave this list by definition: it is about what has NOT
     // landed, and leaving them would invite reservations for stock that is
@@ -51,7 +74,9 @@ export async function listPublicIncomingItems() {
     },
     take: 60,
   });
-  return rows.map((r) => ({ ...r, price: r.price == null ? null : Number(r.price) }));
+  // Prices only for a shopper allowed to see them — the storefront hid them
+  // on screen but the API still sent them to anyone.
+  return rows.map((r) => ({ ...r, price: r.price == null || !showPrices ? null : Number(r.price) }));
 }
 
 /**

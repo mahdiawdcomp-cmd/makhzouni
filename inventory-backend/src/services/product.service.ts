@@ -792,6 +792,14 @@ export async function updateProduct(
       if (!validIds.has(d.warehouseId)) {
         throw new AppError("Warehouse not found or inactive", 404, "WAREHOUSE_NOT_FOUND");
       }
+      // Fresh, locked read: the figure the form loaded may predate a sale, and
+      // the logged variance must be measured against the real balance.
+      const locked = await tx.$queryRaw<{ quantity_pieces: number }[]>`
+        SELECT quantity_pieces FROM product_warehouse_stocks
+         WHERE product_id = ${id}::uuid AND warehouse_id = ${d.warehouseId}::uuid
+         FOR UPDATE`;
+      const current = locked.length > 0 ? Number(locked[0].quantity_pieces) : (beforeByWarehouse.get(d.warehouseId) ?? 0);
+      if (d.pieces < current) await assertNotUnderLineCount(tx, id, d.warehouseId);
       await upsertWarehouseStock(tx, {
         productId: id,
         warehouseId: d.warehouseId,
@@ -803,7 +811,7 @@ export async function updateProduct(
         productId: id,
         productName: existing.name,
         warehouseId: d.warehouseId,
-        before: beforeByWarehouse.get(d.warehouseId) ?? 0,
+        before: current,
         after: d.pieces,
         user,
       });
@@ -859,6 +867,7 @@ export async function updateProduct(
            WHERE product_id = ${id}::uuid AND warehouse_id = ${warehouseId}::uuid
            FOR UPDATE`;
         const targetPieces = Number(locked[0]?.quantity_pieces ?? 0);
+        if (requestedTotalPieces < targetPieces) await assertNotUnderLineCount(tx, id, warehouseId);
         await upsertWarehouseStock(tx, {
           productId: id,
           warehouseId,
@@ -1175,12 +1184,25 @@ export async function listProductsWithNegativeStock() {
 
 /** Soft-delete many products at once (used by the stale-products cleanup). */
 export async function bulkDeleteProducts(ids: string[]) {
-  if (!ids.length) return { deleted: 0 };
-  const result = await prisma.product.updateMany({
-    where: { id: { in: ids }, deletedAt: null },
-    data: { deletedAt: new Date() },
-  });
-  return { deleted: result.count };
+  if (!ids.length) return { deleted: 0, skipped: 0 };
+  // The stale list is cached for a minute: a product that received stock since,
+  // or is waiting in a line count, must not vanish with goods still on a shelf.
+  const blocked = await prisma.$queryRaw<{ product_id: string }[]>`
+    SELECT DISTINCT product_id FROM product_warehouse_stocks
+     WHERE product_id = ANY(${ids}::uuid[]) AND quantity_pieces <> 0
+    UNION
+    SELECT DISTINCT r.product_id FROM line_count_results r
+      JOIN line_count_sessions s ON s.id = r.session_id
+     WHERE r.product_id = ANY(${ids}::uuid[]) AND s.status IN ('OPEN', 'SUBMITTED')`;
+  const keep = new Set(blocked.map((b) => b.product_id));
+  const deletable = ids.filter((id) => !keep.has(id));
+  const result = deletable.length
+    ? await prisma.product.updateMany({
+        where: { id: { in: deletable }, deletedAt: null },
+        data: { deletedAt: new Date() },
+      })
+    : { count: 0 };
+  return { deleted: result.count, skipped: ids.length - deletable.length };
 }
 
 /**

@@ -352,22 +352,31 @@ export function InvoiceDetailPage() {
     }
   }
 
+  // A 202 is a request waiting for the owner, not a done deal — say so.
+  const notifyQueued = (res: unknown) => {
+    const r = res as { approvalId?: string; message?: string } | undefined
+    if (r?.approvalId) toast({ title: r.message ?? "انرسل الطلب لموافقة المدير", description: "الفاتورة ما تتغير لحد ما يوافق." })
+    return Boolean(r?.approvalId)
+  }
+  const refreshAfterChange = () => {
+    void queryClient.invalidateQueries({ queryKey: ["invoices"] })
+    void queryClient.invalidateQueries({ queryKey: ["invoices", id] })
+    void queryClient.invalidateQueries({ queryKey: ["invoices", id, "audit-trail"] })
+    void queryClient.invalidateQueries({ queryKey: ["customers"] })
+  }
+  const actionError = (title: string) => (err: unknown) =>
+    toast({ title, description: apiErrorMessage(err), variant: "destructive" })
+
   const cancelMutation = useMutation({
     mutationFn: (returnWarehouseId?: string) => cancelInvoice(id!, returnWarehouseId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["invoices"] })
-      void queryClient.invalidateQueries({ queryKey: ["invoices", id] })
-      void queryClient.invalidateQueries({ queryKey: ["invoices", id, "audit-trail"] })
-    },
+    onSuccess: (res) => { notifyQueued(res); refreshAfterChange() },
+    onError: actionError("تعذر إلغاء الفاتورة"),
   })
 
   const reactivateMutation = useMutation({
     mutationFn: () => reactivateInvoice(id!),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["invoices"] })
-      void queryClient.invalidateQueries({ queryKey: ["invoices", id] })
-      void queryClient.invalidateQueries({ queryKey: ["invoices", id, "audit-trail"] })
-    },
+    onSuccess: (res) => { notifyQueued(res); refreshAfterChange() },
+    onError: actionError("تعذر إعادة تفعيل الفاتورة"),
   })
 
   function fmtNumInput(raw: string): string {
@@ -389,10 +398,13 @@ export function InvoiceDetailPage() {
 
   const permanentDeleteMutation = useMutation({
     mutationFn: (returnWarehouseId?: string) => permanentDeleteInvoice(id!, returnWarehouseId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["invoices"] })
+    onSuccess: (res) => {
+      refreshAfterChange()
+      // Waiting for approval: the invoice still exists, so stay on it.
+      if (notifyQueued(res)) { setConfirmPermanentDelete(false); return }
       navigate("/invoices")
     },
+    onError: actionError("تعذر حذف الفاتورة"),
   })
 
   // Full edit dialog
