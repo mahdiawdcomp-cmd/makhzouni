@@ -384,3 +384,34 @@ describe("line count lock and uncounted watch", () => {
     assert.ok(!list.some((w) => w.productId === ids.a), "counted by a later session → cleared");
   });
 });
+
+describe("line count never loses the worker's count", () => {
+  const t = () => new Date().toISOString();
+
+  it("a stalled recount can be cancelled back to review with everything intact", async () => {
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    await svc.publicSubmitLineCount(s.publicToken, [
+      { productId: ids.h, qty: 2, unit: "PIECE", writtenAt: t() },
+      { productId: ids.i, qty: 3, unit: "PIECE", writtenAt: t() },
+    ]);
+    await svc.setLineCountDecision(s.id, "REJECTED", ids.i);
+    const before = await db.lineCountSession.findUniqueOrThrow({ where: { id: s.id } });
+    await svc.requestLineCountRecount(s.id, [ids.h]);
+    await assert.rejects(() => svc.setLineCountDecision(s.id, "ACCEPTED", ids.h), /ليست بانتظار/);
+    await svc.cancelLineCountRecount(s.id);
+    const rev = await svc.getLineCountReview(s.id);
+    assert.equal(rev.status, "SUBMITTED");
+    assert.deepEqual(rev.recountProductIds, []);
+    assert.equal(rev.items.find((x) => x.productId === ids.h)?.countedQty, 2);
+    assert.equal(rev.items.find((x) => x.productId === ids.i)?.decision, "REJECTED", "decisions survive");
+    assert.equal(rev.submittedAt?.getTime(), before.submittedAt?.getTime(), "upload time is kept");
+    await assert.rejects(() => svc.cancelLineCountRecount(s.id), /ماكو إعادة عدّ/);
+
+    // Sent back whole: the link carries the saved lines for any device.
+    await svc.reopenLineCount(s.id);
+    const pub = await svc.publicGetLineCount(s.publicToken);
+    assert.deepEqual(pub.lines.map((l) => [l.productId, l.qty]), [[ids.h, 2], [ids.i, 3]]);
+    await svc.cancelLineCount(s.id);
+    assert.deepEqual((await svc.publicGetLineCount(s.publicToken)).lines, [], "a closed link exposes nothing");
+  });
+});

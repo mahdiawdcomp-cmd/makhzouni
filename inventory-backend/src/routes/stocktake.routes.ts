@@ -30,6 +30,7 @@ import {
   reopenLineCountSession,
   deleteLineCountLineHandler,
   editLineCountLineHandler,
+  cancelLineCountRecountHandler,
   listLineCountWatchHandler,
   markLineCountGoneHandler,
   requestLineCountRecountHandler,
@@ -69,6 +70,7 @@ router.post("/lines/:id/finalize", authMiddleware, requirePermission("INVENTORY_
 router.post("/lines/:id/cancel", authMiddleware, requirePermission("INVENTORY_MANAGE"), cancelLineCountSession);
 router.post("/lines/:id/reopen", authMiddleware, requirePermission("INVENTORY_MANAGE"), reopenLineCountSession);
 router.post("/lines/:id/recount", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountRecountSchema), requestLineCountRecountHandler);
+router.post("/lines/:id/cancel-recount", authMiddleware, requirePermission("INVENTORY_MANAGE"), cancelLineCountRecountHandler);
 router.post("/lines/:id/gone", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountRecountSchema), markLineCountGoneHandler);
 router.patch("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineEditSchema), editLineCountLineHandler);
 router.delete("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineParamsSchema), deleteLineCountLineHandler);

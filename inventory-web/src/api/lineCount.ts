@@ -67,6 +67,8 @@ export interface LineCountReview {
   saleInvoice: { id: string; invoiceNumber: string } | null
   purchaseInvoice: { id: string; invoiceNumber: string } | null
   lineCount: number
+  /** Non-empty while some products are back with the worker for a recount. */
+  recountProductIds: string[]
   items: LineCountReviewItem[]
   uncounted: { productId: string; productName: string; itemNumber: string | null; pcsPerCarton: number; systemQty: number }[]
 }
@@ -114,5 +116,7 @@ export const finalizeLineCount = (id: string) =>
   api.post(`/stocktake/lines/${id}/finalize`, {}, { timeout: 150_000 }).then(unwrap<{ saleInvoiceId: string | null; purchaseInvoiceId: string | null }>)
 export const cancelLineCount = (id: string) => api.post(`/stocktake/lines/${id}/cancel`).then(unwrap<unknown>)
 export const reopenLineCount = (id: string) => api.post(`/stocktake/lines/${id}/reopen`).then(unwrap<unknown>)
+/** «إلغاء إعادة العدّ»: back to review with every earlier line and decision. */
+export const cancelLineCountRecount = (id: string) => api.post(`/stocktake/lines/${id}/cancel-recount`).then(unwrap<unknown>)
 
 export const lineCountPublicUrl = (token: string) => `${window.location.origin}/line-count/${token}`

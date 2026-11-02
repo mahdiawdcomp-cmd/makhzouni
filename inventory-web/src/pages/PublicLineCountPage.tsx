@@ -32,6 +32,8 @@ interface SessionData {
   recountProductIds?: string[]
   recountRound?: number
   products: CatalogProduct[]
+  /** A whole count sent back by the manager comes with its saved lines. */
+  lines?: { productId: string; qty: number; unit: "PIECE" | "CARTON"; writtenAt: string }[]
 }
 
 type Unit = "PIECE" | "CARTON"
@@ -148,9 +150,22 @@ export function PublicLineCountPage() {
         // the phone so the written lines still show their product names.
         const cached = readJson<SessionData | null>(catKey(token), null)
         const s = fetched.products.length === 0 && cached ? { ...fetched, products: cached.products } : fetched
-        setSession(s)
+        // Sent back whole: the server's lines (with the manager's corrections)
+        // replace this phone's old copy, or fill an empty one — another phone or
+        // the office PC must never upload an empty list over the saved count.
+        const saved = s.lines ?? []
+        if (s.status === "OPEN" && !s.recountProductIds?.length && saved.length > 0) {
+          const wasDone = readJson<boolean>(doneKey(token), false)
+          if (wasDone || readJson<Line[]>(linesKey(token, 0), []).length === 0) {
+            const seeded = saved.map((l) => ({ id: newId(), productId: l.productId, qty: String(l.qty), unit: l.unit, writtenAt: l.writtenAt }))
+            writeJson(linesKey(token, 0), seeded)
+            setLines(seeded)
+          }
+        }
+        const { lines: _saved, ...rest } = s
+        setSession(rest)
         setLoadError(null)
-        if (!writeJson(catKey(token), s)) setStorageOk(false)
+        if (!writeJson(catKey(token), rest)) setStorageOk(false)
         if (s.status === "SUBMITTED" || s.status === "FINALIZED") {
           setDone(true)
           writeJson(doneKey(token), true)

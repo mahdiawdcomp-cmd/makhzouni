@@ -15,6 +15,7 @@ import {
   editLineCountLine,
   finalizeLineCount,
   getLineCount,
+  cancelLineCountRecount,
   markLineCountGone,
   recountLineCount,
   reopenLineCount,
@@ -210,6 +211,14 @@ export function LineCountReviewPage() {
     onError: onErr("تعذر إرسال إعادة العدّ"),
   })
 
+  const cancelRecountMut = useMutation({
+    mutationFn: () => cancelLineCountRecount(id),
+    onSuccess: async () => {
+      toast({ title: "رجع الجرد للمراجعة — كل شي مثل ما كان" })
+      await Promise.all([refresh(), qc.invalidateQueries({ queryKey: ["line-counts"] })])
+    },
+    onError: onErr("تعذر إلغاء إعادة العدّ"),
+  })
   const goneMut = useMutation({
     mutationFn: (productIds: string[]) => markLineCountGone(id, productIds),
     onSuccess: async () => {
@@ -265,6 +274,31 @@ export function LineCountReviewPage() {
       : f === "pending" ? pending.length
       : f === "edited" ? diffs.filter((d) => d.it.workerCountedQty !== null).length
       : diffs.filter((d) => d.sev === f).length
+  // «قبول سريع»: only undecided rows, and never a suspected unit mix-up — those
+  // stay for the manager to look at one by one.
+  const acceptGroup = (label: string, rows: typeof diffs) => {
+    const open = rows.filter((d) => d.it.decision === "PENDING")
+    const take = open.filter((d) => !d.it.unitSuggestion)
+    const skipped = open.length - take.length
+    const moved = take.filter((d) => d.it.movedAfterWriting).length
+    if (take.length === 0) return
+    const notes = [
+      skipped > 0 ? `${skipped} مادة مشكوك بوحدتها ما انقبلت — شوفها بنفسك.` : "",
+      moved > 0 ? `${moved} مادة صارت عليها حركة بعد ما انكتبت.` : "",
+    ].filter(Boolean).join("\n")
+    if (!confirm(`تقبل ${take.length} ${label}؟${notes ? `\n\n${notes}` : ""}\n\nما ينحسب شي إلا لما تضغط «اعتماد».`)) return
+    decideMut.mutate({ decision: "ACCEPTED", productIds: take.map((d) => d.it.productId) })
+  }
+  const quickCount = (rows: typeof diffs) => rows.filter((d) => d.it.decision === "PENDING" && !d.it.unitSuggestion).length
+  const QUICK: { label: string; rows: typeof diffs; cls: string }[] = [
+    { label: "فرق صغير", rows: diffs.filter((d) => d.sev === "yellow"), cls: "border-yellow-300 bg-yellow-50 text-yellow-900" },
+    { label: "فرق متوسط", rows: diffs.filter((d) => d.sev === "orange"), cls: "border-orange-300 bg-orange-50 text-orange-800" },
+    { label: "فرق كبير", rows: diffs.filter((d) => d.sev === "red"), cls: "border-red-300 bg-red-50 text-red-700" },
+    { label: "نقص", rows: diffs.filter((d) => d.it.delta < 0), cls: "" },
+    { label: "زيادة", rows: diffs.filter((d) => d.it.delta > 0), cls: "" },
+    { label: "فرق (الكل)", rows: diffs, cls: "" },
+  ]
+  const matchedOpen = matched.filter((i) => i.decision !== "ACCEPTED")
   const visibleIds = visible.map((v) => v.it.productId)
   const toggleSelect = (pid: string) =>
     setSelected((prev) => {
@@ -360,6 +394,19 @@ export function LineCountReviewPage() {
               {pending.length > 0 && ` المواد اللي ما قررت عليها (${pending.length}) تبقى مقفولة بالمخزن.`}
             </p>
           )}
+          {s.status === "OPEN" && s.recountProductIds.length > 0 && !readOnly && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 p-3 text-sm text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
+              <span>{s.recountProductIds.length} مادة عند العامل يعيد عدّها. إذا ما يكدر يعدّها، ألغِ وارجع للمراجعة — كل شي يرجع مثل ما كان.</span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={cancelRecountMut.isPending}
+                onClick={() => { if (confirm("تلغي إعادة العدّ وترجع للمراجعة؟ العدّ القديم لهاي المواد يبقى.")) cancelRecountMut.mutate() }}
+              >
+                ألغِ إعادة العدّ
+              </Button>
+            </div>
+          )}
           {s.status === "CANCELLED" && <p className="text-sm text-slate-500">هذا الجرد ملغى.</p>}
         </CardContent>
       </Card>
@@ -376,6 +423,41 @@ export function LineCountReviewPage() {
         </div>
 
         {showThresholds && <ThresholdsEditor value={thresholds} onChange={saveThresholds} />}
+
+        {editable && (diffs.length > 0 || matched.length > 0) && (
+          <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+            <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">قبول سريع</p>
+            <p className="text-xs text-slate-500">يقبل اللي بلا قرار بس. المشكوك بوحدتها ما تنقبل هنا. وما ينحسب شي على المخزن إلا لما تعتمد.</p>
+            <div className="flex flex-wrap gap-2">
+              {QUICK.map((g) => (
+                <Button
+                  key={g.label}
+                  size="sm"
+                  variant="outline"
+                  className={g.cls}
+                  disabled={decideMut.isPending || quickCount(g.rows) === 0}
+                  onClick={() => acceptGroup(`مادة (${g.label})`, g.rows)}
+                >
+                  <Check className="h-4 w-4" /> اقبل كل {g.label} ({quickCount(g.rows)})
+                </Button>
+              ))}
+              {matched.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-emerald-300 bg-white text-emerald-700"
+                  disabled={decideMut.isPending || matchedOpen.length === 0}
+                  onClick={() => {
+                    if (confirm(`تثبّت ${matchedOpen.length} مادة مطابقة؟ رصيدها ما يتغيّر.`))
+                      decideMut.mutate({ decision: "ACCEPTED", productIds: matchedOpen.map((i) => i.productId) })
+                  }}
+                >
+                  <Check className="h-4 w-4" /> {matchedOpen.length > 0 ? `اقبل كل المطابق (${matchedOpen.length})` : "المطابق كله مقبول ✓"}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
 
         {diffs.length > 0 && (
           <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
@@ -565,7 +647,7 @@ export function LineCountReviewPage() {
               <Button
                 variant="outline"
                 disabled={reopenMut.isPending}
-                onClick={() => { if (confirm("ترجع الجرد كله للعامل حتى يعدّل؟ يفتح نفس الرابط، وتعديلاتك هنا تنمسح لما يرفع من جديد.")) reopenMut.mutate() }}
+                onClick={() => { if (confirm("ترجع الجرد كله للعامل حتى يعدّل؟\nيفتح نفس الرابط وبي كل السطور مع تصحيحاتك، حتى لو فتحه من جهاز ثاني.\nبس القرارات (قبول/رفض) تنمسح وتعيدها بعد ما يرفع.")) reopenMut.mutate() }}
               >
                 أعد الكل للعامل
               </Button>

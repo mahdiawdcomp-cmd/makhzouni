@@ -217,6 +217,7 @@ export async function getLineCountReview(id: string) {
     saleInvoice: await invoiceNumbers(s.saleInvoiceId),
     purchaseInvoice: await invoiceNumbers(s.purchaseInvoiceId),
     lineCount: lines.filter((l) => !l.deletedAt).length,
+    recountProductIds: s.recountProductIds,
     items,
     uncounted,
   };
@@ -579,9 +580,29 @@ export async function requestLineCountRecount(id: string, productIds: string[]) 
     if (ids.length === 0 || stocked !== rest.length) throw new AppError("اختر مواد من هذا الجرد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
     await tx.lineCountSession.update({
       where: { id },
-      data: { status: "OPEN", submittedAt: null, recountProductIds: ids, recountRound: { increment: 1 } },
+      // submittedAt stays: «إلغاء إعادة العدّ» returns to review with the same
+      // upload time, so the snapshot and the moved-after-writing check hold.
+      data: { status: "OPEN", recountProductIds: ids, recountRound: { increment: 1 } },
     });
     return { reopened: true, products: ids.length };
+  });
+}
+
+/** «إلغاء إعادة العدّ»: the worker can't or won't recount — back to review with
+ * every earlier line, result and decision as it was. Without it the only way out
+ * of a stalled recount was cancelling the whole count. */
+export async function cancelLineCountRecount(id: string) {
+  await loadSession(id);
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ status: string; recount: number; submitted_at: Date | null }[]>`
+      SELECT status, cardinality(recount_product_ids)::int AS recount, submitted_at FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
+    const r = rows[0];
+    if (r?.status !== "OPEN" || !(r.recount > 0)) throw new AppError("ماكو إعادة عدّ مفتوحة لهذا الجرد", 400, "LINE_COUNT_NO_RECOUNT");
+    await tx.lineCountSession.update({
+      where: { id },
+      data: { status: "SUBMITTED", recountProductIds: [], submittedAt: r.submitted_at ?? new Date() },
+    });
+    return { cancelled: true };
   });
 }
 
@@ -697,6 +718,16 @@ export async function publicGetLineCount(token: string) {
     select: { id: true, name: true, itemNumber: true, qrCode: true, cartonQrCode: true, category: true, pcsPerCarton: true },
     orderBy: { name: "asc" },
   });
+  // A whole count sent back («أعد للعامل») carries its lines — the worker's plus
+  // any manager correction — so a different phone, or the office PC entering the
+  // paper sheets, starts from them instead of uploading an empty list over them.
+  const lines = s.status === "OPEN" && recount.length === 0
+    ? await prisma.lineCountLine.findMany({
+        where: { sessionId: s.id, deletedAt: null },
+        orderBy: { position: "asc" },
+        select: { productId: true, qty: true, unit: true, writtenAt: true },
+      })
+    : [];
   return {
     id: s.id,
     status: s.status,
@@ -708,6 +739,7 @@ export async function publicGetLineCount(token: string) {
     recountProductIds: recount,
     recountRound: recount.length > 0 ? s.recountRound : 0,
     products,
+    lines,
   };
 }
 

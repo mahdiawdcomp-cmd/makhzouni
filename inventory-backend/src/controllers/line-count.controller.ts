@@ -1,6 +1,7 @@
 import { asyncHandler } from "../utils/async-handler";
 import {
   cancelLineCount,
+  cancelLineCountRecount,
   createLineCount,
   deleteLineCountLine,
   editLineCountLine,
@@ -94,4 +95,8 @@ export const markLineCountGoneHandler = asyncHandler(async (req, res) => {
 export const listLineCountWatchHandler = asyncHandler(async (req, res) => {
   const days = Math.min(3650, Math.max(1, Number(req.query.days) || 60));
   res.json({ success: true, data: await listLineCountWatch(days) });
+});
+
+export const cancelLineCountRecountHandler = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await cancelLineCountRecount(String(req.params.id)) });
 });
