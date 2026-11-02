@@ -181,7 +181,7 @@ export const promoteVisitorCtrl = asyncHandler(async (req, res) => {
 export const customerAccountCtrl = asyncHandler(async (req, res) => {
   const token = String(req.query.access ?? "");
   if (!token) throw new AppError("سجّل الدخول أولاً", 401, "LOGIN_REQUIRED");
-  const data = await getAccountForCatalogToken(token);
+  const data = await getAccountForCatalogToken(token, req.query.key ? String(req.query.key) : undefined);
   res.json({ success: true, data });
 });
 

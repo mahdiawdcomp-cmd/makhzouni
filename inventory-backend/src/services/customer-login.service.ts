@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { randomInt } from "crypto";
+import { createHmac, randomInt, timingSafeEqual } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { createCatalogAccessLink, getCatalogAccessLinkFor, normalizeCustomerPhone } from "./catalog.service";
@@ -83,10 +83,22 @@ function phoneCandidates(rawInput: string): string[] {
   return [...new Set([raw, international, local, digitsOnly, `+${international}`].filter(Boolean))];
 }
 
+/**
+ * «حسابي» proof. With the OTP gate off, typing a customer's phone hands out
+ * their catalog token so browsing stays one step — but that token alone must
+ * not open the statement, balance and address. Only a sign-in with the
+ * customer's private code returns this key, and the account view asks for it.
+ */
+export function catalogAccountKey(customerId: string) {
+  const secret = process.env.JWT_SECRET || process.env.CREDENTIALS_ENCRYPTION_KEY || "makhzouni-dev";
+  return createHmac("sha256", secret).update(`catalog-account:${customerId}`).digest("base64url").slice(0, 32);
+}
+
 export type CustomerLoginResult =
   | {
       kind: "CUSTOMER";
       token: string;
+      accountKey: string;
       customer: { id: string; name: string; phone: string };
     }
   | {
@@ -147,6 +159,7 @@ export async function customerLogin(rawPhone: string, rawCode: string): Promise<
     return {
       kind: "CUSTOMER",
       token,
+      accountKey: catalogAccountKey(customer.id),
       customer: { id: customer.id, name: customer.name, phone: customer.phone },
     };
   }
@@ -413,9 +426,17 @@ export async function applyPricesDefaultToAllLinks() {
  * portal rather than re-querying: one definition of "what a customer's
  * account looks like", so the two views can never drift apart.
  */
-export async function getAccountForCatalogToken(token: string) {
+export async function getAccountForCatalogToken(token: string, key?: string) {
   const { getCatalogAccess } = await import("./catalog.service");
   const access = await getCatalogAccess(token);
+  // OTP on: a token only ever reaches a phone that was verified, so it is
+  // proof enough. OTP off: the token may have come from just typing a number.
+  if ((await getSettings()).catalogRequireOtp === false) {
+    const expected = catalogAccountKey(access.customer.id);
+    const given = Buffer.from(String(key ?? ""));
+    if (given.length !== expected.length || !timingSafeEqual(given, Buffer.from(expected)))
+      throw new AppError("حتى تشوف حسابك ادخل رقمك ورمزك الخاص", 403, "ACCOUNT_CODE_REQUIRED");
+  }
 
   const { getCustomerTransactions } = await import("./customer.service");
   const [customer, statement, settings] = await Promise.all([

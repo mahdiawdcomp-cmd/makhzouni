@@ -29,6 +29,7 @@ import {
   resolveShopWarehouseId,
   resolveWarehouseId,
   syncProductTotalStock,
+  withNetLineCountCheck,
 } from "./warehouse-stock.service";
 import { executeTransferWithin } from "./transfer.service";
 import { createAppNotification, buildDedupeKey, notifyAdmin } from "./app-notification.service";
@@ -2089,11 +2090,12 @@ export async function updateInvoice(
   // back into a closed month.
   await assertInvoicePeriodOpen(id, db);
   if (input.date) await assertPeriodOpen(input.date);
+  // Line-count freeze judged on the edit's net effect, not its take-out step.
   const result = db
-    ? await updateInvoiceInTransaction(db, id, input, updatedBy)
+    ? await withNetLineCountCheck(db, () => updateInvoiceInTransaction(db, id, input, updatedBy))
     : await withTxRetry(() =>
         prisma.$transaction(
-          (tx) => updateInvoiceInTransaction(tx, id, input, updatedBy),
+          (tx) => withNetLineCountCheck(tx, () => updateInvoiceInTransaction(tx, id, input, updatedBy)),
           INVOICE_TX_OPTIONS
         )
       );

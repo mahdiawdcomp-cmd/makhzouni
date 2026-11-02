@@ -12,9 +12,12 @@ import { isWorkerOnlyUser } from "./worker-scope";
 // invoice screen reads customers and creates the payment receipt voucher.
 //
 // Route-level requirePermission() checks still apply on top of this; this
-// table only ever narrows access. ADMIN passes everything. Sales agents keep
-// their own scoping (requireSalesAgent / scopeCustomerParamToSalesAgent) and
-// are not routed through here. Worker-only accounts have worker-scope.ts.
+// table only ever narrows access. ADMIN passes everything. Worker-only accounts
+// have worker-scope.ts. Sales agents go through this table too: their app only
+// calls /sales-agent/* (not listed here, so open), and the customer reads below
+// are scoped to the agent's own customers (scopeCustomerParamToSalesAgent).
+// They used to skip the table entirely, which left every invoice, voucher,
+// report and the owner-only AI assistant open to an agent's token.
 
 type Rule = {
   prefix: string;
@@ -45,8 +48,8 @@ const RULES: Rule[] = [
 
   // ── Customers ── picked on every invoice; edits/deletes need the real permission
   // The bare list: «الكلفة الواصلة» also picks the supplier (a Customer) from it.
-  { prefix: "/customers", methods: ["GET"], exact: true, any: [...READ_CUSTOMERS, "MANAGE_PRODUCTS", "VIEW_PURCHASE_PRICE"] },
-  { prefix: "/customers", methods: ["GET"], any: READ_CUSTOMERS },
+  { prefix: "/customers", methods: ["GET"], exact: true, any: [...READ_CUSTOMERS, "MANAGE_PRODUCTS", "VIEW_PURCHASE_PRICE", "SALES_AGENT"] },
+  { prefix: "/customers", methods: ["GET"], any: [...READ_CUSTOMERS, "SALES_AGENT"] },
   // The invoice screen updates the customer's phone/details inline.
   { prefix: "/customers/:id", methods: ["PUT"], exact: true, any: ["MANAGE_CUSTOMERS", ...INVOICE_DESK] },
   { prefix: "/customers/:id/statement-pdf-whatsapp", methods: ["POST"], any: ["MANAGE_CUSTOMERS", "MANAGE_VOUCHERS", ...INVOICE_DESK] },
@@ -101,7 +104,7 @@ export function staffScopeDecision(
 ): { allowed: true } | { allowed: false; rule: string } {
   if (user.role === UserRole.ADMIN) return { allowed: true };
   const perms = user.permissions ?? [];
-  if (perms.includes("SALES_AGENT") || isWorkerOnlyUser(user)) return { allowed: true };
+  if (isWorkerOnlyUser(user)) return { allowed: true };
   const path = fullPath.replace(/^\/api(?=\/)/, "").split("?")[0];
   const m = method.toUpperCase();
   if (m === "OPTIONS" || m === "HEAD") return { allowed: true };

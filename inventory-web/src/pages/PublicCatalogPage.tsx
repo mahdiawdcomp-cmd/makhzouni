@@ -3735,6 +3735,40 @@ const ACCOUNT_TABS: Array<{ key: AccountTab; label: string }> = [
   { key: "vouchers", label: "سنداتي" },
 ]
 
+const accountErrorCode = (e: unknown) =>
+  (e as { response?: { data?: { code?: string; error?: { code?: string } } } })?.response?.data?.code
+  ?? (e as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code
+
+/** The statement needs the customer's own code; browsing never did. */
+function AccountCodeLogin({ tk, onDone }: { tk: ThemeTokens; onDone: () => void }) {
+  const [phone, setPhone] = useState("")
+  const [code, setCode] = useState("")
+  const [msg, setMsg] = useState("")
+  const mut = useMutation({
+    mutationFn: () => customerLogin(phone.trim(), code.trim()),
+    onSuccess: (r) => {
+      if (r.kind !== "CUSTOMER") { setMsg("هذا الرقم ما إله حساب بالمحل بعد"); return }
+      setMsg("")
+      onDone()
+    },
+    onError: (e) => setMsg(e instanceof Error ? e.message : "الرقم أو الرمز غلط"),
+  })
+  return (
+    <div className="space-y-3 py-6">
+      <p className="text-center font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>حتى تشوف حسابك وكشفك ادخل رقمك ورمزك الخاص</p>
+      <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="رقم الهاتف" type="tel" dir="ltr"
+        className="w-full rounded-xl px-4 py-3 text-sm outline-none" style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+      <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} placeholder="الرمز" inputMode="numeric" dir="ltr"
+        className="w-full rounded-xl px-4 py-3 text-sm outline-none" style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+      <button disabled={phone.trim().length < 7 || code.trim().length < 4 || mut.isPending} onClick={() => mut.mutate()}
+        className="w-full py-3 font-bold text-white disabled:opacity-50" style={{ background: tk.accent, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+        {mut.isPending ? "..." : "دخول"}
+      </button>
+      {msg && <p className="text-center text-sm text-red-600">{msg}</p>}
+    </div>
+  )
+}
+
 function AccountSheet({
   accessToken, tk, onClose,
 }: {
@@ -3779,7 +3813,11 @@ function AccountSheet({
           <p className="py-10 text-center" style={{ color: tk.subtext, fontSize: tk.fs.md }}>جاري التحميل...</p>
         )}
 
-        {accountQuery.isError && (
+        {accountQuery.isError && accountErrorCode(accountQuery.error) === "ACCOUNT_CODE_REQUIRED" && (
+          <AccountCodeLogin tk={tk} onDone={() => void accountQuery.refetch()} />
+        )}
+
+        {accountQuery.isError && accountErrorCode(accountQuery.error) !== "ACCOUNT_CODE_REQUIRED" && (
           <div className="py-10 text-center">
             <p className="font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>تعذر تحميل حسابك</p>
             <button onClick={() => void accountQuery.refetch()}

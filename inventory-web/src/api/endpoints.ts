@@ -220,7 +220,7 @@ export async function getCatalogSession(access: string) {
 /* ── Storefront login ─────────────────────────────────────────────── */
 
 export type CustomerLoginResult =
-  | { kind: "CUSTOMER"; token: string; customer: { id: string; name: string; phone: string } }
+  | { kind: "CUSTOMER"; token: string; accountKey?: string; customer: { id: string; name: string; phone: string } }
   | {
       kind: "VISITOR"
       phone: string
@@ -247,7 +247,19 @@ export async function customerLogin(phone: string, code: string) {
   const { data } = await api.post<ApiEnvelope<CustomerLoginResult>>(
     "/public/catalog/login", { phone, code },
   )
-  return data.data!
+  const result = data.data!
+  if (result.kind === "CUSTOMER" && result.accountKey) saveCatalogAccountKey(result.token, result.accountKey)
+  return result
+}
+
+// «حسابي» proof from a code sign-in. When the shop runs without OTP, typing a
+// phone opens the catalog but not the statement — that needs this key.
+const accountKeyStore = (token: string) => `catalog-account-key:${token}`
+export function saveCatalogAccountKey(token: string, key: string) {
+  try { localStorage.setItem(accountKeyStore(token), key) } catch { /* storage blocked */ }
+}
+function readCatalogAccountKey(token: string) {
+  try { return localStorage.getItem(accountKeyStore(token)) ?? undefined } catch { return undefined }
 }
 
 /** Identified by the browsing session, never by a phone the caller supplies. */
@@ -511,7 +523,7 @@ export interface CustomerAccount {
 
 export async function getCustomerAccount(access: string) {
   const { data } = await api.get<ApiEnvelope<CustomerAccount>>(
-    "/public/catalog/account", { params: { access } },
+    "/public/catalog/account", { params: { access, key: readCatalogAccountKey(access) } },
   )
   return data.data!
 }

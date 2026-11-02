@@ -415,3 +415,33 @@ describe("line count never loses the worker's count", () => {
     assert.deepEqual((await svc.publicGetLineCount(s.publicToken)).lines, [], "a closed link exposes nothing");
   });
 });
+
+describe("line count freeze and invoice edits", () => {
+  const t = () => new Date().toISOString();
+
+  it("re-pricing a purchase of a frozen product passes; cutting its quantity does not", async () => {
+    const inv = await import("../services/invoice.service");
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    const purchase = await inv.createInvoice(
+      {
+        customerId: ids.supplier, type: "PURCHASE" as never, discount: 0, tax: 0, paidAmount: 0,
+        paymentType: "CREDIT" as never, branchId: ids.shop,
+        items: [{ productId: ids.f, quantity: 24, unitPrice: 500, warehouseId: ids.shop, unit: "PIECE" as never }],
+      },
+      ids.admin,
+    );
+    await svc.publicSubmitLineCount(s.publicToken, [{ productId: ids.f, qty: 1, unit: "PIECE", writtenAt: t() }]);
+    const edit = (quantity: number, unitPrice: number) =>
+      inv.updateInvoice(purchase.id, {
+        customerId: ids.supplier, type: "PURCHASE" as never, discount: 0, tax: 0, paidAmount: 0,
+        paymentType: "CREDIT" as never, branchId: ids.shop,
+        items: [{ productId: ids.f, quantity, unitPrice, warehouseId: ids.shop, unit: "PIECE" as never }],
+      }, ids.admin);
+    const before = await stock(ids.f);
+    await edit(24, 650); // new customs price, same quantity
+    assert.equal(await stock(ids.f), before, "same quantity — stock unchanged");
+    await assert.rejects(() => edit(20, 650), /بالجرد/, "a net decrease of a frozen product is still refused");
+    assert.equal(await stock(ids.f), before);
+    await svc.cancelLineCount(s.id);
+  });
+});

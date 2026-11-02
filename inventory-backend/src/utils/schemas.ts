@@ -216,6 +216,8 @@ export const catalogAccessQuerySchema = z.object({
   query: z.object({
     priceMode: z.enum(["WHOLESALE", "CARTON"]).optional(),
     access: z.string().trim().min(20),
+    // «حسابي» proof from a code sign-in (see catalogAccountKey).
+    key: z.string().trim().max(100).optional(),
   }),
 });
 

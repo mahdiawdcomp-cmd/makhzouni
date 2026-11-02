@@ -737,7 +737,10 @@ async function handleMessage(
     // own "share my contact" tap — that's what makes phone_number trustworthy.
     // A forwarded contact card (someone else's number) has a different/absent
     // user_id and must be rejected, not linked to this chat.
-    if (contact.user_id && message.from?.id && contact.user_id !== message.from.id) {
+    // Both ids must be present and equal: a typed or phonebook card carries no
+    // user_id at all, and letting that through handed anyone's portal and
+    // order account to whoever knew the number.
+    if (!contact.user_id || !message.from?.id || contact.user_id !== message.from.id) {
       await send(botToken, chatId, "لازم تشارك رقمك انت (مو رقم شخص ثاني) 🙏", { inline_keyboard: [backRow()] });
       return;
     }

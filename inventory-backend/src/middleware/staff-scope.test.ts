@@ -7,9 +7,23 @@ const staff = (...permissions: string[]) => ({ role: UserRole.STAFF, permissions
 const ok = (u: ReturnType<typeof staff>, m: string, p: string) => staffScopeDecision(u, m, p).allowed;
 
 describe("staff API scope", () => {
-  test("admin and sales agents are untouched", () => {
+  test("admin is untouched", () => {
     assert.ok(ok({ role: UserRole.ADMIN, permissions: [] } as never, "GET", "/api/reports/profit"));
-    assert.ok(ok(staff("SALES_AGENT"), "GET", "/api/customers"));
+  });
+
+  test("a sales agent keeps its own app and scoped customer reads, nothing else", () => {
+    const a = staff("SALES_AGENT");
+    assert.ok(ok(a, "GET", "/api/sales-agent/today"));
+    assert.ok(ok(a, "POST", "/api/sales-agent/receipts"));
+    assert.ok(ok(a, "GET", "/api/customers"));
+    assert.ok(ok(a, "GET", "/api/customers/abc"));
+    assert.ok(ok(a, "GET", "/api/reports/dashboard"));
+    assert.ok(!ok(a, "GET", "/api/invoices"));
+    assert.ok(!ok(a, "GET", "/api/invoices/abc/pdf"));
+    assert.ok(!ok(a, "GET", "/api/vouchers"));
+    assert.ok(!ok(a, "GET", "/api/reports/sales"));
+    assert.ok(!ok(a, "POST", "/api/agent/chat"));
+    assert.ok(!ok(a, "DELETE", "/api/customers/abc"));
   });
 
   test("cashier (MANAGE_INVOICES) keeps the whole invoice flow", () => {

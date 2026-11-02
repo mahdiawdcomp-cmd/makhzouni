@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
@@ -155,6 +156,26 @@ export async function assertNotUnderLineCount(db: WarehouseDb, productId: string
   );
 }
 
+// An invoice edit takes its old lines out and puts the new ones back inside one
+// transaction. Judged step by step, re-pricing a purchase "withdraws" frozen
+// goods for a moment and was refused. Inside withNetLineCountCheck the freeze is
+// judged on the net change instead: only a product that ends the edit with LESS
+// stock in that warehouse than it started with is checked.
+const netLineCountScope = new AsyncLocalStorage<Map<string, { productId: string; warehouseId: string; start: number }>>();
+
+export async function withNetLineCountCheck<T>(db: WarehouseDb, fn: () => Promise<T>): Promise<T> {
+  const touched = new Map<string, { productId: string; warehouseId: string; start: number }>();
+  const result = await netLineCountScope.run(touched, fn);
+  for (const t of touched.values()) {
+    const rows = await db.$queryRaw<Array<{ quantity_pieces: number }>>(Prisma.sql`
+      SELECT "quantity_pieces" FROM "product_warehouse_stocks"
+      WHERE "product_id" = ${t.productId}::uuid AND "warehouse_id" = ${t.warehouseId}::uuid
+    `);
+    if ((rows[0]?.quantity_pieces ?? 0) < t.start) await assertNotUnderLineCount(db, t.productId, t.warehouseId);
+  }
+  return result;
+}
+
 export async function adjustWarehouseStock(
   db: WarehouseDb,
   input: {
@@ -184,7 +205,13 @@ export async function adjustWarehouseStock(
   // could not receive a purchase into it until someone corrected the number by
   // hand. Only a withdrawal is ever worth guarding.
   const isWithdrawal = input.deltaPieces < 0;
-  if (isWithdrawal) await assertNotUnderLineCount(db, input.productId, input.warehouseId);
+  const netScope = netLineCountScope.getStore();
+  if (netScope) {
+    const key = `${input.productId}|${input.warehouseId}`;
+    if (!netScope.has(key)) netScope.set(key, { productId: input.productId, warehouseId: input.warehouseId, start: balanceBefore });
+  } else if (isWithdrawal) {
+    await assertNotUnderLineCount(db, input.productId, input.warehouseId);
+  }
   if (isWithdrawal && !input.allowNegative && balanceAfter < 0) {
     // Named, in Arabic, and with the numbers that matter. The old English
     // "Insufficient warehouse stock. Available: -240" named neither the product
