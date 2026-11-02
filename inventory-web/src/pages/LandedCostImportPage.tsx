@@ -86,6 +86,7 @@ export function LandedCostImportPage() {
         originalFileName: file?.name,
         params: preview.params,
         items: preview.items,
+        uploadId: preview.uploadId,
       })
     },
     onSuccess: (batch) => {
@@ -184,6 +185,7 @@ export function LandedCostImportPage() {
           <CardHeader className="flex items-center justify-between">
             <span className="font-semibold">2. الأوردر المسعّر ({preview.items.length} صنف)</span>
             <div className="flex gap-2">
+              {(preview.picturesFound ?? 0) > 0 && <Badge variant="success">{preview.picturesFound} صورة من الإكسل</Badge>}
               {preview.notFoundCount > 0 && <Badge variant="warning">{preview.notFoundCount} صنف غير موجود</Badge>}
               {preview.ambiguousCount > 0 && <Badge variant="danger">{preview.ambiguousCount} صنف مكرر بالملف</Badge>}
             </div>
@@ -193,6 +195,7 @@ export function LandedCostImportPage() {
               <thead className="bg-slate-50 text-xs text-muted-foreground dark:bg-slate-800">
                 <tr>
                   <th className="p-2 text-right">رقم المادة</th>
+                  <th className="p-2">الصورة</th>
                   <th className="p-2">كراتين</th>
                   <th className="p-2">قطع/كرتون</th>
                   <th className="p-2">إجمالي القطع</th>
@@ -211,6 +214,9 @@ export function LandedCostImportPage() {
                 {preview.items.map((it, i) => (
                   <tr key={i} className="border-t">
                     <td className="p-2 font-semibold">{it.itemNumber || "—"}</td>
+                    <td className="p-2 text-center">
+                      {it.imageThumb ? <img src={it.imageThumb} alt="" className="mx-auto h-10 w-10 rounded object-cover" /> : <span className="text-xs text-slate-300">—</span>}
+                    </td>
                     <td className="p-2 text-center">{it.cartonCount}</td>
                     <td className="p-2 text-center">{it.piecesPerCarton}</td>
                     <td className="p-2 text-center">{it.totalPieces}</td>

@@ -51,19 +51,29 @@ export interface ChinaOrderRow {
   piecesPerCarton: number;
   unitPriceCny: number;
   cartonCbm: number;
+  /** Optional columns (only when a header names them) — the export carries them for editing. */
+  name?: string;
+  salePrice?: number;
+  /** 0-based row on the sheet, so pictures anchored to that row can be paired with it. */
+  sheetRow?: number;
+  sheetName?: string;
 }
+
+type ChinaColumn = "itemNumber" | "image" | "cartonCount" | "piecesPerCarton" | "unitPriceCny" | "cartonCbm" | "name" | "salePrice";
 
 // Column aliases used only to auto-detect a header row. The template is
 // positional (fixed order), so header names are OPTIONAL — any real-world
 // sheet whose columns follow the fixed order works even with custom labels
 // or a decorative title row above the table.
-const HEADER_ALIASES: Record<keyof ChinaOrderRow, string[]> = {
+const HEADER_ALIASES: Record<ChinaColumn, string[]> = {
   itemNumber: ["itemnumber", "item_number", "رقم المادة", "كود الصنف", "كود", "رقم"],
   image: ["image", "الصورة", "صورة"],
   cartonCount: ["cartoncount", "carton_count", "cartons", "عدد الكراتين", "الكراتين", "كراتين"],
   piecesPerCarton: ["piecespercarton", "pieces_per_carton", "قطع بالكارتون", "عدد القطع بالكارتون", "قطع الكارتون"],
   unitPriceCny: ["unitpricecny", "unit_price_cny", "سعر القطعة يوان", "سعر المفرد يوان", "سعر القطعة", "سعر يوان"],
   cartonCbm: ["cartoncbm", "carton_cbm", "cbm", "حجم الكارتون", "الحجم"],
+  name: ["name", "productname", "اسم المادة", "الاسم", "اسم"],
+  salePrice: ["saleprice", "sale_price", "سعر البيع", "البيع"],
 };
 
 export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
@@ -86,12 +96,21 @@ export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
 
   // First sheet that actually contains rows.
   let grid: unknown[][] = [];
+  let sheetName = "";
+  let firstRow = 0;
   try {
     for (const name of wb.SheetNames) {
       const aoa = utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: "" });
       // SheetJS leaves HOLES for blank rows, so `r` can be undefined —
       // calling .some() on it threw a TypeError that surfaced as a 500.
-      if (aoa.some((r) => Array.isArray(r) && r.some((c) => clean(c) !== ""))) { grid = aoa; break; }
+      if (aoa.some((r) => Array.isArray(r) && r.some((c) => clean(c) !== ""))) {
+        grid = aoa;
+        sheetName = name;
+        // aoa[0] is the first row of the used range, not necessarily row 1.
+        const ref = wb.Sheets[name]["!ref"];
+        firstRow = ref ? utils.decode_range(ref).s.r : 0;
+        break;
+      }
     }
   } catch (err) {
     throw new AppError(
@@ -104,13 +123,14 @@ export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
 
   // Fixed positional order by default; a recognized header row (searched in
   // the first 10 rows, so title rows above the table are fine) can remap it.
-  let cols: Record<keyof ChinaOrderRow, number> = { itemNumber: 0, image: 1, cartonCount: 2, piecesPerCarton: 3, unitPriceCny: 4, cartonCbm: 5 };
+  // name / salePrice have no fixed position — only a header row brings them in.
+  let cols: Record<ChinaColumn, number> = { itemNumber: 0, image: 1, cartonCount: 2, piecesPerCarton: 3, unitPriceCny: 4, cartonCbm: 5, name: -1, salePrice: -1 };
   let dataStart = 0;
   for (let i = 0; i < Math.min(grid.length, 10); i++) {
     const cells = (grid[i] ?? []).map((c) => clean(c).toLowerCase());
-    const found: Partial<Record<keyof ChinaOrderRow, number>> = {};
+    const found: Partial<Record<ChinaColumn, number>> = {};
     cells.forEach((cell, idx) => {
-      for (const key of Object.keys(HEADER_ALIASES) as (keyof ChinaOrderRow)[]) {
+      for (const key of Object.keys(HEADER_ALIASES) as ChinaColumn[]) {
         if (found[key] === undefined && HEADER_ALIASES[key].includes(cell)) found[key] = idx;
       }
     });
@@ -132,7 +152,11 @@ export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
       piecesPerCarton: Math.max(0, Math.floor(cleanNum(r[cols.piecesPerCarton]))),
       unitPriceCny: cleanNum(r[cols.unitPriceCny]),
       cartonCbm: cleanNum(r[cols.cartonCbm]),
+      sheetRow: firstRow + i,
+      sheetName,
     };
+    if (cols.name >= 0 && clean(r[cols.name])) row.name = clean(r[cols.name]);
+    if (cols.salePrice >= 0 && cleanNum(r[cols.salePrice]) > 0) row.salePrice = cleanNum(r[cols.salePrice]);
     // Skip non-data rows (titles, header text, totals, trailing blanks): a
     // real order line always carries at least one of the three key numbers.
     if (row.cartonCount <= 0 && row.piecesPerCarton <= 0 && row.unitPriceCny <= 0) continue;
@@ -408,9 +432,29 @@ export async function repriceChinaBatch(
   userName?: string,
 ): Promise<RepriceChinaBatchSummary> {
   validateParams(params);
-
   return prisma.$transaction(
-    async (tx) => {
+    (tx) => repriceChinaBatchInTx(tx, batchId, params, userId, userName),
+    { maxWait: 10_000, timeout: 60_000 },
+  );
+}
+
+/**
+ * The reprice itself, inside the caller's transaction — shared by «إعادة
+ * التسعير» and the batch editor (which first rewrites rows, then reprices).
+ * `allowAwaiting`: the editor may touch a held shipment; it has no invoice yet,
+ * so only the rows move.
+ */
+export async function repriceChinaBatchInTx(
+  tx: Prisma.TransactionClient,
+  batchId: string,
+  params: ChinaPricingParams,
+  userId: string,
+  userName?: string,
+  opts: { allowAwaiting?: boolean; quantitiesFromBatch?: boolean; auditAction?: string; auditExtra?: Record<string, unknown> } = {},
+): Promise<RepriceChinaBatchSummary> {
+  validateParams(params);
+  {
+    {
       const batch = await tx.landedCostImportBatch.findUnique({
         where: { id: batchId },
         include: {
@@ -425,7 +469,7 @@ export async function repriceChinaBatch(
       // A held shipment has no invoice yet and its priced numbers also feed the
       // «البضاعة القادمة» cards; re-pricing those is a different flow. Keep this
       // to the two honest cases: still in review, or already a purchase invoice.
-      if (batch.status === LandedCostBatchStatus.AWAITING_ARRIVAL) {
+      if (batch.status === LandedCostBatchStatus.AWAITING_ARRIVAL && !opts.allowAwaiting) {
         throw new AppError(
           "هذه الدفعة بضاعة قادمة لم تصل بعد — عدّل التسعير بعد وصولها",
           409,
@@ -518,16 +562,22 @@ export async function repriceChinaBatch(
         // New dinar landed cost per piece, keyed by product. SKIP rows never
         // reached the invoice, so they are excluded.
         const priceByProduct = new Map<string, number>();
+        // Pieces per product as the batch rows now say — the editor can change
+        // what arrived, and the invoice (and so the stock) follows it.
+        const qtyByProduct = new Map<string, number>();
         for (const r of recomputed) {
           if (r.item.action === LandedCostItemAction.SKIP || !r.item.productId) continue;
           priceByProduct.set(r.item.productId, r.unitCostIqd);
+          qtyByProduct.set(r.item.productId, (qtyByProduct.get(r.item.productId) ?? 0) + r.cartonCount * (r.item.piecesPerCarton ?? 0));
         }
 
         const rebuiltItems = invoice.items.map((li) => ({
           productId: li.productId,
           warehouseId: li.warehouseId ?? undefined,
           unit: li.unit,
-          quantity: li.quantity,
+          // Plain «إعادة التسعير» never touches quantities (the invoice may have
+          // been edited by hand); only the batch editor brings its own.
+          quantity: opts.quantitiesFromBatch && li.unit === "PIECE" && qtyByProduct.has(li.productId) ? qtyByProduct.get(li.productId)! : li.quantity,
           unitPrice: priceByProduct.get(li.productId) ?? Number(li.unitPrice),
           notes: li.notes ?? undefined,
         }));
@@ -567,7 +617,7 @@ export async function repriceChinaBatch(
       await tx.auditLog.create({
         data: {
           userId,
-          action: "LANDED_COST_REPRICED",
+          action: opts.auditAction ?? "LANDED_COST_REPRICED",
           entity: "LandedCostImportBatch",
           recordId: batchId,
           metadata: {
@@ -578,6 +628,7 @@ export async function repriceChinaBatch(
             updatedItems: recomputed.length,
             updatedProducts,
             by: userName ?? null,
+            ...(opts.auditExtra ?? {}),
           } as unknown as Prisma.InputJsonValue,
         },
       });
@@ -592,7 +643,6 @@ export async function repriceChinaBatch(
         updatedProducts,
         params,
       };
-    },
-    { maxWait: 10_000, timeout: 60_000 },
-  );
+    }
+  }
 }

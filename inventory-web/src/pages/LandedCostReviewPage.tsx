@@ -24,6 +24,7 @@ import {
 } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
 import { LandedCostItemPanel } from "../components/LandedCostItemPanel"
+import { ChinaBatchEditor } from "../components/ChinaBatchEditor"
 
 function money(n: number | null | undefined) {
   if (n == null) return "—"
@@ -405,6 +406,14 @@ export function LandedCostReviewPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {isChinaBatch && batch.status !== "CANCELLED" && (batch.items?.length ?? 0) > 0 && (
+        <ChinaBatchEditor
+          batchId={batch.id}
+          items={batch.items ?? []}
+          label={(batch.invoiceNumber || batch.originalFileName || "دفعة-الصين").replace(/\.[^.]+$/, "")}
+        />
       )}
 
       {duplicateNewCodes.length > 0 && (

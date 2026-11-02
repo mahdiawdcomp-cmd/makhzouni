@@ -3510,6 +3510,8 @@ export interface ChinaPricingParams {
 export interface ChinaPricedItem {
   itemNumber: string
   image: string
+  /** Small preview of the picture embedded in the sheet on this row. */
+  imageThumb?: string | null
   cartonCount: number
   piecesPerCarton: number
   totalPieces: number
@@ -3538,6 +3540,9 @@ export interface ChinaPricingResult {
   ambiguousCount: number
   notFoundCount: number
   params: ChinaPricingParams
+  /** The sheet's pictures, held on the server until the batch is saved. */
+  uploadId?: string | null
+  picturesFound?: number
 }
 
 export function getChinaTemplateUrl() {
@@ -3559,8 +3564,11 @@ export async function createChinaOrderBatch(payload: {
   originalFileName?: string
   params: ChinaPricingParams
   items: ChinaPricedItem[]
+  uploadId?: string | null
 }) {
-  const { data } = await api.post<ApiEnvelope<LandedCostBatch>>("/landed-cost/china/batches", payload)
+  // Thumbnails were only for the preview — the full pictures are on the server.
+  const items = payload.items.map(({ imageThumb: _thumb, ...it }) => it)
+  const { data } = await api.post<ApiEnvelope<LandedCostBatch>>("/landed-cost/china/batches", { ...payload, items })
   return data.data!
 }
 
@@ -3586,6 +3594,56 @@ export async function repriceChinaBatch(id: string, params: ChinaPricingParams) 
     `/landed-cost/china/batches/${id}/reprice`,
     params,
   )
+  return data.data!
+}
+
+// ── «تعديل دفعة الصين» ──────────────────────────────────────────────────────
+export interface ChinaEditSnapshot {
+  name: string; salePrice: number; cartonCount: number; piecesPerCarton: number
+  unitPriceCny: number; cartonCbm: number; unitCostIqd: number; pieces: number
+}
+export interface ChinaEditPreviewRow {
+  itemId: string
+  itemCode: string
+  productId: string | null
+  before: ChinaEditSnapshot
+  after: ChinaEditSnapshot
+  changes: string[]
+  warnings: string[]
+  imageChanged: boolean
+  newImageThumb: string | null
+}
+export interface ChinaEditPreview {
+  rows: ChinaEditPreviewRow[]
+  unmatched: string[]
+  missingFromFile: string[]
+  oldTotal: number
+  newTotal: number
+}
+export type ChinaEditResult = RepriceChinaBatchSummary & { editedRows: number }
+
+export async function downloadChinaBatchExcel(id: string) {
+  const { data } = await api.get(`/landed-cost/china/batches/${id}/export`, { responseType: "blob", timeout: 120_000 })
+  return data as Blob
+}
+export async function previewChinaBatchEdit(id: string, file: File) {
+  const form = new FormData()
+  form.append("file", file)
+  const { data } = await api.post<ApiEnvelope<ChinaEditPreview>>(`/landed-cost/china/batches/${id}/edit-preview`, form, {
+    headers: { "Content-Type": "multipart/form-data" }, timeout: 180_000,
+  })
+  return data.data!
+}
+export async function applyChinaBatchEditFile(id: string, file: File) {
+  const form = new FormData()
+  form.append("file", file)
+  const { data } = await api.post<ApiEnvelope<ChinaEditResult>>(`/landed-cost/china/batches/${id}/edit-apply`, form, {
+    headers: { "Content-Type": "multipart/form-data" }, timeout: 180_000,
+  })
+  return data.data!
+}
+export async function editChinaBatchRow(id: string, itemId: string, patch: Partial<Omit<ChinaEditSnapshot, "unitCostIqd" | "pieces">> & { imageUrl?: string }) {
+  const { data } = await api.patch<ApiEnvelope<ChinaEditResult>>(`/landed-cost/china/batches/${id}/items/${itemId}`, patch, { timeout: 120_000 })
   return data.data!
 }
 

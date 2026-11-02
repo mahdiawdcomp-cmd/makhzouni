@@ -124,7 +124,8 @@ test("parseChinaOrderExcel reads the fixed English headers in order", () => {
     [["P001", "", 10, 72, 3.5, 0.2]],
   );
   const rows = parseChinaOrderExcel(buf);
-  assert.deepEqual(rows[0], { itemNumber: "P001", image: "", cartonCount: 10, piecesPerCarton: 72, unitPriceCny: 3.5, cartonCbm: 0.2 });
+  // sheetRow is the row on the sheet (0-based): header on 0, data on 1 — used to pair embedded pictures.
+  assert.deepEqual(rows[0], { itemNumber: "P001", image: "", cartonCount: 10, piecesPerCarton: 72, unitPriceCny: 3.5, cartonCbm: 0.2, sheetRow: 1, sheetName: rows[0].sheetName });
 });
 
 test("parseChinaOrderExcel accepts the Arabic header equivalents", () => {
@@ -153,8 +154,18 @@ test("parseChinaOrderExcel works POSITIONALLY: custom header labels + a title ro
   );
   const rows = parseChinaOrderExcel(buf);
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0], { itemNumber: "A-100", image: "", cartonCount: 10, piecesPerCarton: 72, unitPriceCny: 10, cartonCbm: 0.2 });
+  assert.deepEqual(rows[0], { itemNumber: "A-100", image: "", cartonCount: 10, piecesPerCarton: 72, unitPriceCny: 10, cartonCbm: 0.2, sheetRow: 2, sheetName: rows[0].sheetName });
   assert.equal(rows[1].unitPriceCny, 3.5);
+});
+
+test("parseChinaOrderExcel reads name and sale price only when a header names them", () => {
+  const buf = xlsxBuffer(
+    ["رقم المادة", "الصورة", "عدد الكراتين", "قطع الكارتون", "سعر القطعة يوان", "حجم الكارتون", "اسم المادة", "سعر البيع"],
+    [["P009", "", 2, 12, 5, 0.1, "سيارة حمراء", 4500]],
+  );
+  const rows = parseChinaOrderExcel(buf);
+  assert.equal(rows[0].name, "سيارة حمراء");
+  assert.equal(rows[0].salePrice, 4500);
 });
 
 test("parseChinaOrderExcel skips trailing totals/blank rows", () => {
