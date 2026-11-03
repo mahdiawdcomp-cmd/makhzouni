@@ -335,6 +335,7 @@ export async function getLineCountReview(id: string) {
     purchaseInvoice: await invoiceNumbers(s.purchaseInvoiceId),
     lineCount: lines.filter((l) => !l.deletedAt).length,
     recountProductIds: s.recountProductIds,
+    keptProductIds: s.keptProductIds,
     recountRequestedAt: s.recountRequestedAt,
     progress: s.status === "OPEN" ? draftProgress(s) : null,
     createdByName: userName.get(s.createdBy) ?? null,
@@ -352,13 +353,15 @@ export async function setLineCountDecision(
   productIds?: string[],
   userId?: string,
   userName?: string,
+  // «اقبل» on a product with no price: the manager types it right there —
+  // cost for an overage, sale price for a shortage — and it is saved on the product.
+  price?: number,
 ) {
   await loadSession(id);
   // Locked against finalize/reopen so a decision can't slip in after the
   // invoices were computed.
   return prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
-    if (rows[0]?.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
+    await lockReviewable(tx, id);
     const decidedBy = decision === "PENDING" ? null : (userId ?? null);
     const decided = decision !== "PENDING";
     // Bulk accept/reject («اقبل الكل»، «اقبل المعروض»، the quick groups) only
@@ -375,10 +378,28 @@ export async function setLineCountDecision(
         AND counted_qty <> system_qty
         AND (${list}::uuid[] IS NULL OR product_id = ANY(${list}::uuid[]))
         AND (${single}::uuid IS NULL OR product_id = ${single}::uuid)
-        AND (${bulkOnlyPending} = false OR decision = 'PENDING')`;
+        AND (${bulkOnlyPending} = false OR decision = 'PENDING')
+        -- A bulk click never touches products that are back with the worker.
+        AND (${single}::uuid IS NOT NULL OR NOT EXISTS (
+          SELECT 1 FROM line_count_sessions ss
+          WHERE ss.id = ${id}::uuid AND line_count_results.product_id::text = ANY(ss.recount_product_ids)))`;
+    if (single) {
+      if (price !== undefined && decision === "ACCEPTED") {
+        const r = await tx.lineCountResult.findUnique({ where: { sessionId_productId: { sessionId: id, productId: single } } });
+        if (r) {
+          const value = Math.round(price);
+          await tx.product.update({
+            where: { id: single },
+            data: r.countedQty < r.systemQty ? { salePrice: value } : { costPrice: value, purchasePrice: value },
+          });
+        }
+      }
+      await dropFromRecount(tx, id, [single]);
+    }
     await logEvent(tx, id, "DECISION", userId, userName, {
       decision,
       updated: res,
+      ...(price !== undefined ? { price: Math.round(price) } : {}),
       ...(single ? { productId: single } : { bulk: list ? list.length : "ALL" }),
     });
     return { updated: res };
@@ -434,6 +455,8 @@ export async function reopenLineCount(id: string, userId?: string, userName?: st
 
 export async function finalizeLineCount(id: string, userId: string, userName?: string) {
   const s = await loadSession(id);
+  if (s.status === "OPEN" && s.recountProductIds.length > 0)
+    throw new AppError(`باقي ${s.recountProductIds.length} مادة عند العامل — قرر عليها أو انتظر رفعه`, 400, "LINE_COUNT_RECOUNT_OPEN");
   if (s.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
   const results = await prisma.lineCountResult.findMany({ where: { sessionId: id } });
   const variances = results.filter((r) => r.countedQty !== r.systemQty);
@@ -607,10 +630,42 @@ async function systemSnapshot(tx: Prisma.TransactionClient, warehouseId: string,
 async function underReviewLock<T>(id: string, fn: (tx: Prisma.TransactionClient) => Promise<T>) {
   await loadSession(id);
   return prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
-    if (rows[0]?.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
+    await lockReviewable(tx, id);
     return fn(tx);
   });
+}
+
+/** The count can be worked on while it waits for review — and also while some
+ * products are back with the worker: a recount never locks the rest. */
+async function lockReviewable(tx: Prisma.TransactionClient, id: string) {
+  const rows = await tx.$queryRaw<{ status: string; recount: number }[]>`
+    SELECT status, cardinality(recount_product_ids)::int AS recount FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
+  const r = rows[0];
+  if (!(r?.status === "SUBMITTED" || (r?.status === "OPEN" && r.recount > 0)))
+    throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
+  return r;
+}
+
+/** The manager settled these products himself — they leave the worker's
+ * recount list (his lines for them are dropped on upload). With nothing left
+ * at the worker, the count is back in review. */
+async function dropFromRecount(tx: Prisma.TransactionClient, id: string, productIds: string[]) {
+  if (productIds.length === 0) return;
+  await tx.$executeRaw`
+    UPDATE line_count_sessions
+    SET recount_product_ids = ARRAY(SELECT x FROM unnest(recount_product_ids) x WHERE NOT (x = ANY(${productIds}::text[])))
+    WHERE id = ${id}::uuid`;
+  await tx.$executeRaw`
+    UPDATE line_count_sessions SET status = 'SUBMITTED', draft = NULL
+    WHERE id = ${id}::uuid AND status = 'OPEN' AND cardinality(recount_product_ids) = 0`;
+}
+
+async function unkeep(tx: Prisma.TransactionClient, id: string, productIds: string[]) {
+  if (productIds.length === 0) return;
+  await tx.$executeRaw`
+    UPDATE line_count_sessions
+    SET kept_product_ids = ARRAY(SELECT x FROM unnest(kept_product_ids) x WHERE NOT (x = ANY(${productIds}::text[])))
+    WHERE id = ${id}::uuid`;
 }
 
 async function productCartonSize(tx: Prisma.TransactionClient, productId: string) {
@@ -668,6 +723,7 @@ export async function editLineCountLine(id: string, lineId: string, qty: number,
       },
     });
     await logEvent(tx, id, "EDIT_LINE", userId, userName, { productId: line.productId, from: { qty: line.qty, unit: line.unit }, to: { qty, unit: u } });
+    await dropFromRecount(tx, id, [line.productId]);
     return recomputeResult(tx, id, line.productId);
   });
 }
@@ -677,6 +733,7 @@ export async function deleteLineCountLine(id: string, lineId: string, userId: st
     const line = await liveLine(tx, id, lineId);
     await tx.lineCountLine.update({ where: { id: line.id }, data: { deletedAt: new Date(), editedBy: userId, editedAt: new Date() } });
     await logEvent(tx, id, "DELETE_LINE", userId, userName, { productId: line.productId, qty: line.qty, unit: line.unit });
+    await dropFromRecount(tx, id, [line.productId]);
     return recomputeResult(tx, id, line.productId);
   });
 }
@@ -707,6 +764,7 @@ export async function setLineCountProductTotal(id: string, productId: string, qt
       },
     });
     await logEvent(tx, id, "SET_TOTAL", userId, userName, { productId, from: result.countedQty, qty, unit: u });
+    await dropFromRecount(tx, id, [productId]);
     return recomputeResult(tx, id, productId);
   });
 }
@@ -734,6 +792,7 @@ export async function swapLineCountUnits(id: string, productId: string, lineIds:
       });
     }
     await logEvent(tx, id, "SWAP_UNIT", userId, userName, { productId, lines: lines.length });
+    await dropFromRecount(tx, id, [productId]);
     return recomputeResult(tx, id, productId);
   });
 }
@@ -751,12 +810,19 @@ export async function requestLineCountRecount(id: string, productIds: string[], 
       where: { warehouseId: session.warehouseId, productId: { in: rest }, quantityPieces: { not: 0 }, product: { deletedAt: null } },
     });
     if (ids.length === 0 || stocked !== rest.length) throw new AppError("اختر مواد من هذا الجرد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
+    const cur = await tx.lineCountSession.findUniqueOrThrow({ where: { id }, select: { status: true, recountProductIds: true } });
+    const adding = cur.status === "OPEN" && cur.recountProductIds.length > 0;
     await tx.lineCountSession.update({
       where: { id },
       // submittedAt stays: «إلغاء إعادة العدّ» returns to review with the same
       // upload time, so the snapshot and the moved-after-writing check hold.
-      data: { status: "OPEN", recountProductIds: ids, recountRound: { increment: 1 }, recountRequestedAt: new Date(), draft: Prisma.DbNull },
+      // Adding to a recount already at the worker keeps its round, so what he
+      // has typed for it on the phone is still uploaded.
+      data: adding
+        ? { recountProductIds: [...new Set([...cur.recountProductIds, ...ids])] }
+        : { status: "OPEN", recountProductIds: ids, recountRound: { increment: 1 }, recountRequestedAt: new Date(), draft: Prisma.DbNull },
     });
+    await unkeep(tx, id, ids);
     await logEvent(tx, id, "RECOUNT", userId, userName, { products: ids.length, productIds: ids.slice(0, 200) });
     return { reopened: true, products: ids.length };
   });
@@ -781,43 +847,71 @@ export async function cancelLineCountRecount(id: string, userId?: string, userNa
   });
 }
 
-/** «أكيد خلصانة»: an uncounted product is entered as counted at zero. Like any
- * other count it waits PENDING — nothing is booked until the manager accepts. */
+/** «خلصانة» / «صفّرها»: the product is entered as counted at zero and accepted
+ * in the same click — the click is the manager's decision. A counted product
+ * keeps its worker lines as a trace; an uncounted one is snapshotted at the
+ * upload time like the rest of the count. */
 export async function markLineCountGone(id: string, productIds: string[], userId: string, userName?: string) {
   return underReviewLock(id, async (tx) => {
     const ids = [...new Set(productIds)];
     if (ids.length === 0) throw new AppError("اختر مواد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
     const session = await tx.lineCountSession.findUniqueOrThrow({ where: { id }, select: { warehouseId: true, submittedAt: true } });
-    if ((await tx.lineCountResult.count({ where: { sessionId: id, productId: { in: ids } } })) > 0)
-      throw new AppError("بعض المواد صارت محسوبة — حدّث الصفحة", 409, "LINE_COUNT_CHANGED");
     if ((await tx.product.count({ where: { id: { in: ids }, deletedAt: null } })) !== ids.length)
       throw new AppError("بعض المواد انحذفت من النظام — حدّث الصفحة", 400, "LINE_COUNT_UNKNOWN_PRODUCT");
+    const existing = await tx.lineCountResult.findMany({ where: { sessionId: id, productId: { in: ids } } });
+    const have = new Set(existing.map((r) => r.productId));
+    const fresh = ids.filter((pid) => !have.has(pid));
     const now = new Date();
-    // Same moment as the worker's upload, so the snapshot is the stock the
-    // shelf was compared against — later sales already moved stock themselves.
-    const at = session.submittedAt ?? now;
-    const sys = await systemSnapshot(tx, session.warehouseId, new Map(ids.map((pid) => [pid, at])), now);
     const last = await tx.lineCountLine.aggregate({ where: { sessionId: id }, _max: { position: true } });
-    const base = last._max.position ?? 0;
-    await tx.lineCountLine.createMany({
-      data: ids.map((productId, i) => ({
-        sessionId: id,
-        position: base + i + 1,
-        productId,
-        qty: 0,
-        unit: "PIECE",
-        qtyPieces: 0,
-        writtenAt: at,
-        source: "ADMIN",
-        editedBy: userId,
-        editedAt: now,
-      })),
+    let pos = last._max.position ?? 0;
+    const zeroLine = (productId: string, writtenAt: Date) => ({
+      sessionId: id, position: ++pos, productId, qty: 0, unit: "PIECE", qtyPieces: 0, writtenAt, source: "ADMIN", editedBy: userId, editedAt: now,
     });
-    await tx.lineCountResult.createMany({
-      data: ids.map((productId) => ({ sessionId: id, productId, systemQty: sys.get(productId) ?? 0, countedQty: 0, firstWrittenAt: at })),
+    for (const r of existing) {
+      await tx.lineCountLine.updateMany({ where: { sessionId: id, productId: r.productId, deletedAt: null }, data: { deletedAt: now, editedBy: userId, editedAt: now } });
+      await tx.lineCountLine.create({ data: zeroLine(r.productId, r.firstWrittenAt) });
+      await tx.lineCountResult.update({ where: { id: r.id }, data: { countedQty: 0, workerCountedQty: r.workerCountedQty ?? r.countedQty } });
+    }
+    if (fresh.length > 0) {
+      // Same moment as the worker's upload, so the snapshot is the stock the
+      // shelf was compared against — later sales already moved stock themselves.
+      const at = session.submittedAt ?? now;
+      const sys = await systemSnapshot(tx, session.warehouseId, new Map(fresh.map((pid) => [pid, at])), now);
+      await tx.lineCountLine.createMany({ data: fresh.map((pid) => zeroLine(pid, at)) });
+      await tx.lineCountResult.createMany({
+        data: fresh.map((productId) => ({ sessionId: id, productId, systemQty: sys.get(productId) ?? 0, countedQty: 0, firstWrittenAt: at })),
+      });
+    }
+    await tx.lineCountResult.updateMany({
+      where: { sessionId: id, productId: { in: ids } },
+      data: { decision: "ACCEPTED", decidedBy: userId, decidedAt: now },
     });
+    await dropFromRecount(tx, id, ids);
+    await unkeep(tx, id, ids);
     await logEvent(tx, id, "GONE", userId, userName, { products: ids.length, productIds: ids.slice(0, 200) });
     return { marked: ids.length };
+  });
+}
+
+/** «خلّيها»: an uncounted product stays as the system has it (and goes to the
+ * two-month watch at finalize) — recorded so the review shows it as decided. */
+export async function setLineCountKeep(id: string, productIds: string[], keep: boolean, userId?: string, userName?: string) {
+  return underReviewLock(id, async (tx) => {
+    const ids = [...new Set(productIds)];
+    if (ids.length === 0) throw new AppError("اختر مواد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
+    if ((await tx.lineCountResult.count({ where: { sessionId: id, productId: { in: ids } } })) > 0)
+      throw new AppError("بعض المواد صارت محسوبة — حدّث الصفحة", 409, "LINE_COUNT_CHANGED");
+    if (keep) {
+      await tx.$executeRaw`
+        UPDATE line_count_sessions
+        SET kept_product_ids = ARRAY(SELECT DISTINCT x FROM unnest(kept_product_ids || ${ids}::text[]) x)
+        WHERE id = ${id}::uuid`;
+      await dropFromRecount(tx, id, ids);
+    } else {
+      await unkeep(tx, id, ids);
+    }
+    await logEvent(tx, id, keep ? "KEEP" : "UNKEEP", userId, userName, { products: ids.length, productIds: ids.slice(0, 200) });
+    return { updated: ids.length };
   });
 }
 
@@ -959,10 +1053,15 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
   if (s.status !== "OPEN") throw new AppError("هذه الجلسة ملغاة", 400, "LINE_COUNT_CANCELLED");
   if (lines.length === 0) throw new AppError("ما مكتوب ولا سطر", 400, "LINE_COUNT_EMPTY");
 
-  const ids = [...new Set(lines.map((l) => l.productId))];
+  // During a recount the manager may have settled some products himself after
+  // the worker wrote them — those lines are dropped, the rest go through.
   const recount = new Set(s.recountProductIds);
-  if (recount.size > 0 && ids.some((pid) => !recount.has(pid)))
-    throw new AppError("المطلوب إعادة عدّ مواد محددة فقط — حدّث الصفحة", 400, "LINE_COUNT_NOT_IN_RECOUNT");
+  if (recount.size > 0) {
+    lines = lines.filter((l) => recount.has(l.productId));
+    if (lines.length === 0)
+      throw new AppError("المدير قرر على المواد اللي كتبتها — ماكو شي ينرفع. حدّث الصفحة.", 400, "LINE_COUNT_NOT_IN_RECOUNT");
+  }
+  const ids = [...new Set(lines.map((l) => l.productId))];
   const products = await prisma.product.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, name: true, pcsPerCarton: true } });
   const ppc = new Map(products.map((p) => [p.id, Math.max(1, p.pcsPerCarton)]));
   const pname = new Map(products.map((p) => [p.id, p.name]));

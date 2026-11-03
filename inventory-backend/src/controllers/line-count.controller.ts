@@ -18,6 +18,7 @@ import {
   reopenLineCount,
   requestLineCountRecount,
   setLineCountBasis,
+  setLineCountKeep,
   setLineCountDecision,
   setLineCountProductTotal,
   swapLineCountUnits,
@@ -44,8 +45,8 @@ export const getLineCountSession = asyncHandler(async (req, res) => {
 });
 
 export const decideLineCount = asyncHandler(async (req, res) => {
-  const { decision, productId, productIds } = req.body as { decision: LineCountDecision; productId?: string; productIds?: string[] };
-  res.json({ success: true, data: await setLineCountDecision(String(req.params.id), decision, productId, productIds, who(req).id, who(req).name) });
+  const { decision, productId, productIds, price } = req.body as { decision: LineCountDecision; productId?: string; productIds?: string[]; price?: number };
+  res.json({ success: true, data: await setLineCountDecision(String(req.params.id), decision, productId, productIds, who(req).id, who(req).name, price) });
 });
 
 export const finalizeLineCountSession = asyncHandler(async (req, res) => {
@@ -128,4 +129,9 @@ export const publicLineCountImageHandler = asyncHandler(async (req, res) => {
   // Pictures don't change often; let the phone keep a full-size copy for a day.
   res.set("Cache-Control", "private, max-age=86400");
   res.json({ success: true, data: await publicLineCountImage(String(req.params.token), String(req.params.productId)) });
+});
+
+export const setLineCountKeepHandler = asyncHandler(async (req, res) => {
+  const { productIds, keep } = req.body as { productIds: string[]; keep: boolean };
+  res.json({ success: true, data: await setLineCountKeep(String(req.params.id), productIds, keep, who(req).id, who(req).name) });
 });

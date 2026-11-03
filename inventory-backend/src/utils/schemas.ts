@@ -1921,6 +1921,8 @@ export const lineCountDecisionSchema = z.object({
     productId: z.string().uuid().optional(),
     // «اقبل المعروض»: the filtered rows on screen.
     productIds: z.array(z.string().uuid()).max(20_000).optional(),
+    // «اقبل» on a product with no price: the price the manager typed (whole dinars).
+    price: z.number().int().min(1).max(1_000_000_000).optional(),
   }),
 });
 
@@ -1997,6 +1999,11 @@ export const lineCountPublicThumbnailsSchema = z.object({
 
 export const lineCountPublicImageSchema = z.object({
   params: publicTokenParams.extend({ productId: z.string().uuid() }),
+});
+
+export const lineCountKeepSchema = z.object({
+  params: uuidParam,
+  body: z.object({ productIds: z.array(z.string().uuid()).min(1).max(5_000), keep: z.boolean() }),
 });
 
 export const lineCountBasisSchema = z.object({

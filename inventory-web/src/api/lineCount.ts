@@ -106,6 +106,8 @@ export interface LineCountReview {
   lineCount: number
   /** Non-empty while some products are back with the worker for a recount. */
   recountProductIds: string[]
+  /** Uncounted products the manager chose to leave as they are («خلّيها»). */
+  keptProductIds: string[]
   recountRequestedAt: string | null
   progress: LineCountProgress | null
   createdByName: string | null
@@ -122,8 +124,12 @@ export const listLineCounts = (warehouseId?: string) =>
 export const createLineCount = (body: { warehouseId: string; notes?: string }) =>
   api.post("/stocktake/lines", body).then(unwrap<LineCountSummary>)
 export const getLineCount = (id: string) => api.get(`/stocktake/lines/${id}`).then(unwrap<LineCountReview>)
-export const decideLineCount = (id: string, decision: LineCountDecision, productId?: string, productIds?: string[]) =>
-  api.post(`/stocktake/lines/${id}/decision`, { decision, productId, productIds }).then(unwrap<{ updated: number }>)
+/** `price`: «اقبل» on a product with no price — saved on the product (cost for an overage, sale price for a shortage). */
+export const decideLineCount = (id: string, decision: LineCountDecision, productId?: string, productIds?: string[], price?: number) =>
+  api.post(`/stocktake/lines/${id}/decision`, { decision, productId, productIds, price }).then(unwrap<{ updated: number }>)
+/** «خلّيها»: uncounted products left as the system has them (watched after finalize). */
+export const setLineCountKeep = (id: string, productIds: string[], keep: boolean) =>
+  api.post(`/stocktake/lines/${id}/keep`, { productIds, keep }).then(unwrap<{ updated: number }>)
 export const editLineCountLine = (id: string, lineId: string, qty: number, unit: LineCountUnit) =>
   api.patch(`/stocktake/lines/${id}/line/${lineId}`, { qty, unit }).then(unwrap<unknown>)
 export const deleteLineCountLine = (id: string, lineId: string) =>
@@ -137,7 +143,7 @@ export const setLineCountBasis = (id: string, productId: string, basis: "FIRST" 
   api.post(`/stocktake/lines/${id}/product/${productId}/basis`, { basis }).then(unwrap<{ systemQty: number }>)
 export const recountLineCount = (id: string, productIds: string[]) =>
   api.post(`/stocktake/lines/${id}/recount`, { productIds }).then(unwrap<{ products: number }>)
-/** «أكيد خلصانة»: uncounted products entered as counted at zero (still PENDING). */
+/** «خلصانة»: counted or uncounted products set to zero and accepted in one click. */
 export const markLineCountGone = (id: string, productIds: string[]) =>
   api.post(`/stocktake/lines/${id}/gone`, { productIds }).then(unwrap<{ marked: number }>)
 

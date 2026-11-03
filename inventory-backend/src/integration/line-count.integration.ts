@@ -295,7 +295,7 @@ describe("line count corrections", () => {
     assert.equal(pub.status, "OPEN");
     assert.deepEqual(pub.products.map((p) => p.id), [ids.g], "only the recount products are served");
     assert.equal(pub.recountRound, 1);
-    await assert.rejects(() => svc.publicSubmitLineCount(token, [{ productId: ids.f, qty: 1, unit: "PIECE", writtenAt: t() }]), /محددة/);
+    await assert.rejects(() => svc.publicSubmitLineCount(token, [{ productId: ids.f, qty: 1, unit: "PIECE", writtenAt: t() }]), /ماكو شي ينرفع/);
     await svc.publicSubmitLineCount(token, [{ productId: ids.g, qty: 30, unit: "PIECE", writtenAt: t() }]);
     const rev = await svc.getLineCountReview(sessionId);
     const g = rev.items.find((i) => i.productId === ids.g)!;
@@ -341,16 +341,14 @@ describe("line count lock and uncounted watch", () => {
     await take(ids.i, -1); // matched — nothing to decide
   });
 
-  it("«أكيد خلصانة» counts an uncounted product as zero, pending and frozen", async () => {
+  it("«خلصانة» counts an uncounted product as zero and accepts it in the same click", async () => {
     assert.ok((await svc.getLineCountReview(sessionId)).uncounted.some((u) => u.productId === ids.j));
     await svc.markLineCountGone(sessionId, [ids.j], ids.admin);
     const j = (await svc.getLineCountReview(sessionId)).items.find((it) => it.productId === ids.j)!;
     assert.equal(j.countedQty, 0);
     assert.equal(j.systemQty, 4);
-    assert.equal(j.decision, "PENDING");
-    assert.equal(await stock(ids.j), 4, "nothing booked before acceptance");
-    await assert.rejects(() => take(ids.j, -1), /بالجرد/);
-    await assert.rejects(() => svc.markLineCountGone(sessionId, [ids.j], ids.admin), /محسوبة/);
+    assert.equal(j.decision, "ACCEPTED");
+    assert.equal(await stock(ids.j), 4, "nothing booked before finalize");
   });
 
   it("an uncounted product can be sent back for counting, and the freeze holds meanwhile", async () => {
@@ -397,7 +395,9 @@ describe("line count never loses the worker's count", () => {
     await svc.setLineCountDecision(s.id, "REJECTED", ids.i);
     const before = await db.lineCountSession.findUniqueOrThrow({ where: { id: s.id } });
     await svc.requestLineCountRecount(s.id, [ids.h]);
-    await assert.rejects(() => svc.setLineCountDecision(s.id, "ACCEPTED", ids.h), /ليست بانتظار/);
+    // A bulk click never reaches a product that is back with the worker.
+    await svc.setLineCountDecision(s.id, "ACCEPTED", undefined, [ids.h]);
+    assert.equal((await db.lineCountResult.findFirstOrThrow({ where: { sessionId: s.id, productId: ids.h } })).decision, "PENDING");
     await svc.cancelLineCountRecount(s.id);
     const rev = await svc.getLineCountReview(s.id);
     assert.equal(rev.status, "SUBMITTED");
@@ -586,6 +586,79 @@ describe("line count hardening", () => {
     await assert.rejects(() => svc.publicLineCountImage(s.publicToken, p2));
     await svc.cancelLineCount(s.id);
     assert.deepEqual(await svc.publicLineCountThumbnails(s.publicToken, [p1]), {}, "closed link serves nothing");
+  });
+
+  it("a recount never locks the review: deciding a product takes it back from the worker", async () => {
+    const p1 = await mk(10);
+    const p2 = await mk(10);
+    const p3 = await mk(10);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 4), line(p2, 6), line(p3, 7)]);
+    await svc.requestLineCountRecount(s.id, [p1, p2]);
+    // Still reviewable while the worker recounts: decide a product not sent back…
+    await svc.setLineCountDecision(s.id, "ACCEPTED", p3, undefined, ids.admin, "المالك");
+    // …and settle one that was: it leaves the worker's list.
+    await svc.setLineCountDecision(s.id, "ACCEPTED", p1, undefined, ids.admin, "المالك");
+    let fresh = await db.lineCountSession.findUniqueOrThrow({ where: { id: s.id } });
+    assert.deepEqual(fresh.recountProductIds, [p2]);
+    assert.equal(fresh.status, "OPEN");
+    await assert.rejects(() => svc.finalizeLineCount(s.id, ids.admin), /عند العامل/);
+    // Adding to an open recount keeps the round, so the phone's lines still count.
+    const round = fresh.recountRound;
+    await svc.requestLineCountRecount(s.id, [p3]);
+    fresh = await db.lineCountSession.findUniqueOrThrow({ where: { id: s.id } });
+    assert.equal(fresh.recountRound, round);
+    assert.deepEqual([...fresh.recountProductIds].sort(), [p2, p3].sort());
+    // The worker uploads lines for p1 (settled meanwhile) and p2: p1's is dropped.
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 99), line(p2, 10)]);
+    const rev = await svc.getLineCountReview(s.id);
+    assert.equal(rev.items.find((x) => x.productId === p1)?.countedQty, 4, "the settled product keeps the manager's decision");
+    assert.equal(rev.items.find((x) => x.productId === p2)?.countedQty, 10);
+    assert.equal(rev.status, "SUBMITTED");
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("deciding the last product at the worker brings the count back to review", async () => {
+    const p1 = await mk(10);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 4)]);
+    await svc.requestLineCountRecount(s.id, [p1]);
+    await svc.setLineCountDecision(s.id, "REJECTED", p1, undefined, ids.admin, "المالك");
+    const fresh = await db.lineCountSession.findUniqueOrThrow({ where: { id: s.id } });
+    assert.equal(fresh.status, "SUBMITTED");
+    assert.deepEqual(fresh.recountProductIds, []);
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("«خلصانة» on a counted product zeroes and accepts it; «خلّيها» records an uncounted one", async () => {
+    const p1 = await mk(10);
+    const p2 = await mk(7);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 4)]);
+    await svc.markLineCountGone(s.id, [p1], ids.admin, "المالك");
+    const it1 = (await svc.getLineCountReview(s.id)).items.find((x) => x.productId === p1)!;
+    assert.equal(it1.countedQty, 0);
+    assert.equal(it1.decision, "ACCEPTED");
+    assert.equal(it1.workerCountedQty, 4, "the worker's figure stays as a trace");
+    await svc.setLineCountKeep(s.id, [p2], true, ids.admin, "المالك");
+    assert.ok((await svc.getLineCountReview(s.id)).keptProductIds.includes(p2));
+    await svc.setLineCountKeep(s.id, [p2], false, ids.admin, "المالك");
+    assert.ok(!(await svc.getLineCountReview(s.id)).keptProductIds.includes(p2));
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("accepting a product with no price saves the typed price on it", async () => {
+    const p1 = await mk(10);
+    await db.product.update({ where: { id: p1 }, data: { costPrice: 0, purchasePrice: 0 } });
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 15)]);
+    assert.equal((await svc.getLineCountReview(s.id)).items[0].noPrice, true);
+    await svc.setLineCountDecision(s.id, "ACCEPTED", p1, undefined, ids.admin, "المالك", 750);
+    const it1 = (await svc.getLineCountReview(s.id)).items[0];
+    assert.equal(it1.noPrice, false);
+    assert.equal(it1.decision, "ACCEPTED");
+    assert.equal(Number((await db.product.findUniqueOrThrow({ where: { id: p1 } })).costPrice), 750);
+    await svc.cancelLineCount(s.id);
   });
 
   it("two clicks at once open one count only", async () => {

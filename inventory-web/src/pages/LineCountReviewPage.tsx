@@ -20,6 +20,7 @@ import {
   recountLineCount,
   reopenLineCount,
   setLineCountBasis,
+  setLineCountKeep,
   setLineCountProductTotal,
   swapLineCountUnits,
   type LineCountDecision,
@@ -69,7 +70,9 @@ const EVENT_LABEL: Record<string, string> = {
   SWAP_UNIT: "صحّح الوحدة",
   RECOUNT: "رجّع مواد لإعادة العدّ",
   CANCEL_RECOUNT: "ألغى إعادة العدّ",
-  GONE: "أكيد خلصانة",
+  GONE: "خلصانة",
+  KEEP: "خلّيها مثل ما هي",
+  UNKEEP: "رجّعها بلا قرار",
   REOPEN: "رجّع الجرد كله للعامل",
   CANCEL: "ألغى الجرد",
   FINALIZE: "اعتمد الجرد",
@@ -240,7 +243,8 @@ export function LineCountReviewPage() {
   const onErr = (fallback: string) => (err: unknown) => toast({ title: apiErrorMessage(err, fallback), variant: "destructive" })
 
   const decideMut = useMutation({
-    mutationFn: (v: { decision: LineCountDecision; productId?: string; productIds?: string[] }) => decideLineCount(id, v.decision, v.productId, v.productIds),
+    mutationFn: (v: { decision: LineCountDecision; productId?: string; productIds?: string[]; price?: number }) =>
+      decideLineCount(id, v.decision, v.productId, v.productIds, v.price),
     onSuccess: refresh,
     onError: onErr("تعذر حفظ القرار"),
   })
@@ -290,7 +294,16 @@ export function LineCountReviewPage() {
   const goneMut = useMutation({
     mutationFn: (productIds: string[]) => markLineCountGone(id, productIds),
     onSuccess: async (r) => {
-      toast({ title: `${r.marked} مادة انحسبت صفر — تنتظر قبولك مثل باقي الفروقات` })
+      toast({ title: `${r.marked} مادة انحسبت صفر وانقبلت` })
+      setSelected(new Set())
+      await refresh()
+    },
+    onError: onErr("تعذر الحفظ"),
+  })
+  const keepMut = useMutation({
+    mutationFn: (v: { productIds: string[]; keep: boolean }) => setLineCountKeep(id, v.productIds, v.keep),
+    onSuccess: async (_r, v) => {
+      toast({ title: v.keep ? `${v.productIds.length} مادة تبقى مثل ما هي` : "رجعت بلا قرار" })
       setSelected(new Set())
       await refresh()
     },
@@ -299,6 +312,9 @@ export function LineCountReviewPage() {
 
   const s = q.data
   const items = s?.items ?? []
+  // Products back with the worker. They leave the working list but keep their
+  // buttons in «عند العامل» — deciding one takes it back from him.
+  const atWorker = useMemo(() => new Set(s?.recountProductIds ?? []), [s])
   const diffs = useMemo(
     () =>
       items
@@ -310,7 +326,7 @@ export function LineCountReviewPage() {
   const visible = useMemo(() => {
     const nq = normalizeArabic(query.trim())
     return diffs.filter(({ it, sev }) => {
-      if (it.decision !== "PENDING") return false
+      if (it.decision !== "PENDING" || atWorker.has(it.productId)) return false
       if (nq && !normalizeArabic(it.productName).includes(nq) && !(it.itemNumber ?? "").toLowerCase().includes(query.trim().toLowerCase())) return false
       switch (filter) {
         case "all": return true
@@ -324,22 +340,31 @@ export function LineCountReviewPage() {
         default: return sev === filter
       }
     })
-  }, [diffs, filter, query])
+  }, [diffs, filter, query, atWorker])
 
   if (q.isLoading) return <div className="text-sm text-slate-500">جاري التحميل…</div>
   if (q.isError || !s) return <div className="text-sm text-red-600">{apiErrorMessage(q.error, "تعذر تحميل الجرد")}</div>
 
-  const editable = s.status === "SUBMITTED" && !readOnly
+  // Decisions stay open while some products are with the worker for a recount.
+  const editable = !readOnly && (s.status === "SUBMITTED" || (s.status === "OPEN" && s.recountProductIds.length > 0))
   const matched = items.filter((i) => i.delta === 0)
   const accepted = diffs.filter((d) => d.it.decision === "ACCEPTED").map((d) => d.it)
-  const pending = diffs.filter((d) => d.it.decision === "PENDING")
+  const workDiffs = diffs.filter((d) => !atWorker.has(d.it.productId))
+  const pending = workDiffs.filter((d) => d.it.decision === "PENDING")
+  const atWorkerRows = items
+    .filter((i) => atWorker.has(i.productId))
+    .map((it) => ({ it, sev: (it.delta === 0 ? "yellow" : severityOf(it, thresholds)) as Severity }))
+  const kept = new Set(s.keptProductIds)
+  const uncOpen = s.uncounted.filter((u) => !kept.has(u.productId) && !atWorker.has(u.productId))
+  const uncKept = s.uncounted.filter((u) => kept.has(u.productId) && !atWorker.has(u.productId))
+  const uncAtWorker = s.uncounted.filter((u) => atWorker.has(u.productId))
   // The shortage sale invoice is priced at sale price; everything else on the page is at cost.
   const saleTotal = accepted.filter((i) => i.delta < 0).reduce((t, i) => t + i.saleValue, 0)
   const purchaseTotal = accepted.filter((i) => i.delta > 0).reduce((t, i) => t + i.value, 0)
   const hasOverage = accepted.some((i) => i.delta > 0)
   const shortageAll = diffs.filter((d) => d.it.delta < 0).reduce((t, d) => t + d.it.value, 0)
   const overageAll = diffs.filter((d) => d.it.delta > 0).reduce((t, d) => t + d.it.value, 0)
-  const decidedDiffs = diffs.filter((d) => d.it.decision !== "PENDING")
+  const decidedDiffs = workDiffs.filter((d) => d.it.decision !== "PENDING")
   // Filter counts cover the working list: what still needs a decision.
   const count = (f: Filter) =>
     f === "all" || f === "pending" ? pending.length
@@ -368,12 +393,12 @@ export function LineCountReviewPage() {
   }
   const quickCount = (rows: typeof diffs) => rows.filter((d) => d.it.decision === "PENDING" && !needsOwnLook(d.it)).length
   const QUICK: { label: string; rows: typeof diffs; cls: string }[] = [
-    { label: "فرق صغير", rows: diffs.filter((d) => d.sev === "yellow"), cls: "border-yellow-300 bg-yellow-50 text-yellow-900" },
-    { label: "فرق متوسط", rows: diffs.filter((d) => d.sev === "orange"), cls: "border-orange-300 bg-orange-50 text-orange-800" },
-    { label: "فرق كبير", rows: diffs.filter((d) => d.sev === "red"), cls: "border-red-300 bg-red-50 text-red-700" },
-    { label: "نقص", rows: diffs.filter((d) => d.it.delta < 0), cls: "" },
-    { label: "زيادة", rows: diffs.filter((d) => d.it.delta > 0), cls: "" },
-    { label: "فرق (الكل)", rows: diffs, cls: "" },
+    { label: "فرق صغير", rows: workDiffs.filter((d) => d.sev === "yellow"), cls: "border-yellow-300 bg-yellow-50 text-yellow-900" },
+    { label: "فرق متوسط", rows: workDiffs.filter((d) => d.sev === "orange"), cls: "border-orange-300 bg-orange-50 text-orange-800" },
+    { label: "فرق كبير", rows: workDiffs.filter((d) => d.sev === "red"), cls: "border-red-300 bg-red-50 text-red-700" },
+    { label: "نقص", rows: workDiffs.filter((d) => d.it.delta < 0), cls: "" },
+    { label: "زيادة", rows: workDiffs.filter((d) => d.it.delta > 0), cls: "" },
+    { label: "فرق (الكل)", rows: workDiffs, cls: "" },
   ]
   const matchedOpen = matched.filter((i) => i.decision !== "ACCEPTED")
   const visibleIds = visible.map((v) => v.it.productId)
@@ -381,7 +406,7 @@ export function LineCountReviewPage() {
   // rejection is never flipped by «اقبل المعروض».
   const visiblePending = visible.filter((v) => v.it.decision === "PENDING")
   const visiblePendingIds = visiblePending.map((v) => v.it.productId)
-  const uncountedIds = s.uncounted.map((u) => u.productId)
+  const uncountedIds = uncOpen.map((u) => u.productId)
   const selectedUncounted = uncountedIds.filter((pid) => selected.has(pid))
   const productNames = new Map<string, string>([
     ...items.map((i) => [i.productId, i.productName] as [string, string]),
@@ -483,7 +508,9 @@ export function LineCountReviewPage() {
           )}
           {s.status === "OPEN" && (
             <p className="text-sm font-medium text-sky-700">
-              الجرد عند العامل هسه — تكدر تراجعه بعد ما يرفعه.
+              {s.recountProductIds.length > 0
+                ? `${s.recountProductIds.length} مادة عند العامل يعيد عدّها — والباقي تكدر تقرر عليه هسه.`
+                : "الجرد عند العامل هسه — تكدر تراجعه بعد ما يرفعه."}
               {pending.length > 0 && ` المواد اللي ما قررت عليها (${pending.length}) تبقى مقفولة بالمخزن.`}
               {s.progress && ` · العامل كاتب ${s.progress.lines} سطر، آخر حفظ ${hhmm(s.progress.at)}.`}
             </p>
@@ -657,7 +684,10 @@ export function LineCountReviewPage() {
               busy={decideMut.isPending}
               selected={selected.has(it.productId)}
               onSelect={() => toggleSelect(it.productId)}
-              onDecide={(d) => decideMut.mutate({ decision: d, productId: it.productId })}
+              onDecide={(d, price) => decideMut.mutate({ decision: d, productId: it.productId, price })}
+              onGone={() => goneMut.mutate([it.productId])}
+              onRecount={() => recountMut.mutate([it.productId])}
+              inRecount={atWorker.has(it.productId)}
               onBasis={(basis) => basisMut.mutate({ productId: it.productId, basis })}
               basisBusy={basisMut.isPending}
               onChanged={refresh}
@@ -665,6 +695,159 @@ export function LineCountReviewPage() {
           ))
         )}
       </section>
+
+      {/* Back with the worker — still decidable here */}
+      {(atWorkerRows.length > 0 || uncAtWorker.length > 0) && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-bold text-violet-700">
+            عند العامل يعيد عدّها ({atWorkerRows.length + uncAtWorker.length})
+            <span className="mr-2 text-sm font-medium text-slate-500">إذا قررت عليها هنا تنشال من عنده</span>
+          </h2>
+          {atWorkerRows.map(({ it, sev }) => (
+            <VarianceRow
+              key={it.productId}
+              sessionId={id}
+              it={it}
+              sev={sev}
+              editable={editable}
+              busy={decideMut.isPending}
+              selected={selected.has(it.productId)}
+              onSelect={() => toggleSelect(it.productId)}
+              onDecide={(d, price) => decideMut.mutate({ decision: d, productId: it.productId, price })}
+              onGone={() => goneMut.mutate([it.productId])}
+              onRecount={() => recountMut.mutate([it.productId])}
+              inRecount
+              onBasis={(basis) => basisMut.mutate({ productId: it.productId, basis })}
+              basisBusy={basisMut.isPending}
+              onChanged={refresh}
+            />
+          ))}
+          {uncAtWorker.length > 0 && (
+            <ul className="divide-y divide-violet-100 rounded-lg border border-violet-200 bg-white dark:divide-slate-800 dark:border-violet-900 dark:bg-slate-900">
+              {uncAtWorker.map((u) => (
+                <UncountedRow
+                  key={u.productId}
+                  u={u}
+                  editable={editable}
+                  busy={keepMut.isPending || goneMut.isPending || recountMut.isPending}
+                  inRecount
+                  onKeep={() => keepMut.mutate({ productIds: [u.productId], keep: true })}
+                  onGone={() => goneMut.mutate([u.productId])}
+                  onRecount={() => recountMut.mutate([u.productId])}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {/* Uncounted */}
+      {s.uncounted.length > 0 && (
+        <section>
+          <button type="button" onClick={() => setShowUncounted((v) => !v)} className="flex items-center gap-1 text-base font-bold text-amber-700">
+            <ChevronDown className={cn("h-4 w-4 transition", showUncounted && "rotate-180")} /> مواد غير مذكورة، يرجى التأكد منها ({uncOpen.length})
+            {uncKept.length > 0 && <span className="mr-2 text-sm font-medium text-slate-500">· خلّيتها {uncKept.length}</span>}
+          </button>
+          {showUncounted && (
+            <>
+              <p className="mt-1 text-xs text-slate-500">
+                {s.status === "FINALIZED"
+                  ? "دخلت المتابعة: إذا ما انباعت ولا انجردت خلال شهرين تطلع بالمواد الراكدة."
+                  : "العامل ما كتبها. «خلّيها» يبقي رصيدها ويدخلها متابعة شهرين، «خلصانة» يصفّرها، «أعد عدّها» يرجعها للعامل. اللي ما تقرر عليها تنحسب «خلّيها» بالاعتماد."}
+              </p>
+              {editable && uncOpen.length > 0 && (
+                <div className="sticky top-0 z-10 mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setSelected((prev) =>
+                        selectedUncounted.length === uncountedIds.length
+                          ? new Set([...prev].filter((x) => !uncountedIds.includes(x)))
+                          : new Set([...prev, ...uncountedIds]),
+                      )
+                    }
+                  >
+                    {selectedUncounted.length === uncountedIds.length ? "إلغاء تحديد الكل" : `حدّد الكل (${uncountedIds.length})`}
+                  </Button>
+                  {selectedUncounted.length > 0 && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={keepMut.isPending}
+                        onClick={() => keepMut.mutate({ productIds: selectedUncounted, keep: true })}
+                      >
+                        خلّيها للمختار ({selectedUncounted.length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-300 text-red-700"
+                        disabled={goneMut.isPending}
+                        onClick={() => {
+                          if (window.confirm(`${selectedUncounted.length} مادة خلصانة؟ رصيدها يصير صفر بالاعتماد.`)) goneMut.mutate(selectedUncounted)
+                        }}
+                      >
+                        خلصانة للمختار ({selectedUncounted.length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={recountMut.isPending}
+                        onClick={() => {
+                          if (window.confirm(`ترجع ${selectedUncounted.length} مادة للعامل يعدّها؟ نفس الرابط.`)) recountMut.mutate(selectedUncounted)
+                        }}
+                      >
+                        <RefreshCw className="h-4 w-4" /> أعد عدّ المختار ({selectedUncounted.length})
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+              {uncOpen.length > 0 ? (
+                <ul className="mt-2 divide-y divide-amber-100 rounded-lg border border-amber-200 bg-white dark:divide-slate-800 dark:border-amber-900 dark:bg-slate-900">
+                  {uncOpen.map((u) => (
+                    <UncountedRow
+                      key={u.productId}
+                      u={u}
+                      editable={editable}
+                      busy={keepMut.isPending || goneMut.isPending || recountMut.isPending}
+                      selected={selected.has(u.productId)}
+                      onSelect={() => toggleSelect(u.productId)}
+                      onKeep={() => keepMut.mutate({ productIds: [u.productId], keep: true })}
+                      onGone={() => goneMut.mutate([u.productId])}
+                      onRecount={() => recountMut.mutate([u.productId])}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">كل المواد غير المذكورة انقرر عليها ✓</p>
+              )}
+              {uncKept.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-600">خلّيتها مثل ما هي ({uncKept.length})</summary>
+                  <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900">
+                    {uncKept.map((u) => (
+                      <li key={u.productId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+                        <span>
+                          {u.productName}
+                          {u.itemNumber && <span className="ms-2 text-xs text-slate-400">{u.itemNumber}</span>}
+                          <span className="mr-2 text-slate-500">بالنظام {qtyText(u.systemQty, u.pcsPerCarton)}</span>
+                        </span>
+                        {editable && (
+                          <Button size="sm" variant="ghost" disabled={keepMut.isPending} onClick={() => keepMut.mutate({ productIds: [u.productId], keep: false })}>
+                            رجّعها بلا قرار
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
       {/* Decided — out of the way, still undoable */}
       {decidedDiffs.length > 0 && (
@@ -687,7 +870,10 @@ export function LineCountReviewPage() {
                   busy={decideMut.isPending}
                   selected={selected.has(it.productId)}
                   onSelect={() => toggleSelect(it.productId)}
-                  onDecide={(d) => decideMut.mutate({ decision: d, productId: it.productId })}
+                  onDecide={(d, price) => decideMut.mutate({ decision: d, productId: it.productId, price })}
+              onGone={() => goneMut.mutate([it.productId])}
+              onRecount={() => recountMut.mutate([it.productId])}
+              inRecount={atWorker.has(it.productId)}
                   onBasis={(basis) => basisMut.mutate({ productId: it.productId, basis })}
                   basisBusy={basisMut.isPending}
                   onChanged={refresh}
@@ -738,115 +924,6 @@ export function LineCountReviewPage() {
         </section>
       )}
 
-      {/* Uncounted */}
-      {s.uncounted.length > 0 && (
-        <section>
-          <button type="button" onClick={() => setShowUncounted((v) => !v)} className="flex items-center gap-1 text-base font-bold text-amber-700">
-            <ChevronDown className={cn("h-4 w-4 transition", showUncounted && "rotate-180")} /> مواد غير مذكورة، يرجى التأكد منها ({s.uncounted.length})
-          </button>
-          {showUncounted && (
-            <>
-              <p className="mt-1 text-xs text-slate-500">
-                {s.status === "FINALIZED"
-                  ? "دخلت المتابعة: إذا ما انباعت ولا انجردت خلال شهرين تطلع بالمواد الراكدة."
-                  : "العامل ما كتبها. أرصدتها ما تتغيّر. اللي تتركها تدخل المتابعة بعد الاعتماد: إذا ما انباعت ولا انجردت خلال شهرين تطلع بالمواد الراكدة."}
-              </p>
-              {editable && (
-                <div className="sticky top-0 z-10 mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      setSelected((prev) =>
-                        selectedUncounted.length === uncountedIds.length
-                          ? new Set([...prev].filter((x) => !uncountedIds.includes(x)))
-                          : new Set([...prev, ...uncountedIds]),
-                      )
-                    }
-                  >
-                    {selectedUncounted.length === uncountedIds.length ? "إلغاء تحديد الكل" : `حدّد الكل (${uncountedIds.length})`}
-                  </Button>
-                  {selectedUncounted.length > 0 && (
-                    <>
-                      <Button
-                        size="sm"
-                        disabled={recountMut.isPending}
-                        onClick={() => {
-                          const all = [...selected]
-                          if (window.confirm(`ترجع ${all.length} مادة للعامل يعدّها؟ نفس الرابط، وبس هاي المواد. باقي القرارات تبقى.`)) recountMut.mutate(all)
-                        }}
-                      >
-                        <RefreshCw className="h-4 w-4" /> أعد عدّ المختار ({selected.size})
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="border-red-300 text-red-700"
-                        disabled={goneMut.isPending}
-                        onClick={() => {
-                          if (window.confirm(`${selectedUncounted.length} مادة خلصانة؟ تنحسب صفر وتطلع فرق نقص، وما تنعتمد إلا بعد ما تقبلها.`)) goneMut.mutate(selectedUncounted)
-                        }}
-                      >
-                        أكيد خلصانة للمختار ({selectedUncounted.length})
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
-              <ul className="mt-2 divide-y divide-amber-100 rounded-lg border border-amber-200 bg-white dark:divide-slate-800 dark:border-amber-900 dark:bg-slate-900">
-                {s.uncounted.map((u) => (
-                  <li key={u.productId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
-                    <span className="flex items-center gap-2">
-                      {editable && (
-                        <input
-                          type="checkbox"
-                          checked={selected.has(u.productId)}
-                          onChange={() => toggleSelect(u.productId)}
-                          aria-label={`حدّد ${u.productName}`}
-                          className="h-4 w-4 shrink-0"
-                        />
-                      )}
-                      <span>
-                        {u.productName}
-                        {u.itemNumber && <span className="ms-2 text-xs text-slate-400">{u.itemNumber}</span>}
-                      </span>
-                    </span>
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="text-slate-500">بالنظام {qtyText(u.systemQty, u.pcsPerCarton)}</span>
-                      {editable && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={recountMut.isPending}
-                            onClick={() => {
-                              if (window.confirm(`ترجع «${u.productName}» للعامل يعدّها؟ نفس الرابط، وبس هاي المادة.`)) recountMut.mutate([u.productId])
-                            }}
-                          >
-                            أعد عدّها
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="border-red-300 text-red-700"
-                            disabled={goneMut.isPending}
-                            onClick={() => {
-                              if (window.confirm(`«${u.productName}» خلصانة؟ تنحسب صفر وتطلع فرق نقص، وما تنعتمد إلا بعد ما تقبلها.`)) goneMut.mutate([u.productId])
-                            }}
-                          >
-                            أكيد خلصانة
-                          </Button>
-                        </>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-      )}
-
       {/* Who did what */}
       {s.events.length > 0 && (
         <section>
@@ -878,17 +955,18 @@ export function LineCountReviewPage() {
               <p>فاتورة بيع نقدية للنواقص المقبولة (بسعر البيع): <b>{money(saleTotal)}</b></p>
               <p>فاتورة شراء نقدية للزيادات المقبولة: <b>{money(purchaseTotal)}</b></p>
               {pending.length > 0 && <p className="font-medium text-amber-700">باقي {pending.length} فرق بلا قرار</p>}
+              {atWorker.size > 0 && <p className="font-medium text-violet-700">باقي {atWorker.size} مادة عند العامل — قرر عليها أو انتظر رفعه</p>}
             </div>
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                disabled={reopenMut.isPending}
+                disabled={reopenMut.isPending || s.status !== "SUBMITTED"}
                 onClick={() => { if (confirm("ترجع الجرد كله للعامل حتى يعدّل؟\nيفتح نفس الرابط وبي كل السطور مع تصحيحاتك، حتى لو فتحه من جهاز ثاني.\nبس القرارات (قبول/رفض) تنمسح وتعيدها بعد ما يرفع.")) reopenMut.mutate() }}
               >
                 أعد الكل للعامل
               </Button>
               <Button
-                disabled={pending.length > 0 || finalizeMut.isPending}
+                disabled={pending.length > 0 || atWorker.size > 0 || finalizeMut.isPending}
                 onClick={() => {
                   if (confirm(`اعتماد الجرد؟\nبيع نقدي ${money(saleTotal)} · شراء نقدي ${money(purchaseTotal)}\nالمرفوض ما يتغيّر.`)) finalizeMut.mutate()
                 }}
@@ -938,6 +1016,9 @@ function VarianceRow({
   selected,
   onSelect,
   onDecide,
+  onGone,
+  onRecount,
+  inRecount = false,
   onBasis,
   basisBusy,
   onChanged,
@@ -949,12 +1030,18 @@ function VarianceRow({
   busy: boolean
   selected: boolean
   onSelect: () => void
-  onDecide: (d: LineCountDecision) => void
+  onDecide: (d: LineCountDecision, price?: number) => void
+  onGone: () => void
+  onRecount: () => void
+  inRecount?: boolean
   onBasis: (basis: "FIRST" | "LAST") => void
   basisBusy: boolean
   onChanged: () => Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
+  // «اقبل» on a product with no price asks for it right here.
+  const [askPrice, setAskPrice] = useState(false)
+  const [price, setPrice] = useState("")
   const [editing, setEditing] = useState(false)
   const shortage = it.delta < 0
   const sug = it.unitSuggestion
@@ -1088,13 +1175,75 @@ function VarianceRow({
           </div>
         </div>
         {editable ? (
-          <div className="flex gap-2">
-            <Button size="sm" variant={it.decision === "ACCEPTED" ? "default" : "outline"} disabled={busy} onClick={() => onDecide(it.decision === "ACCEPTED" ? "PENDING" : "ACCEPTED")}>
-              <Check className="h-4 w-4" /> اقبل
-            </Button>
-            <Button size="sm" variant={it.decision === "REJECTED" ? "default" : "outline"} disabled={busy} onClick={() => onDecide(it.decision === "REJECTED" ? "PENDING" : "REJECTED")}>
-              <X className="h-4 w-4" /> ارفض
-            </Button>
+          <div className="flex flex-col items-end gap-2">
+            {inRecount && <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700">عند العامل</span>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant={it.decision === "ACCEPTED" && !inRecount ? "default" : "outline"}
+                disabled={busy}
+                title="عدد العامل يصير الرصيد"
+                onClick={() => {
+                  if (it.decision === "ACCEPTED" && !inRecount) return onDecide("PENDING")
+                  if (it.noPrice && !it.deleted) return setAskPrice(true)
+                  onDecide("ACCEPTED")
+                }}
+              >
+                <Check className="h-4 w-4" /> اقبل
+              </Button>
+              <Button
+                size="sm"
+                variant={it.decision === "REJECTED" && !inRecount ? "default" : "outline"}
+                disabled={busy}
+                title="يبقى رصيد النظام"
+                onClick={() => onDecide(it.decision === "REJECTED" && !inRecount ? "PENDING" : "REJECTED")}
+              >
+                <X className="h-4 w-4" /> ارفض
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-300 text-red-700"
+                disabled={busy || it.deleted}
+                title="الرصيد يصير صفر"
+                onClick={() => { if (confirm(`«${it.productName}» خلصانة؟ رصيدها يصير صفر بالاعتماد.`)) onGone() }}
+              >
+                خلصانة
+              </Button>
+              {!inRecount && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  title="ترجع للعامل يعدّها"
+                  onClick={() => { if (confirm(`ترجع «${it.productName}» للعامل يعدّها؟ باقي المواد تبقى بيدك.`)) onRecount() }}
+                >
+                  <RefreshCw className="h-4 w-4" /> أعد عدّها
+                </Button>
+              )}
+            </div>
+            {askPrice && (
+              <div className="flex flex-wrap items-center justify-end gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm dark:border-amber-800 dark:bg-amber-950/40">
+                <span className="text-amber-800 dark:text-amber-200">{shortage ? "سعر البيع للقطعة" : "كلفة القطعة"}</span>
+                <input
+                  value={price}
+                  onChange={(e) => setPrice(digitsOnly(e.target.value))}
+                  inputMode="numeric"
+                  dir="ltr"
+                  autoFocus
+                  placeholder="دينار"
+                  className="h-9 w-28 rounded-md border border-slate-200 bg-white px-2 text-center tabular-nums dark:border-slate-700 dark:bg-slate-950"
+                />
+                <Button
+                  size="sm"
+                  disabled={!(Number(price) > 0) || busy}
+                  onClick={() => { onDecide("ACCEPTED", Number(price)); setAskPrice(false); setPrice("") }}
+                >
+                  احفظ واقبل
+                </Button>
+                <button type="button" onClick={() => setAskPrice(false)} className="text-xs text-slate-500 underline">إلغاء</button>
+              </div>
+            )}
           </div>
         ) : (
           <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", it.decision === "ACCEPTED" ? "bg-emerald-100 text-emerald-700" : it.decision === "REJECTED" ? "bg-slate-100 text-slate-500" : "bg-amber-100 text-amber-800")}>
@@ -1104,6 +1253,80 @@ function VarianceRow({
       </div>
       {editing && editable && <ItemEditor sessionId={sessionId} it={it} onChanged={onChanged} onClose={() => setEditing(false)} />}
     </div>
+  )
+}
+
+/** One product the worker never wrote: leave it, zero it, or send it back. A
+ * negative balance is "zeroed" — that is an overage, booked as a purchase. */
+function UncountedRow({
+  u,
+  editable,
+  busy,
+  inRecount = false,
+  selected,
+  onSelect,
+  onKeep,
+  onGone,
+  onRecount,
+}: {
+  u: LineCountReview["uncounted"][number]
+  editable: boolean
+  busy: boolean
+  inRecount?: boolean
+  selected?: boolean
+  onSelect?: () => void
+  onKeep: () => void
+  onGone: () => void
+  onRecount: () => void
+}) {
+  const negative = u.systemQty < 0
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+      <span className="flex items-center gap-2">
+        {editable && onSelect && (
+          <input type="checkbox" checked={!!selected} onChange={onSelect} aria-label={`حدّد ${u.productName}`} className="h-4 w-4 shrink-0" />
+        )}
+        <span>
+          {u.productName}
+          {u.itemNumber && <span className="ms-2 text-xs text-slate-400">{u.itemNumber}</span>}
+        </span>
+      </span>
+      <span className="flex flex-wrap items-center gap-2">
+        <span className={cn(negative ? "font-semibold text-red-600" : "text-slate-500")}>بالنظام {qtyText(u.systemQty, u.pcsPerCarton)}</span>
+        {inRecount && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">عند العامل</span>}
+        {editable && (
+          <>
+            <Button size="sm" variant="outline" disabled={busy} title="الرصيد يبقى وتدخل متابعة شهرين" onClick={onKeep}>
+              خلّيها
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-red-300 text-red-700"
+              disabled={busy}
+              onClick={() => {
+                const msg = negative
+                  ? `«${u.productName}» رصيدها سالب. تصفّرها؟ تنكتب زيادة ${Math.abs(u.systemQty)} قطعة بفاتورة الشراء بالاعتماد.`
+                  : `«${u.productName}» خلصانة؟ رصيدها يصير صفر بالاعتماد.`
+                if (window.confirm(msg)) onGone()
+              }}
+            >
+              {negative ? "صفّرها" : "خلصانة"}
+            </Button>
+            {!inRecount && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => { if (window.confirm(`ترجع «${u.productName}» للعامل يعدّها؟`)) onRecount() }}
+              >
+                أعد عدّها
+              </Button>
+            )}
+          </>
+        )}
+      </span>
+    </li>
   )
 }
 

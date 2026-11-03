@@ -31,6 +31,7 @@ import {
   publicLineCountThumbnailsHandler,
   publicLineCountImageHandler,
   setLineCountBasisHandler,
+  setLineCountKeepHandler,
   reopenLineCountSession,
   deleteLineCountLineHandler,
   editLineCountLineHandler,
@@ -59,6 +60,7 @@ import {
   lineCountPublicThumbnailsSchema,
   lineCountPublicImageSchema,
   lineCountBasisSchema,
+  lineCountKeepSchema,
   lineCountLineEditSchema,
   lineCountLineParamsSchema,
   lineCountProductTotalSchema,
@@ -80,6 +82,7 @@ router.post("/lines/:id/reopen", authMiddleware, requirePermission("INVENTORY_MA
 router.post("/lines/:id/recount", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountRecountSchema), requestLineCountRecountHandler);
 router.post("/lines/:id/cancel-recount", authMiddleware, requirePermission("INVENTORY_MANAGE"), cancelLineCountRecountHandler);
 router.post("/lines/:id/gone", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountRecountSchema), markLineCountGoneHandler);
+router.post("/lines/:id/keep", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountKeepSchema), setLineCountKeepHandler);
 router.patch("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineEditSchema), editLineCountLineHandler);
 router.delete("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineParamsSchema), deleteLineCountLineHandler);
 router.post("/lines/:id/product/:productId/total", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountProductTotalSchema), setLineCountProductTotalHandler);
