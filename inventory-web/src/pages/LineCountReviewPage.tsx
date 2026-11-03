@@ -222,6 +222,10 @@ export function LineCountReviewPage() {
   const qc = useQueryClient()
   const readOnly = useReadOnly()
   const [showMatched, setShowMatched] = useState(false)
+  // Decided rows leave the working list; they wait folded below in case a
+  // decision needs undoing.
+  const [showDecided, setShowDecided] = useState(false)
+  const [decidedShown, setDecidedShown] = useState(50)
   const [showUncounted, setShowUncounted] = useState(true)
   const [showLog, setShowLog] = useState(false)
   const [showThresholds, setShowThresholds] = useState(false)
@@ -306,6 +310,7 @@ export function LineCountReviewPage() {
   const visible = useMemo(() => {
     const nq = normalizeArabic(query.trim())
     return diffs.filter(({ it, sev }) => {
+      if (it.decision !== "PENDING") return false
       if (nq && !normalizeArabic(it.productName).includes(nq) && !(it.itemNumber ?? "").toLowerCase().includes(query.trim().toLowerCase())) return false
       switch (filter) {
         case "all": return true
@@ -334,16 +339,17 @@ export function LineCountReviewPage() {
   const hasOverage = accepted.some((i) => i.delta > 0)
   const shortageAll = diffs.filter((d) => d.it.delta < 0).reduce((t, d) => t + d.it.value, 0)
   const overageAll = diffs.filter((d) => d.it.delta > 0).reduce((t, d) => t + d.it.value, 0)
+  const decidedDiffs = diffs.filter((d) => d.it.decision !== "PENDING")
+  // Filter counts cover the working list: what still needs a decision.
   const count = (f: Filter) =>
-    f === "all" ? diffs.length
-      : f === "unit" ? diffs.filter((d) => d.it.unitSuggestion).length
-      : f === "shortage" ? diffs.filter((d) => d.it.delta < 0).length
-      : f === "overage" ? diffs.filter((d) => d.it.delta > 0).length
-      : f === "pending" ? pending.length
-      : f === "edited" ? diffs.filter((d) => d.it.workerCountedQty !== null).length
-      : f === "ambiguous" ? diffs.filter((d) => d.it.ambiguous).length
-      : f === "noprice" ? diffs.filter((d) => d.it.noPrice || d.it.deleted).length
-      : diffs.filter((d) => d.sev === f).length
+    f === "all" || f === "pending" ? pending.length
+      : f === "unit" ? pending.filter((d) => d.it.unitSuggestion).length
+      : f === "shortage" ? pending.filter((d) => d.it.delta < 0).length
+      : f === "overage" ? pending.filter((d) => d.it.delta > 0).length
+      : f === "edited" ? pending.filter((d) => d.it.workerCountedQty !== null).length
+      : f === "ambiguous" ? pending.filter((d) => d.it.ambiguous).length
+      : f === "noprice" ? pending.filter((d) => d.it.noPrice || d.it.deleted).length
+      : pending.filter((d) => d.sev === f).length
   // «قبول سريع»: only undecided rows, and never a suspected unit mix-up, a
   // product sold between two of its lines, or one finalize would refuse — those
   // stay for the manager to look at one by one.
@@ -401,7 +407,6 @@ export function LineCountReviewPage() {
     { key: "unit", label: "مشكوك بالوحدة" },
     { key: "shortage", label: "نقص" },
     { key: "overage", label: "زيادة" },
-    { key: "pending", label: "بلا قرار" },
     { key: "edited", label: "معدّلة" },
     { key: "ambiguous", label: "انباعت بين سطورها" },
     { key: "noprice", label: "بلا سعر أو محذوفة" },
@@ -505,7 +510,10 @@ export function LineCountReviewPage() {
       {/* Variances */}
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-bold text-red-600">الفروقات ({diffs.length})</h2>
+          <h2 className="text-lg font-bold text-red-600">
+            تحتاج قرار ({pending.length})
+            <span className="mr-2 text-sm font-medium text-slate-500">من {diffs.length} فرق — المقبول والمرفوض ينزل تحت</span>
+          </h2>
           <button type="button" onClick={() => setShowThresholds((v) => !v)} className="inline-flex items-center gap-1 text-xs text-slate-500 underline">
             <SlidersHorizontal className="h-3.5 w-3.5" /> حدود الألوان
           </button>
@@ -634,6 +642,8 @@ export function LineCountReviewPage() {
 
         {diffs.length === 0 ? (
           <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">كل المواد المحسوبة مطابقة ✓</p>
+        ) : pending.length === 0 ? (
+          <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">كل الفروقات انقرر عليها ✓</p>
         ) : visible.length === 0 ? (
           <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-500">ماكو مواد بهذا التصفية.</p>
         ) : (
@@ -655,6 +665,43 @@ export function LineCountReviewPage() {
           ))
         )}
       </section>
+
+      {/* Decided — out of the way, still undoable */}
+      {decidedDiffs.length > 0 && (
+        <section>
+          <button type="button" onClick={() => setShowDecided((v) => !v)} className="flex items-center gap-1 text-base font-bold text-slate-700 dark:text-slate-200">
+            <ChevronDown className={cn("h-4 w-4 transition", showDecided && "rotate-180")} /> انقرر عليها ({decidedDiffs.length})
+            <span className="mr-2 text-sm font-medium text-emerald-700">مقبول {accepted.length}</span>
+            <span className="mr-2 text-sm font-medium text-slate-500">مرفوض {decidedDiffs.length - accepted.length}</span>
+          </button>
+          {showDecided && (
+            <div className="mt-2 space-y-2">
+              <p className="text-xs text-slate-500">إذا تريد ترجع عن قرار، اضغط نفس الزر مرة ثانية وترجع المادة فوك بلا قرار.</p>
+              {decidedDiffs.slice(0, decidedShown).map(({ it, sev }) => (
+                <VarianceRow
+                  key={it.productId}
+                  sessionId={id}
+                  it={it}
+                  sev={sev}
+                  editable={editable}
+                  busy={decideMut.isPending}
+                  selected={selected.has(it.productId)}
+                  onSelect={() => toggleSelect(it.productId)}
+                  onDecide={(d) => decideMut.mutate({ decision: d, productId: it.productId })}
+                  onBasis={(basis) => basisMut.mutate({ productId: it.productId, basis })}
+                  basisBusy={basisMut.isPending}
+                  onChanged={refresh}
+                />
+              ))}
+              {decidedDiffs.length > decidedShown && (
+                <Button variant="outline" className="w-full" onClick={() => setDecidedShown((n) => n + 50)}>
+                  عرض المزيد ({decidedDiffs.length - decidedShown} باقية)
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Matched */}
       {matched.length > 0 && (
