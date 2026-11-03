@@ -99,6 +99,8 @@ function resourceForPath(path: string): RealtimeResource | null {
   // The worker's phone saves its draft every half minute — nothing on a
   // staff screen needs refetching for that (the count panel polls).
   if (/^\/api\/stocktake\/public\/lines\/[^/]+\/draft$/.test(clean)) return null;
+  // Reading pictures for the worker link changes nothing.
+  if (/^\/api\/stocktake\/public\/lines\/[^/]+\/thumbnails$/.test(clean)) return null;
   if (clean.startsWith("/api/stocktake")) return "stocktake";
   if (clean.startsWith("/api/reports")) return "reports";
   // Matches both /api/whatsapp/* (send-invoice, send, send-invoice-image...)

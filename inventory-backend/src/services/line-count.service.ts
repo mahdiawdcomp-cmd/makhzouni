@@ -902,6 +902,14 @@ export async function publicGetLineCount(token: string) {
     select: { id: true, name: true, itemNumber: true, qrCode: true, cartonQrCode: true, category: true, pcsPerCarton: true },
     orderBy: { name: "asc" },
   });
+  // Which products have a picture — the pictures themselves come separately,
+  // a batch at a time, so the catalogue download stays light.
+  const withImage = products.length === 0 ? new Set<string>() : new Set(
+    (await prisma.product.findMany({
+      where: { id: { in: products.map((p) => p.id) }, thumbnailUrl: { not: null } },
+      select: { id: true },
+    })).map((p) => p.id),
+  );
   // A whole count sent back («أعد للعامل») carries its lines — the worker's plus
   // any manager correction — so a different phone, or the office PC entering the
   // paper sheets, starts from them instead of uploading an empty list over them.
@@ -922,7 +930,7 @@ export async function publicGetLineCount(token: string) {
     // phone's local lines so an older round is never re-sent.
     recountProductIds: recount,
     recountRound: recount.length > 0 ? s.recountRound : 0,
-    products,
+    products: products.map((p) => ({ ...p, hasImage: withImage.has(p.id) })),
     lines,
     // What a phone already sent for this round — another phone continues from it.
     draft: s.status === "OPEN" ? (() => {
@@ -1081,4 +1089,36 @@ export async function publicSaveLineCountDraft(token: string, deviceId: string, 
     await tx.lineCountSession.update({ where: { id: s.id }, data: { draft: next as unknown as Prisma.InputJsonValue } });
     return { saved: true, status: r.status };
   });
+}
+
+/** Products the worker link may show: the recount list while one is open,
+ * otherwise the whole catalogue — and nothing once the count is closed. */
+async function openLinkScope(token: string) {
+  const s = await sessionByToken(token);
+  if (s.status !== "OPEN") return null;
+  return s.recountProductIds.length > 0 ? new Set(s.recountProductIds) : "ALL";
+}
+
+/** Small pictures for the worker link, a batch at a time; the phone keeps them
+ * so they still show with no signal. */
+export async function publicLineCountThumbnails(token: string, productIds: string[]) {
+  const scope = await openLinkScope(token);
+  if (!scope) return {};
+  const ids = [...new Set(productIds)].filter((id) => scope === "ALL" || scope.has(id)).slice(0, 120);
+  if (ids.length === 0) return {};
+  const rows = await prisma.product.findMany({
+    where: { id: { in: ids }, deletedAt: null, thumbnailUrl: { not: null } },
+    select: { id: true, thumbnailUrl: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.id, r.thumbnailUrl as string]));
+}
+
+/** The full-size picture of one product, opened on tap while online. */
+export async function publicLineCountImage(token: string, productId: string) {
+  const scope = await openLinkScope(token);
+  if (!scope || (scope !== "ALL" && !scope.has(productId))) throw new AppError("الصورة غير متاحة", 404, "LINE_COUNT_IMAGE_NOT_FOUND");
+  const p = await prisma.product.findFirst({ where: { id: productId, deletedAt: null }, select: { imageUrl: true, thumbnailUrl: true } });
+  const image = p?.imageUrl ?? p?.thumbnailUrl ?? null;
+  if (!image) throw new AppError("ما إلها صورة", 404, "LINE_COUNT_IMAGE_NOT_FOUND");
+  return { image };
 }

@@ -570,6 +570,24 @@ describe("line count hardening", () => {
     await svc.cancelLineCount(s.id);
   });
 
+  it("the link serves pictures only for what it shows, and none once closed", async () => {
+    const p1 = await mk(5);
+    const p2 = await mk(5);
+    await db.product.update({ where: { id: p1 }, data: { thumbnailUrl: "data:image/webp;base64,AAA", imageUrl: "data:image/webp;base64,BBBB" } });
+    await db.product.update({ where: { id: p2 }, data: { thumbnailUrl: "data:image/webp;base64,CCC" } });
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    const pub = await svc.publicGetLineCount(s.publicToken);
+    assert.equal(pub.products.find((p) => p.id === p1)?.hasImage, true);
+    assert.deepEqual(Object.keys(await svc.publicLineCountThumbnails(s.publicToken, [p1, p2])).sort(), [p1, p2].sort());
+    assert.equal((await svc.publicLineCountImage(s.publicToken, p1)).image, "data:image/webp;base64,BBBB");
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 1), line(p2, 2)]);
+    await svc.requestLineCountRecount(s.id, [p1]);
+    assert.deepEqual(Object.keys(await svc.publicLineCountThumbnails(s.publicToken, [p1, p2])), [p1], "recount shows only its products");
+    await assert.rejects(() => svc.publicLineCountImage(s.publicToken, p2));
+    await svc.cancelLineCount(s.id);
+    assert.deepEqual(await svc.publicLineCountThumbnails(s.publicToken, [p1]), {}, "closed link serves nothing");
+  });
+
   it("two clicks at once open one count only", async () => {
     const results = await Promise.allSettled([svc.createLineCount(ids.admin, ids.shop), svc.createLineCount(ids.admin, ids.shop)]);
     assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);

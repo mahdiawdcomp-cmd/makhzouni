@@ -28,6 +28,8 @@ import {
   publicGetLineCountSession,
   publicSubmitLineCountSession,
   publicSaveLineCountDraftHandler,
+  publicLineCountThumbnailsHandler,
+  publicLineCountImageHandler,
   setLineCountBasisHandler,
   reopenLineCountSession,
   deleteLineCountLineHandler,
@@ -54,6 +56,8 @@ import {
   lineCountDecisionSchema,
   lineCountPublicSubmitSchema,
   lineCountPublicDraftSchema,
+  lineCountPublicThumbnailsSchema,
+  lineCountPublicImageSchema,
   lineCountBasisSchema,
   lineCountLineEditSchema,
   lineCountLineParamsSchema,
@@ -84,6 +88,8 @@ router.post("/lines/:id/product/:productId/basis", authMiddleware, requirePermis
 router.get("/public/lines/:token", publicGetLineCountSession);
 router.post("/public/lines/:token/submit", validate(lineCountPublicSubmitSchema), publicSubmitLineCountSession);
 router.post("/public/lines/:token/draft", validate(lineCountPublicDraftSchema), publicSaveLineCountDraftHandler);
+router.post("/public/lines/:token/thumbnails", validate(lineCountPublicThumbnailsSchema), publicLineCountThumbnailsHandler);
+router.get("/public/lines/:token/image/:productId", validate(lineCountPublicImageSchema), publicLineCountImageHandler);
 
 // ── Admin routes (auth required) ─────────────────────────────────────────────
 router.get("/", authMiddleware, requirePermission("INVENTORY_MANAGE"), listSessions);

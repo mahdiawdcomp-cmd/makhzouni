@@ -11,6 +11,8 @@ import {
   listLineCountWatch,
   markLineCountGone,
   publicGetLineCount,
+  publicLineCountImage,
+  publicLineCountThumbnails,
   publicSaveLineCountDraft,
   publicSubmitLineCount,
   reopenLineCount,
@@ -115,4 +117,15 @@ export const cancelLineCountRecountHandler = asyncHandler(async (req, res) => {
 export const setLineCountBasisHandler = asyncHandler(async (req, res) => {
   const { basis } = req.body as { basis: "FIRST" | "LAST" };
   res.json({ success: true, data: await setLineCountBasis(String(req.params.id), String(req.params.productId), basis, who(req).id, who(req).name) });
+});
+
+export const publicLineCountThumbnailsHandler = asyncHandler(async (req, res) => {
+  const { productIds } = req.body as { productIds: string[] };
+  res.json({ success: true, data: await publicLineCountThumbnails(String(req.params.token), productIds) });
+});
+
+export const publicLineCountImageHandler = asyncHandler(async (req, res) => {
+  // Pictures don't change often; let the phone keep a full-size copy for a day.
+  res.set("Cache-Control", "private, max-age=86400");
+  res.json({ success: true, data: await publicLineCountImage(String(req.params.token), String(req.params.productId)) });
 });

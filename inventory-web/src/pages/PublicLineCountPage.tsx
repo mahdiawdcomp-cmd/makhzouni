@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
 import { registerSW } from "virtual:pwa-register"
-import { CheckCircle2, CloudOff, CloudUpload, Loader2, Search, Trash2, Wifi } from "lucide-react"
+import { CheckCircle2, ChevronDown, CloudOff, CloudUpload, ImageOff, Loader2, Search, Trash2, Wifi, X } from "lucide-react"
 import { api } from "../api/client"
 import { cn } from "../utils/cn"
 import { apiErrorMessage, errorCodeOf } from "../utils/apiError"
@@ -21,6 +21,7 @@ interface CatalogProduct {
   cartonQrCode: string | null
   category: string | null
   pcsPerCarton: number
+  hasImage?: boolean
 }
 
 interface SessionData {
@@ -129,6 +130,132 @@ const toPayload = (lines: Line[]) =>
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString("ar-IQ", { hour: "2-digit", minute: "2-digit" })
 
+// ── Pictures ────────────────────────────────────────────────────────────────
+// Small pictures are fetched a batch at a time and kept in the browser's cache
+// storage, so they still show with no signal. The full picture opens on tap
+// while online.
+
+const THUMB_CACHE = "lc-thumbs-v1"
+const thumbKey = (id: string) => `/__lc-thumb/${id}`
+
+async function readCachedThumbs(ids: string[]) {
+  const out = new Map<string, string>()
+  try {
+    const cache = await caches.open(THUMB_CACHE)
+    await Promise.all(ids.map(async (id) => {
+      const hit = await cache.match(thumbKey(id))
+      if (hit) out.set(id, await hit.text())
+    }))
+  } catch {
+    /* no cache storage (private mode) — pictures load online only */
+  }
+  return out
+}
+
+async function storeThumbs(entries: [string, string][]) {
+  try {
+    const cache = await caches.open(THUMB_CACHE)
+    await Promise.all(entries.map(([id, url]) => cache.put(thumbKey(id), new Response(url))))
+  } catch {
+    /* storage full or blocked — still shown this session */
+  }
+}
+
+function useThumbs(token: string, products: CatalogProduct[], online: boolean) {
+  const [thumbs, setThumbs] = useState<Map<string, string>>(new Map())
+  const wanted = useMemo(() => products.filter((p) => p.hasImage).map((p) => p.id), [products])
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const cached = await readCachedThumbs(wanted)
+      if (!alive) return
+      setThumbs(new Map(cached))
+      if (!online) return
+      const missing = wanted.filter((id) => !cached.has(id))
+      for (let i = 0; i < missing.length && alive; i += 100) {
+        try {
+          const { data } = await api.post(`/stocktake/public/lines/${token}/thumbnails`, { productIds: missing.slice(i, i + 100) }, { timeout: 60_000 })
+          const got = Object.entries((data as { data: Record<string, string> }).data ?? {})
+          if (!alive || got.length === 0) continue
+          await storeThumbs(got)
+          setThumbs((prev) => {
+            const next = new Map(prev)
+            for (const [id, url] of got) next.set(id, url)
+            return next
+          })
+        } catch {
+          break // offline again — the next open or reconnect continues
+        }
+      }
+    })()
+    return () => { alive = false }
+  }, [token, wanted, online])
+  return thumbs
+}
+
+function Thumb({ src, size = 44, onOpen }: { src: string | undefined; size?: number; onOpen?: () => void }) {
+  const box = { width: size, height: size }
+  if (!src)
+    return (
+      <span style={box} className="flex shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+        <ImageOff className="h-4 w-4" />
+      </span>
+    )
+  return (
+    <button
+      type="button"
+      style={box}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => { e.stopPropagation(); onOpen?.() }}
+      className="shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
+      aria-label="كبّر الصورة"
+    >
+      <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />
+    </button>
+  )
+}
+
+/** Full-size picture over the page. Shows the small one at once, swaps in the
+ * real one when it arrives; with no signal the small one stays. */
+function ImageViewer({ token, product, thumb, online, onClose }: {
+  token: string
+  product: CatalogProduct
+  thumb: string | undefined
+  online: boolean
+  onClose: () => void
+}) {
+  const [full, setFull] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (!online) return
+    let alive = true
+    api
+      .get(`/stocktake/public/lines/${token}/image/${product.id}`, { timeout: 60_000 })
+      .then(({ data }) => { if (alive) setFull((data as { data: { image: string } }).data.image) })
+      .catch(() => { if (alive) setFailed(true) })
+    return () => { alive = false }
+  }, [token, product.id, online])
+  const src = full ?? thumb
+  return (
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={onClose}>
+      <div className="flex items-center justify-between gap-2 px-4 py-3 text-white">
+        <p className="min-w-0 truncate font-semibold">{product.name}</p>
+        <button type="button" onClick={onClose} aria-label="سدّ" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center p-2">
+        {src ? <img src={src} alt={product.name} className="max-h-full max-w-full object-contain" /> : <ImageOff className="h-12 w-12 text-white/40" />}
+      </div>
+      {!full && (
+        <p className="pb-[max(env(safe-area-inset-bottom),12px)] text-center text-sm text-white/70">
+          {!online || failed ? "بدون نت — هاي الصورة المصغرة" : "دا نحمّل الصورة الكاملة…"}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function linePieces(line: Line, p: CatalogProduct | undefined) {
   const q = Number(line.qty || 0)
   return line.unit === "CARTON" ? q * Math.max(1, p?.pcsPerCarton ?? 1) : q
@@ -173,6 +300,8 @@ export function PublicLineCountPage() {
   // Last time the server confirmed this phone's lines (a dead phone loses nothing).
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [seededFrom, setSeededFrom] = useState<{ count: number; at: string } | null>(null)
+  const [viewing, setViewing] = useState<CatalogProduct | null>(null)
+  const thumbs = useThumbs(token, session?.status === "OPEN" ? session.products : [], online)
 
   // Download (or refresh) the catalogue. A cached copy keeps the page usable offline.
   useEffect(() => {
@@ -447,7 +576,17 @@ export function PublicLineCountPage() {
         )}
       </header>
 
-      <LineEditor products={session.products} lines={lines} setLines={setLines} />
+      <LineEditor
+        products={session.products}
+        lines={lines}
+        setLines={setLines}
+        thumbs={thumbs}
+        recount={round > 0}
+        onOpenImage={setViewing}
+      />
+      {viewing && (
+        <ImageViewer token={token} product={viewing} thumb={thumbs.get(viewing.id)} online={online} onClose={() => setViewing(null)} />
+      )}
 
       <div className="sticky bottom-0 -mx-4 mt-4 border-t border-slate-200 bg-white/95 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-3 backdrop-blur">
         {pendingSubmit && (
@@ -495,10 +634,16 @@ function LineEditor({
   products,
   lines,
   setLines,
+  thumbs,
+  recount,
+  onOpenImage,
 }: {
   products: CatalogProduct[]
   lines: Line[]
   setLines: React.Dispatch<React.SetStateAction<Line[]>>
+  thumbs: Map<string, string>
+  recount: boolean
+  onOpenImage: (p: CatalogProduct) => void
 }) {
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products])
   const [query, setQuery] = useState("")
@@ -521,6 +666,7 @@ function LineEditor({
   }, [products, query, picked])
 
   function pick(p: CatalogProduct, asUnit: Unit = "PIECE") {
+    setNotFound(null)
     setPicked(p)
     setQuery(p.name)
     setUnit(p.pcsPerCarton > 1 ? asUnit : "PIECE")
@@ -620,13 +766,16 @@ function LineEditor({
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(p)}
-                    className="block w-full px-3 py-2.5 text-right hover:bg-slate-50 active:bg-slate-100"
+                    className="flex w-full items-center gap-3 px-3 py-2 text-right hover:bg-slate-50 active:bg-slate-100"
                   >
-                    <span className="block font-medium">{p.name}</span>
-                    <span className="block text-xs text-slate-400">
-                      {p.itemNumber ? <span dir="ltr" className="font-mono">{p.itemNumber}</span> : null}
-                      {p.category ? ` · ${p.category}` : ""}
-                      {totals.has(p.id) ? " · مكتوبة سابقاً" : ""}
+                    <Thumb src={thumbs.get(p.id)} size={40} onOpen={() => onOpenImage(p)} />
+                    <span className="min-w-0">
+                      <span className="block font-medium">{p.name}</span>
+                      <span className="block text-xs text-slate-400">
+                        {p.itemNumber ? <span dir="ltr" className="font-mono">{p.itemNumber}</span> : null}
+                        {p.category ? ` · ${p.category}` : ""}
+                        {totals.has(p.id) ? " · مكتوبة سابقاً" : ""}
+                      </span>
                     </span>
                   </button>
                 </li>
@@ -637,6 +786,12 @@ function LineEditor({
 
         {picked && (
           <div className="mt-3 space-y-2">
+            {thumbs.get(picked.id) && (
+              <div className="flex items-center gap-3">
+                <Thumb src={thumbs.get(picked.id)} size={72} onOpen={() => onOpenImage(picked)} />
+                <p className="text-xs text-slate-500">اضغط الصورة حتى تكبر وتتأكد إنها نفس المادة.</p>
+              </div>
+            )}
             {earlier.length > 0 && (
               <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
                 مكتوبة بسطر {earlier.map((x) => x.n).join("، ")} — المجموع لحد الآن {describePieces(earlierTotal, picked.pcsPerCarton)}. السطر الجديد ينضاف عليها.
@@ -673,6 +828,15 @@ function LineEditor({
         )}
       </div>
 
+      <ProductBrowser
+        products={products}
+        totals={totals}
+        thumbs={thumbs}
+        recount={recount}
+        onPick={(p) => { pick(p); window.scrollTo({ top: 0, behavior: "smooth" }) }}
+        onOpenImage={onOpenImage}
+      />
+
       {/* Written lines — newest on top so the last entry is always in view */}
       {lines.length === 0 ? (
         <p className="py-8 text-center text-slate-400">ابحث عن مادة واكتب كميتها — كل مادة بسطر.</p>
@@ -684,7 +848,8 @@ function LineEditor({
             return (
               <li key={l.id} className={cn("rounded-2xl border bg-white p-3 shadow-sm", l.qty === "" ? "border-red-300" : "border-slate-200")}>
                 <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                  {p && <Thumb src={thumbs.get(p.id)} size={40} onOpen={() => onOpenImage(p)} />}
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold leading-snug">
                       <span className="ml-1 text-slate-400">{n}.</span>
                       {p?.name ?? "مادة غير معروفة"}
@@ -722,6 +887,105 @@ function LineEditor({
             )
           })}
         </ol>
+      )}
+    </div>
+  )
+}
+
+/** Every product the link covers, with its picture and whether it's written
+ * yet — the worker can walk the list instead of searching. Tapping a product
+ * starts its line; tapping the picture enlarges it. During a recount it opens
+ * by itself and lists just the products asked for. */
+function ProductBrowser({
+  products,
+  totals,
+  thumbs,
+  recount,
+  onPick,
+  onOpenImage,
+}: {
+  products: CatalogProduct[]
+  totals: Map<string, { pieces: number; count: number }>
+  thumbs: Map<string, string>
+  recount: boolean
+  onPick: (p: CatalogProduct) => void
+  onOpenImage: (p: CatalogProduct) => void
+}) {
+  const [open, setOpen] = useState(recount)
+  const [onlyLeft, setOnlyLeft] = useState(false)
+  const [category, setCategory] = useState("")
+  const [shown, setShown] = useState(40)
+  const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "ar")), [products])
+  const list = useMemo(
+    () => products.filter((p) => (!onlyLeft || !totals.has(p.id)) && (!category || p.category === category)),
+    [products, onlyLeft, category, totals],
+  )
+  const done = products.filter((p) => totals.has(p.id)).length
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between gap-2 px-3 py-3 text-right">
+        <span className="font-semibold">
+          {recount ? "المواد المطلوب تعيد عدّها" : "تصفّح المواد"} ({products.length})
+          <span className="mr-2 text-xs font-medium text-emerald-700">انكتبت {done} · باقي {products.length - done}</span>
+        </span>
+        <ChevronDown className={cn("h-5 w-5 text-slate-400 transition", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-slate-100 p-3">
+          <div className="flex flex-wrap gap-2">
+            {categories.length > 1 && (
+              <select
+                value={category}
+                onChange={(e) => { setCategory(e.target.value); setShown(40) }}
+                className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-2 text-sm"
+              >
+                <option value="">كل الأقسام</option>
+                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
+            <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm">
+              <input type="checkbox" checked={onlyLeft} onChange={(e) => { setOnlyLeft(e.target.checked); setShown(40) }} className="h-4 w-4" />
+              الباقية بس
+            </label>
+          </div>
+          {list.length === 0 ? (
+            <p className="py-4 text-center text-sm text-slate-400">{onlyLeft ? "كل المواد انكتبت ✓" : "ماكو مواد"}</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {list.slice(0, shown).map((p) => {
+                const t = totals.get(p.id)
+                return (
+                  <li key={p.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onPick(p)}
+                      onKeyDown={(e) => { if (e.key === "Enter") onPick(p) }}
+                      className="flex items-center gap-3 py-2 active:bg-slate-50"
+                    >
+                      <Thumb src={thumbs.get(p.id)} size={56} onOpen={() => onOpenImage(p)} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium leading-snug">{p.name}</span>
+                        <span className="block text-xs text-slate-400">
+                          {p.itemNumber ? <span dir="ltr" className="font-mono">{p.itemNumber}</span> : null}
+                          {p.category ? ` · ${p.category}` : ""}
+                        </span>
+                      </span>
+                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold", t ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500")}>
+                        {t ? `✓ ${describePieces(t.pieces, p.pcsPerCarton)}` : "ما انكتبت"}
+                      </span>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {list.length > shown && (
+            <button type="button" onClick={() => setShown((n) => n + 40)} className="h-11 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600">
+              عرض المزيد ({list.length - shown} باقية)
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

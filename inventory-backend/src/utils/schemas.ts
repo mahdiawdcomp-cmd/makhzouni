@@ -1990,6 +1990,15 @@ export const lineCountPublicDraftSchema = z.object({
   }),
 });
 
+export const lineCountPublicThumbnailsSchema = z.object({
+  params: publicTokenParams,
+  body: z.object({ productIds: z.array(z.string().uuid()).min(1).max(120) }),
+});
+
+export const lineCountPublicImageSchema = z.object({
+  params: publicTokenParams.extend({ productId: z.string().uuid() }),
+});
+
 export const lineCountBasisSchema = z.object({
   params: z.object({ id: z.string().uuid(), productId: z.string().uuid() }),
   body: z.object({ basis: z.enum(["FIRST", "LAST"]) }),
