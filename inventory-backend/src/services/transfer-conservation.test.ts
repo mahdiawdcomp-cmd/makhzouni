@@ -32,6 +32,8 @@ const totalOf = (p: string) =>
 // ── Faithful stock-engine mock (registered before importing the service) ──────
 mock.module("./warehouse-stock.service", {
   exports: {
+    withNetLineCountCheck: async (_db: unknown, fn: () => Promise<unknown>) => fn(),
+    assertNoneUnderLineCount: async () => undefined,
     ensureLegacyWarehouseStock: async () => {},
     syncProductTotalStock: async () => {},
     // Mirrors the real adjust: returns balanceBefore/After and blocks an

@@ -27,6 +27,8 @@ import {
   listLineCountSessions,
   publicGetLineCountSession,
   publicSubmitLineCountSession,
+  publicSaveLineCountDraftHandler,
+  setLineCountBasisHandler,
   reopenLineCountSession,
   deleteLineCountLineHandler,
   editLineCountLineHandler,
@@ -51,6 +53,8 @@ import {
   lineCountCreateSchema,
   lineCountDecisionSchema,
   lineCountPublicSubmitSchema,
+  lineCountPublicDraftSchema,
+  lineCountBasisSchema,
   lineCountLineEditSchema,
   lineCountLineParamsSchema,
   lineCountProductTotalSchema,
@@ -76,8 +80,10 @@ router.patch("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVEN
 router.delete("/lines/:id/line/:lineId", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountLineParamsSchema), deleteLineCountLineHandler);
 router.post("/lines/:id/product/:productId/total", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountProductTotalSchema), setLineCountProductTotalHandler);
 router.post("/lines/:id/product/:productId/swap-unit", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountSwapUnitSchema), swapLineCountUnitsHandler);
+router.post("/lines/:id/product/:productId/basis", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(lineCountBasisSchema), setLineCountBasisHandler);
 router.get("/public/lines/:token", publicGetLineCountSession);
 router.post("/public/lines/:token/submit", validate(lineCountPublicSubmitSchema), publicSubmitLineCountSession);
+router.post("/public/lines/:token/draft", validate(lineCountPublicDraftSchema), publicSaveLineCountDraftHandler);
 
 // ── Admin routes (auth required) ─────────────────────────────────────────────
 router.get("/", authMiddleware, requirePermission("INVENTORY_MANAGE"), listSessions);

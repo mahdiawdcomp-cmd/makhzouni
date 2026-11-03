@@ -135,22 +135,38 @@ export async function syncProductTotalStock(db: WarehouseDb, productId: string) 
  * the decision, for anyone. Inflows stay open. Released per product the moment
  * it is decided; a recount keeps the session OPEN with its list, still frozen. */
 export async function assertNotUnderLineCount(db: WarehouseDb, productId: string, warehouseId: string) {
+  await assertNoneUnderLineCount(db, [{ productId, warehouseId }]);
+}
+
+/** Same freeze, checked for many products at once so the cashier hears about
+ * every frozen item in one message instead of one per failed save. */
+export async function assertNoneUnderLineCount(db: WarehouseDb, pairs: { productId: string; warehouseId: string }[]) {
+  if (pairs.length === 0) return;
+  const pids = pairs.map((p) => p.productId);
+  const wids = pairs.map((p) => p.warehouseId);
   const rows = await db.$queryRaw<Array<{ name: string | null; wh: string | null }>>(Prisma.sql`
-    SELECT p."name", b."name" AS wh
+    SELECT DISTINCT p."name", b."name" AS wh
     FROM "line_count_results" r
     JOIN "line_count_sessions" s ON s."id" = r."session_id"
+    JOIN unnest(${pids}::uuid[], ${wids}::uuid[]) AS t(pid, wid) ON t.pid = r."product_id" AND t.wid = s."warehouse_id"
     LEFT JOIN "products" p ON p."id" = r."product_id"
     LEFT JOIN "branches" b ON b."id" = s."warehouse_id"
-    WHERE s."warehouse_id" = ${warehouseId}::uuid
-      AND r."product_id" = ${productId}::uuid
-      AND r."decision" = 'PENDING'
+    WHERE r."decision" = 'PENDING'
       AND r."counted_qty" <> r."system_qty"
       AND (s."status" = 'SUBMITTED' OR (s."status" = 'OPEN' AND cardinality(s."recount_product_ids") > 0))
-    LIMIT 1
+    ORDER BY p."name"
+    LIMIT 50
   `);
   if (rows.length === 0) return;
+  if (rows.length === 1)
+    throw new AppError(
+      `"${rows[0].name ?? "المادة"}" بالجرد بـ${rows[0].wh ?? "المخزن"}، تنتظر موافقة المدير — ما تطلع لحد ما ينقبل أو ينرفض فرقها.`,
+      409,
+      "LINE_COUNT_LOCKED"
+    );
+  const names = rows.slice(0, 10).map((r) => `«${r.name ?? "مادة"}»`).join("، ");
   throw new AppError(
-    `"${rows[0].name ?? "المادة"}" بالجرد بـ${rows[0].wh ?? "المخزن"}، تنتظر موافقة المدير — ما تطلع لحد ما ينقبل أو ينرفض فرقها.`,
+    `${rows.length === 50 ? "أكثر من 50" : rows.length} مواد بالجرد تنتظر موافقة المدير — ما تطلع لحد ما ينقبل أو ينرفض فرقها: ${names}${rows.length > 10 ? "…" : ""}`,
     409,
     "LINE_COUNT_LOCKED"
   );
@@ -164,15 +180,20 @@ export async function assertNotUnderLineCount(db: WarehouseDb, productId: string
 const netLineCountScope = new AsyncLocalStorage<Map<string, { productId: string; warehouseId: string; start: number }>>();
 
 export async function withNetLineCountCheck<T>(db: WarehouseDb, fn: () => Promise<T>): Promise<T> {
+  // Already inside a scope (an edit that cancels and re-creates): the outer
+  // one judges the whole operation's net change.
+  if (netLineCountScope.getStore()) return fn();
   const touched = new Map<string, { productId: string; warehouseId: string; start: number }>();
   const result = await netLineCountScope.run(touched, fn);
+  const down: { productId: string; warehouseId: string }[] = [];
   for (const t of touched.values()) {
     const rows = await db.$queryRaw<Array<{ quantity_pieces: number }>>(Prisma.sql`
       SELECT "quantity_pieces" FROM "product_warehouse_stocks"
       WHERE "product_id" = ${t.productId}::uuid AND "warehouse_id" = ${t.warehouseId}::uuid
     `);
-    if ((rows[0]?.quantity_pieces ?? 0) < t.start) await assertNotUnderLineCount(db, t.productId, t.warehouseId);
+    if ((rows[0]?.quantity_pieces ?? 0) < t.start) down.push(t);
   }
+  await assertNoneUnderLineCount(db, down);
   return result;
 }
 

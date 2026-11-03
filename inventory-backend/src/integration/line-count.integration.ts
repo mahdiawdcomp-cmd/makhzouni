@@ -445,3 +445,135 @@ describe("line count freeze and invoice edits", () => {
     await svc.cancelLineCount(s.id);
   });
 });
+
+describe("line count hardening", () => {
+  let n = 100;
+  const mk = async (stockQty: number, ppc = 1) => {
+    const id = randomUUID();
+    n += 1;
+    await db.product.create({
+      data: {
+        id, itemNumber: `LCH-${n}-${Date.now() % 100000}`, qrCode: `LCH-QR-${n}-${Date.now()}`, createdBy: ids.admin,
+        name: `مادة فحص ${n}`, salePrice: 1000, purchasePrice: 600, costPrice: 600, pcsPerCarton: ppc,
+        openingBalancePcs: 0, cartonsAvailable: 0,
+        warehouseStocks: { create: { warehouseId: ids.shop, quantityPieces: stockQty } },
+      },
+    });
+    return id;
+  };
+  const line = (productId: string, qty: number, at = new Date()) => ({ productId, qty, unit: "PIECE" as const, writtenAt: at.toISOString() });
+
+  it("a second phone's upload is refused, the same phone's retry is not", async () => {
+    const p = await mk(5);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    const first = await svc.publicSubmitLineCount(s.publicToken, [line(p, 4)], { submitId: "phone-A-round-0" });
+    assert.equal(first.alreadySubmitted, false);
+    const retry = await svc.publicSubmitLineCount(s.publicToken, [line(p, 4)], { submitId: "phone-A-round-0" });
+    assert.equal(retry.alreadySubmitted, true);
+    await assert.rejects(
+      () => svc.publicSubmitLineCount(s.publicToken, [line(p, 9)], { submitId: "phone-B-round-0" }),
+      (e: { code?: string }) => e.code === "LINE_COUNT_ALREADY_SUBMITTED",
+    );
+    assert.equal((await svc.getLineCountReview(s.id)).items[0].countedQty, 4, "the first upload stands");
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("drafts reach the server, seed another phone, and show as progress", async () => {
+    const p = await mk(5);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    assert.equal((await svc.publicSaveLineCountDraft(s.publicToken, "device-one-1234", 0, [line(p, 2), line(p, 1)])).saved, true);
+    assert.equal((await svc.publicSaveLineCountDraft(s.publicToken, "device-one-1234", 3, [line(p, 9)])).saved, false, "an old round is ignored");
+    const pub = await svc.publicGetLineCount(s.publicToken);
+    assert.deepEqual(pub.draft?.lines.map((l) => l.qty), [2, 1]);
+    const listed = (await svc.listLineCounts(ids.shop)).find((x) => x.id === s.id)!;
+    assert.equal(listed.progress?.lines, 2);
+    assert.equal(listed.progress?.products, 1);
+    await svc.publicSubmitLineCount(s.publicToken, [line(p, 3)]);
+    assert.equal((await db.lineCountSession.findUniqueOrThrow({ where: { id: s.id } })).draft, null, "cleared on upload");
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("corrects a phone clock that runs hours behind", async () => {
+    const p = await mk(5);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    const phoneNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    await svc.publicSubmitLineCount(s.publicToken, [line(p, 5, phoneNow)], { sentAt: phoneNow.toISOString() });
+    const r = await db.lineCountResult.findFirstOrThrow({ where: { sessionId: s.id } });
+    assert.ok(Math.abs(r.firstWrittenAt.getTime() - Date.now()) < 60_000, "shifted to server time");
+    assert.ok(r.firstWrittenAt >= s.createdAt, "never before the count began");
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("a product written before and after a sale asks which moment counts", async () => {
+    const p = await mk(10);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    const pause = () => new Promise((r) => setTimeout(r, 40));
+    await pause();
+    const t1 = new Date();
+    await pause();
+    const mid = new Date();
+    await pause();
+    // 3 sold between the two shelves.
+    await db.productWarehouseStock.updateMany({ where: { productId: p, warehouseId: ids.shop }, data: { quantityPieces: 7 } });
+    await db.stockMovement.create({ data: { productId: p, branchId: ids.shop, type: "OUT", quantity: 3, balanceBefore: 10, balanceAfter: 7, createdAt: mid } });
+    await svc.publicSubmitLineCount(s.publicToken, [line(p, 4, t1), line(p, 3)]);
+    let item = (await svc.getLineCountReview(s.id)).items[0];
+    assert.equal(item.ambiguous, true);
+    assert.equal(item.systemQtyFirst, 10);
+    assert.equal(item.systemQtyLast, 7);
+    assert.equal(item.delta, -3, "by default the first line's moment");
+    await svc.setLineCountBasis(s.id, p, "LAST", ids.admin, "المالك");
+    item = (await svc.getLineCountReview(s.id)).items[0];
+    assert.equal(item.delta, 0);
+    assert.equal(item.basis, "LAST");
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("bulk accept never flips a rejection, and every decision is signed and logged", async () => {
+    const p1 = await mk(5);
+    const p2 = await mk(5);
+    const s = await svc.createLineCount(ids.admin, ids.shop, undefined, "المالك");
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 1), line(p2, 2)]);
+    await svc.setLineCountDecision(s.id, "REJECTED", p1, undefined, ids.admin, "المالك");
+    await svc.setLineCountDecision(s.id, "ACCEPTED", undefined, [p1, p2], ids.admin, "المالك");
+    await svc.setLineCountDecision(s.id, "ACCEPTED", undefined, undefined, ids.admin, "المالك");
+    const rev = await svc.getLineCountReview(s.id);
+    assert.equal(rev.items.find((x) => x.productId === p1)?.decision, "REJECTED");
+    const two = rev.items.find((x) => x.productId === p2)!;
+    assert.equal(two.decision, "ACCEPTED");
+    assert.equal(two.decidedBy, "المالك");
+    assert.deepEqual(rev.events.map((e) => e.action).reverse(), ["CREATE", "SUBMIT", "DECISION", "DECISION", "DECISION"]);
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("names every frozen product in one refusal", async () => {
+    const p1 = await mk(5);
+    const p2 = await mk(5);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    await svc.publicSubmitLineCount(s.publicToken, [line(p1, 1), line(p2, 2)]);
+    const { assertNoneUnderLineCount } = await import("../services/warehouse-stock.service");
+    const { prisma } = await import("../config/database");
+    await assert.rejects(
+      () => assertNoneUnderLineCount(prisma, [{ productId: p1, warehouseId: ids.shop }, { productId: p2, warehouseId: ids.shop }]),
+      (e: Error) => e.message.startsWith("2 مواد") && e.message.includes("مادة فحص"),
+    );
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("a scanned barcode in the quantity box is refused with the line named", async () => {
+    const p = await mk(5, 12);
+    const s = await svc.createLineCount(ids.admin, ids.shop);
+    await assert.rejects(
+      () => svc.publicSubmitLineCount(s.publicToken, [line(p, 1), { ...line(p, 900_000), unit: "CARTON" as const }]),
+      (e: { code?: string; message: string }) => e.code === "LINE_COUNT_QTY_TOO_BIG" && e.message.includes("السطر 2"),
+    );
+    await svc.cancelLineCount(s.id);
+  });
+
+  it("two clicks at once open one count only", async () => {
+    const results = await Promise.allSettled([svc.createLineCount(ids.admin, ids.shop), svc.createLineCount(ids.admin, ids.shop)]);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    const ok = results.find((r) => r.status === "fulfilled") as PromiseFulfilledResult<{ id: string }>;
+    await svc.cancelLineCount(ok.value.id);
+  });
+});

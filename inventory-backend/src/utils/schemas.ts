@@ -1967,5 +1967,30 @@ export const lineCountPublicSubmitSchema = z.object({
       )
       .min(1)
       .max(20_000),
+    // Made once per round on the phone: a retry carries the same id.
+    submitId: z.string().trim().min(8).max(80).optional(),
+    // The phone's clock when it sent this, to correct a wrong phone time.
+    sentAt: z.string().max(40).optional(),
   }),
+});
+
+const lineCountDraftLine = z.object({
+  productId: z.string().uuid(),
+  qty: z.number().int().min(0).max(10_000_000),
+  unit: z.enum(["PIECE", "CARTON"]),
+  writtenAt: z.string().max(40),
+});
+
+export const lineCountPublicDraftSchema = z.object({
+  params: publicTokenParams,
+  body: z.object({
+    deviceId: z.string().trim().min(8).max(80),
+    round: z.number().int().min(0),
+    lines: z.array(lineCountDraftLine).max(20_000),
+  }),
+});
+
+export const lineCountBasisSchema = z.object({
+  params: z.object({ id: z.string().uuid(), productId: z.string().uuid() }),
+  body: z.object({ basis: z.enum(["FIRST", "LAST"]) }),
 });

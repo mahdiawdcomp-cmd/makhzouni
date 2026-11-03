@@ -16,6 +16,17 @@ export interface LineCountSummary {
   finalizedAt: string | null
   lineCount: number
   productCount: number
+  /** Products sent back to the worker; the count is OPEN but still reviewable. */
+  recountCount: number
+  /** What the worker's phone has saved so far, before the upload. */
+  progress: LineCountProgress | null
+}
+
+export interface LineCountProgress {
+  lines: number
+  products: number
+  at: string
+  devices: number
 }
 
 export interface LineCountReviewItem {
@@ -26,10 +37,27 @@ export interface LineCountReviewItem {
   pcsPerCarton: number
   systemQty: number
   countedQty: number
+  /** Warehouse stock right now (systemQty is the stock at the count). */
+  currentQty: number
   delta: number
   decision: LineCountDecision
+  decidedBy: string | null
+  decidedAt: string | null
+  /** Cost per piece; `value` is |delta| × cost for shortages and overages alike. */
   unitPrice: number
   value: number
+  /** What the shortage sale invoice will charge (sale price). */
+  saleValue: number
+  /** Finalize refuses it — no sale price (shortage) or no cost (overage). */
+  noPrice: boolean
+  deleted: boolean
+  firstWrittenAt: string
+  lastWrittenAt: string | null
+  /** Stock moved between the first and last line of this product. */
+  ambiguous: boolean
+  systemQtyFirst: number
+  systemQtyLast: number | null
+  basis: "FIRST" | "LAST"
   movedAfterWriting: boolean
   /** The worker's own total, set once the manager corrects anything. */
   workerCountedQty: number | null
@@ -51,7 +79,16 @@ export interface LineCountLine {
   originalQty: number | null
   originalUnit: LineCountUnit | null
   editedAt: string | null
+  editedBy: string | null
   deleted: boolean
+}
+
+export interface LineCountEvent {
+  id: string
+  action: string
+  userName: string | null
+  detail: Record<string, unknown> | null
+  createdAt: string
 }
 
 export interface LineCountReview {
@@ -69,8 +106,13 @@ export interface LineCountReview {
   lineCount: number
   /** Non-empty while some products are back with the worker for a recount. */
   recountProductIds: string[]
+  recountRequestedAt: string | null
+  progress: LineCountProgress | null
+  createdByName: string | null
+  finalizedByName: string | null
   items: LineCountReviewItem[]
   uncounted: { productId: string; productName: string; itemNumber: string | null; pcsPerCarton: number; systemQty: number }[]
+  events: LineCountEvent[]
 }
 
 const unwrap = <T,>(r: { data: unknown }) => (r.data as { data: T }).data
@@ -90,6 +132,9 @@ export const setLineCountProductTotal = (id: string, productId: string, qty: num
   api.post(`/stocktake/lines/${id}/product/${productId}/total`, { qty, unit }).then(unwrap<unknown>)
 export const swapLineCountUnits = (id: string, productId: string, lineIds: string[]) =>
   api.post(`/stocktake/lines/${id}/product/${productId}/swap-unit`, { lineIds }).then(unwrap<unknown>)
+/** Which moment the shelf stood at, for a product written before and after a movement. */
+export const setLineCountBasis = (id: string, productId: string, basis: "FIRST" | "LAST") =>
+  api.post(`/stocktake/lines/${id}/product/${productId}/basis`, { basis }).then(unwrap<{ systemQty: number }>)
 export const recountLineCount = (id: string, productIds: string[]) =>
   api.post(`/stocktake/lines/${id}/recount`, { productIds }).then(unwrap<{ products: number }>)
 /** «أكيد خلصانة»: uncounted products entered as counted at zero (still PENDING). */

@@ -6,11 +6,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
 import { registerSW } from "virtual:pwa-register"
-import { CheckCircle2, CloudOff, Loader2, Search, Trash2, Wifi } from "lucide-react"
+import { CheckCircle2, CloudOff, CloudUpload, Loader2, Search, Trash2, Wifi } from "lucide-react"
 import { api } from "../api/client"
 import { cn } from "../utils/cn"
-import { apiErrorMessage } from "../utils/apiError"
+import { apiErrorMessage, errorCodeOf } from "../utils/apiError"
 import { scoreProduct } from "../utils/search"
+import { findProductByScan } from "../utils/barcode-scan"
 
 interface CatalogProduct {
   id: string
@@ -34,6 +35,8 @@ interface SessionData {
   products: CatalogProduct[]
   /** A whole count sent back by the manager comes with its saved lines. */
   lines?: { productId: string; qty: number; unit: "PIECE" | "CARTON"; writtenAt: string }[]
+  /** What a phone already saved on the server for this round. */
+  draft?: { lines: { productId: string; qty: number; unit: "PIECE" | "CARTON"; writtenAt: string }[]; at: string } | null
 }
 
 type Unit = "PIECE" | "CARTON"
@@ -53,6 +56,13 @@ const catKey = (t: string) => `lc-catalog-${t}`
 const linesKey = (t: string, round = 0) => (round > 0 ? `lc-lines-${t}-r${round}` : `lc-lines-${t}`)
 const pendingKey = (t: string) => `lc-pending-submit-${t}`
 const doneKey = (t: string) => `lc-done-${t}`
+// One id per upload round: a retry of the same upload reads as "already done",
+// a different phone's upload is refused instead of silently dropped.
+const submitIdKey = (t: string, round = 0) => `lc-submit-id-${t}-r${round}`
+const deviceKey = "lc-device-id"
+
+// A line bigger than this in pieces is a barcode typed into the quantity box.
+const MAX_LINE_PIECES = 10_000_000
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -98,6 +108,27 @@ function newId() {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function deviceId() {
+  const have = readJson<string | null>(deviceKey, null)
+  if (have) return have
+  const id = `dev-${newId()}`
+  writeJson(deviceKey, id)
+  return id
+}
+
+function submitIdFor(token: string, round: number) {
+  const have = readJson<string | null>(submitIdKey(token, round), null)
+  if (have) return have
+  const id = `sub-${newId()}`
+  writeJson(submitIdKey(token, round), id)
+  return id
+}
+
+const toPayload = (lines: Line[]) =>
+  lines.filter((l) => l.qty !== "").map((l) => ({ productId: l.productId, qty: Number(l.qty), unit: l.unit, writtenAt: l.writtenAt }))
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString("ar-IQ", { hour: "2-digit", minute: "2-digit" })
+
 function linePieces(line: Line, p: CatalogProduct | undefined) {
   const q = Number(line.qty || 0)
   return line.unit === "CARTON" ? q * Math.max(1, p?.pcsPerCarton ?? 1) : q
@@ -125,6 +156,8 @@ export function PublicLineCountPage() {
   // fresh session arrives; until that round's lines are loaded nothing is
   // written, so one round's lines never land under another's key.
   const [linesRound, setLinesRound] = useState(round)
+  const roundRef = useRef(round)
+  useEffect(() => { roundRef.current = round }, [round])
   useEffect(() => {
     if (linesRound === round) return
     setLines(readJson<Line[]>(linesKey(token, round), []))
@@ -137,6 +170,9 @@ export function PublicLineCountPage() {
   const [done, setDone] = useState(() => readJson<boolean>(doneKey(token), false))
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  // Last time the server confirmed this phone's lines (a dead phone loses nothing).
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [seededFrom, setSeededFrom] = useState<{ count: number; at: string } | null>(null)
 
   // Download (or refresh) the catalogue. A cached copy keeps the page usable offline.
   useEffect(() => {
@@ -154,15 +190,28 @@ export function PublicLineCountPage() {
         // replace this phone's old copy, or fill an empty one — another phone or
         // the office PC must never upload an empty list over the saved count.
         const saved = s.lines ?? []
+        const toLines = (rows: { productId: string; qty: number; unit: Unit; writtenAt: string }[]) =>
+          rows.map((l) => ({ id: newId(), productId: l.productId, qty: String(l.qty), unit: l.unit, writtenAt: l.writtenAt }))
         if (s.status === "OPEN" && !s.recountProductIds?.length && saved.length > 0) {
           const wasDone = readJson<boolean>(doneKey(token), false)
           if (wasDone || readJson<Line[]>(linesKey(token, 0), []).length === 0) {
-            const seeded = saved.map((l) => ({ id: newId(), productId: l.productId, qty: String(l.qty), unit: l.unit, writtenAt: l.writtenAt }))
+            const seeded = toLines(saved)
             writeJson(linesKey(token, 0), seeded)
             setLines(seeded)
           }
+        } else if (s.status === "OPEN" && s.draft && s.draft.lines.length > 0) {
+          // This phone has nothing yet but another phone (or this one before its
+          // storage was wiped) saved lines on the server — continue from them.
+          const r = s.recountProductIds?.length ? (s.recountRound ?? 0) : 0
+          if (readJson<Line[]>(linesKey(token, r), []).length === 0 && !readJson<boolean>(doneKey(token), false)) {
+            const seeded = toLines(s.draft.lines)
+            writeJson(linesKey(token, r), seeded)
+            if (r === roundRef.current) setLines(seeded)
+            setSeededFrom({ count: seeded.length, at: s.draft.at })
+          }
         }
-        const { lines: _saved, ...rest } = s
+        // Lines and draft were only for seeding; the cached session never keeps them.
+        const rest: SessionData = { ...s, lines: undefined, draft: undefined }
         setSession(rest)
         setLoadError(null)
         if (!writeJson(catKey(token), rest)) setStorageOk(false)
@@ -220,15 +269,56 @@ export function PublicLineCountPage() {
     if (!writeJson(linesKey(token, linesRound), lines)) setStorageOk(false)
   }, [lines, token, round, linesRound])
 
+  // Send the lines to the server while counting: a few seconds after each
+  // change, when the page goes to the background, and when the signal returns.
+  // Offline counting works exactly as before; this only adds a safety copy.
+  const lastDraft = useRef("")
+  const draftInFlight = useRef(false)
+  const sendDraft = useCallback(async () => {
+    if (done || session?.status !== "OPEN" || linesRound !== round || draftInFlight.current) return
+    if (typeof navigator !== "undefined" && !navigator.onLine) return
+    const payload = toPayload(readJson<Line[]>(linesKey(token, round), []))
+    const body = JSON.stringify(payload)
+    if (body === lastDraft.current) return
+    draftInFlight.current = true
+    try {
+      const { data } = await api.post(`/stocktake/public/lines/${token}/draft`, { deviceId: deviceId(), round, lines: payload }, { timeout: 30_000 })
+      if ((data as { data?: { saved?: boolean } })?.data?.saved) {
+        lastDraft.current = body
+        setSavedAt(new Date().toISOString())
+      }
+    } catch {
+      /* the next change or the next minute tries again */
+    } finally {
+      draftInFlight.current = false
+    }
+  }, [done, session?.status, linesRound, round, token])
+
+  useEffect(() => {
+    const id = window.setTimeout(() => void sendDraft(), 4_000)
+    return () => window.clearTimeout(id)
+  }, [lines, sendDraft])
+
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === "hidden") void sendDraft() }
+    const online = () => void sendDraft()
+    document.addEventListener("visibilitychange", flush)
+    window.addEventListener("online", online)
+    const id = window.setInterval(() => void sendDraft(), 60_000)
+    return () => {
+      document.removeEventListener("visibilitychange", flush)
+      window.removeEventListener("online", online)
+      window.clearInterval(id)
+    }
+  }, [sendDraft])
+
   const inFlight = useRef(false)
   const submit = useCallback(async () => {
     // The online event, the retry timer and a tap can all fire together.
     if (inFlight.current) return
     inFlight.current = true
     const current = readJson<Line[]>(linesKey(token, round), [])
-    const payload = current
-      .filter((l) => l.qty !== "")
-      .map((l) => ({ productId: l.productId, qty: Number(l.qty), unit: l.unit, writtenAt: l.writtenAt }))
+    const payload = toPayload(current)
     if (payload.length === 0) {
       inFlight.current = false
       return
@@ -236,18 +326,30 @@ export function PublicLineCountPage() {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      await api.post(`/stocktake/public/lines/${token}/submit`, { lines: payload }, { timeout: 120_000 })
+      await api.post(
+        `/stocktake/public/lines/${token}/submit`,
+        // sentAt lets the server correct a phone whose clock is wrong.
+        { lines: payload, submitId: submitIdFor(token, round), sentAt: new Date().toISOString() },
+        { timeout: 120_000 },
+      )
       writeJson(doneKey(token), true)
       removeKey(pendingKey(token))
       setPendingSubmit(false)
       setDone(true)
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status ?? 0
-      if (isOfflineError(err) || status >= 500) {
+      if (isOfflineError(err) || status >= 500 || status === 429) {
         // Keep it queued — retried automatically. A 5xx may even have saved it;
-        // the server answers a repeat with "already submitted".
+        // the server answers a repeat of the same upload with "already submitted".
+        // 429 is the shop's shared connection being busy, not a real refusal.
         writeJson(pendingKey(token), true)
         setPendingSubmit(true)
+      } else if (errorCodeOf(err) === "LINE_COUNT_ALREADY_SUBMITTED") {
+        // Another phone uploaded first, or the manager closed the recount.
+        // The lines stay on this phone so nothing is lost.
+        removeKey(pendingKey(token))
+        setPendingSubmit(false)
+        setSubmitError(apiErrorMessage(err, "الجرد انرفع من موبايل ثاني — سطورك باقية بموبايلك. كلّم المدير."))
       } else {
         removeKey(pendingKey(token))
         setPendingSubmit(false)
@@ -268,6 +370,12 @@ export function PublicLineCountPage() {
     const id = window.setInterval(tryNow, 20_000)
     return () => { window.removeEventListener("online", tryNow); window.clearInterval(id) }
   }, [pendingSubmit, done, submit])
+
+  const tooBig = (() => {
+    const byId = new Map((session?.products ?? []).map((p) => [p.id, p]))
+    const i = lines.findIndex((l) => linePieces(l, byId.get(l.productId)) > MAX_LINE_PIECES)
+    return i < 0 ? null : { n: i + 1, qty: lines[i].qty }
+  })()
 
   if (loading && !session)
     return (
@@ -327,6 +435,16 @@ export function PublicLineCountPage() {
             المتصفح ما دا يحفظ السطور على الجهاز (وضع خاص أو الذاكرة مليانة). لا تسدّ الصفحة قبل الرفع.
           </p>
         )}
+        {seededFrom && (
+          <p className="mt-2 rounded-xl bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800">
+            كمّلنا من {seededFrom.count} سطر محفوظة بالسيرفر (آخر حفظ {clock(seededFrom.at)}). راجعها وكمّل عليها.
+          </p>
+        )}
+        {savedAt && lines.length > 0 && (
+          <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+            <CloudUpload className="h-3.5 w-3.5" /> السطور محفوظة بالسيرفر — آخر حفظ {clock(savedAt)}
+          </p>
+        )}
       </header>
 
       <LineEditor products={session.products} lines={lines} setLines={setLines} />
@@ -338,11 +456,16 @@ export function PublicLineCountPage() {
           </p>
         )}
         {submitError && <p role="alert" className="mb-2 text-sm font-medium text-red-600">{submitError}</p>}
+        {tooBig && (
+          <p role="alert" className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+            سطر {tooBig.n}: العدد {tooBig.qty} كبير جداً — يمكن انقرأ باركود بخانة العدد. صحّحه قبل الرفع.
+          </p>
+        )}
         <button
           type="button"
-          disabled={submitting || lines.length === 0 || lines.some((l) => l.qty === "")}
+          disabled={submitting || lines.length === 0 || lines.some((l) => l.qty === "") || !!tooBig}
           onClick={() => {
-            if (lines.some((l) => l.qty === "")) return
+            if (lines.some((l) => l.qty === "") || tooBig) return
             if (confirm(`رفع الجرد (${lines.length} سطر)؟ بعد الرفع ما تكدر تعدّل.`)) void submit()
           }}
           className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-lg font-bold text-white disabled:opacity-40"
@@ -382,6 +505,7 @@ function LineEditor({
   const [picked, setPicked] = useState<CatalogProduct | null>(null)
   const [qty, setQty] = useState("")
   const [unit, setUnit] = useState<Unit>("PIECE")
+  const [notFound, setNotFound] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
 
@@ -403,14 +527,26 @@ function LineEditor({
     setTimeout(() => qtyRef.current?.focus(), 0)
   }
 
-  // A barcode scanner types the code then Enter — match it exactly first.
+  // A barcode scanner types the code then Enter — match it exactly first,
+  // tolerating an Arabic keyboard layout that garbles the scan. A carton
+  // barcode picks the carton unit.
   function onSearchEnter() {
     const q = query.trim()
     if (!q) return
-    const carton = products.find((p) => p.cartonQrCode && p.cartonQrCode === q)
-    if (carton) return pick(carton, "CARTON")
-    const exact = products.find((p) => p.qrCode === q || p.itemNumber === q)
-    if (exact) return pick(exact)
+    const hit = findProductByScan(
+      products.map((p) => ({ ...p, itemNumber: p.itemNumber ?? "" })),
+      q,
+    )
+    if (hit) {
+      const p = products.find((x) => x.id === hit.product.id)
+      if (p) return pick(p, hit.isCarton ? "CARTON" : "PIECE")
+    }
+    // A code (digits, or a long run of Latin letters/digits) that matches
+    // nothing must not silently pick the nearest-looking product.
+    if (/^[0-9-]+$/.test(q) || /^[0-9A-Za-z-]{6,}$/.test(q)) {
+      setNotFound(q)
+      return
+    }
     if (results.length > 0) pick(results[0])
   }
 
@@ -424,6 +560,11 @@ function LineEditor({
 
   function addLine() {
     if (!picked || qty === "") return
+    if ((unit === "CARTON" ? Number(qty) * Math.max(1, picked.pcsPerCarton) : Number(qty)) > MAX_LINE_PIECES) {
+      alert(`العدد ${qty} كبير جداً — يمكن انقرأ باركود بخانة العدد. اكتب الكمية من جديد.`)
+      setQty("")
+      return
+    }
     if (!confirmBigQty(Number(qty), unit, picked.pcsPerCarton)) return
     setLines((prev) => [...prev, { id: newId(), productId: picked.id, qty, unit, writtenAt: new Date().toISOString() }])
     reset()
@@ -445,7 +586,10 @@ function LineEditor({
     return m
   }, [lines, byId])
 
-  const update = (id: string, patch: Partial<Line>) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)))
+  // Changing a line is a fresh look at the shelf, so its time moves to now —
+  // the server compares it with the stock at that moment.
+  const update = (id: string, patch: Partial<Line>) =>
+    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch, writtenAt: new Date().toISOString() } : l)))
 
   return (
     <div className="space-y-3">
@@ -456,13 +600,18 @@ function LineEditor({
           <input
             ref={searchRef}
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setPicked(null) }}
+            onChange={(e) => { setQuery(e.target.value); setPicked(null); setNotFound(null) }}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSearchEnter() } }}
             placeholder="اسم المادة أو رقمها أو الباركود"
             autoComplete="off"
             enterKeyHint="search"
             className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pr-10 pl-3 text-base outline-none focus:border-emerald-400 focus:bg-white"
           />
+          {notFound && (
+            <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+              ما لگينا مادة بهذا الرقم أو الباركود: <span dir="ltr" className="font-mono">{notFound}</span> — ابحث بالاسم.
+            </p>
+          )}
           {results.length > 0 && (
             <ul className="absolute inset-x-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
               {results.map((p) => (

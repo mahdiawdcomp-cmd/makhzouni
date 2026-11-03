@@ -43,6 +43,8 @@ const fakePrisma: any = {
 mock.module("../config/database", { exports: { default: fakePrisma } });
 mock.module("./warehouse-stock.service", {
   exports: {
+    withNetLineCountCheck: async (_db: unknown, fn: () => Promise<unknown>) => fn(),
+    assertNoneUnderLineCount: async () => undefined,
     resolveWarehouseId: async (_db: unknown, id: string) => id,
     ensureLegacyWarehouseStock: async () => {},
     adjustWarehouseStock: async () => ({ balanceBefore: 10, balanceAfter: 5 }),

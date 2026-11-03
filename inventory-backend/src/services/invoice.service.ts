@@ -1817,12 +1817,15 @@ export async function createInvoice(
   // check on an absent date would have left the lock trivially bypassable.
   await assertPeriodOpen(input.date ?? new Date());
   let result: Awaited<ReturnType<typeof createInvoiceInTransaction>>;
+  // Line-count freeze judged on each warehouse's net change: a sale pulled from
+  // the depot passes through the shop (transfer in, sale out = no change there)
+  // and must not be refused for a frozen product in the shop.
   if (db) {
-    result = await createInvoiceInTransaction(db, input, createdBy, undefined, undefined, allowedUnitPairs);
+    result = await withNetLineCountCheck(db, () => createInvoiceInTransaction(db, input, createdBy, undefined, undefined, allowedUnitPairs));
   } else {
     result = await withTxRetry(() =>
       prisma.$transaction(
-        (tx) => createInvoiceInTransaction(tx, input, createdBy, undefined, undefined, allowedUnitPairs),
+        (tx) => withNetLineCountCheck(tx, () => createInvoiceInTransaction(tx, input, createdBy, undefined, undefined, allowedUnitPairs)),
         INVOICE_TX_OPTIONS
       )
     );
@@ -2158,11 +2161,13 @@ async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?
 
 export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: string, actorId?: string) {
   await assertInvoicePeriodOpen(id, db);
+  // Net freeze check, as on create: reversing a depot-pulled sale moves the
+  // goods back through the shop.
   const result = db
-    ? await cancelInvoiceInTransaction(db, id, returnWarehouseId)
+    ? await withNetLineCountCheck(db, () => cancelInvoiceInTransaction(db, id, returnWarehouseId))
     : await withTxRetry(() =>
         prisma.$transaction(
-          (tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId),
+          (tx) => withNetLineCountCheck(tx, () => cancelInvoiceInTransaction(tx, id, returnWarehouseId)),
           INVOICE_TX_OPTIONS
         )
       );
@@ -2273,9 +2278,9 @@ export async function hardDeleteInvoice(
   // opening a second independent one could commit the delete even if the
   // approval-status update rolls back.
   const result = db
-    ? await hardDeleteInvoiceInTransaction(db, id, deletedBy, reason, returnWarehouseId)
+    ? await withNetLineCountCheck(db, () => hardDeleteInvoiceInTransaction(db, id, deletedBy, reason, returnWarehouseId))
     : await prisma.$transaction(
-        (tx) => hardDeleteInvoiceInTransaction(tx, id, deletedBy, reason, returnWarehouseId),
+        (tx) => withNetLineCountCheck(tx, () => hardDeleteInvoiceInTransaction(tx, id, deletedBy, reason, returnWarehouseId)),
         INVOICE_TX_OPTIONS
       );
 

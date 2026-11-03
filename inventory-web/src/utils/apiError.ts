@@ -70,6 +70,10 @@ export interface ExplainedError {
 }
 
 const ERROR_EXPLANATIONS: Record<string, { cause: string; solution: string }> = {
+  LINE_COUNT_LOCKED: {
+    cause: "المادة انحسبت بالجرد بالسطور وبيها فرق بعده المدير ما قبله ولا رفضه، فهي مقفولة عن الطلوع من هذا المخزن حتى ما يخرب الجرد.",
+    solution: "خلّي المدير يفتح الجرد بالسطور ويقبل أو يرفض فرق هاي المواد، أو بيع من مخزن ثاني. الإدخال والشراء ما ينقفلون.",
+  },
   INSUFFICIENT_SHOP_STOCK: {
     cause: "الكمية المطلوبة أكبر من الرصيد المتوفر للمادة في المخزن (غالباً بيعت المادة في فواتير أخرى بعد إنشاء هذه الفاتورة).",
     solution: "قلّل الكمية، أو أضف مخزون للمادة، أو اختر مخزناً فيه رصيد كافٍ ثم أعد الحفظ.",
@@ -148,7 +152,7 @@ function httpStatusOf(error: unknown): number | null {
   return null
 }
 
-function errorCodeOf(error: unknown): string | null {
+export function errorCodeOf(error: unknown): string | null {
   const data = responseData(error) as { code?: unknown; error?: unknown } | undefined
   if (data) {
     if (typeof data.code === "string" && data.code.trim()) return data.code.trim()

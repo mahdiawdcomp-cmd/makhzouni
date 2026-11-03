@@ -21,7 +21,13 @@ export function LineCountPanel({ warehouseId, readOnly }: { warehouseId: string;
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [notes, setNotes] = useState("")
-  const listQ = useQuery({ queryKey: ["line-counts", warehouseId], queryFn: () => listLineCounts(warehouseId) })
+  const listQ = useQuery({
+    queryKey: ["line-counts", warehouseId],
+    queryFn: () => listLineCounts(warehouseId),
+    // While a worker counts, the phone saves its lines every few seconds — poll
+    // so the progress line stays current (draft saves don't broadcast).
+    refetchInterval: (q) => ((q.state.data ?? []).some((s) => s.status === "OPEN") ? 30_000 : false),
+  })
 
   const copy = (token: string) => {
     const url = lineCountPublicUrl(token)
@@ -83,6 +89,16 @@ export function LineCountPanel({ warehouseId, readOnly }: { warehouseId: string;
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS[s.status].cls}`}>{STATUS[s.status].label}</span>
                 <span className="mx-2 text-sm text-slate-600 dark:text-slate-300">{new Date(s.createdAt).toLocaleString("ar-IQ")}</span>
                 {s.lineCount > 0 && <span className="text-xs text-slate-400">{s.lineCount} سطر · {s.productCount} مادة</span>}
+                {s.status === "OPEN" && s.recountCount > 0 && (
+                  <span className="mr-2 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">إعادة عدّ {s.recountCount} مادة</span>
+                )}
+                {s.status === "OPEN" && (
+                  <p className="text-xs text-slate-500">
+                    {s.progress
+                      ? `العامل كاتب ${s.progress.lines} سطر (${s.progress.products} مادة) — آخر حفظ ${new Date(s.progress.at).toLocaleTimeString("ar-IQ", { hour: "2-digit", minute: "2-digit" })}${s.progress.devices > 1 ? ` · من ${s.progress.devices} موبايل` : ""}`
+                      : "العامل بعده ما حفظ ولا سطر"}
+                  </p>
+                )}
                 {s.notes && <p className="text-xs text-slate-400">{s.notes}</p>}
               </div>
               <div className="flex gap-2">
@@ -92,9 +108,10 @@ export function LineCountPanel({ warehouseId, readOnly }: { warehouseId: string;
                     <Button variant="outline" size="sm" onClick={() => share(s.publicToken)}>واتساب</Button>
                   </>
                 )}
-                {(s.status === "SUBMITTED" || s.status === "FINALIZED") && (
+                {/* A recount keeps the count OPEN — its review (and «ألغِ إعادة العدّ») must stay reachable. */}
+                {(s.status === "SUBMITTED" || s.status === "FINALIZED" || (s.status === "OPEN" && s.recountCount > 0)) && (
                   <Button size="sm" onClick={() => navigate(`/inventory/line-count/${s.id}`)}>
-                    {s.status === "SUBMITTED" ? "راجع" : "عرض"}
+                    {s.status === "FINALIZED" ? "عرض" : "راجع"}
                   </Button>
                 )}
                 {(s.status === "OPEN" || s.status === "SUBMITTED") && !readOnly && (

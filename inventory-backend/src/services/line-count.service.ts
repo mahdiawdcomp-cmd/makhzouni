@@ -24,6 +24,52 @@ export interface SubmittedLine {
   writtenAt: string;
 }
 
+/** The phone's upload envelope. `submitId` is made once per round on the phone:
+ * a retry with the same id is "already done", a different id is another phone.
+ * `sentAt` is the phone's clock at send time, used to correct its drift. */
+export interface SubmitOptions {
+  submitId?: string;
+  sentAt?: string;
+}
+
+// A line's quantity in pieces can't sensibly exceed this — a bigger figure is a
+// barcode scanned into the quantity box.
+const MAX_LINE_PIECES = 10_000_000;
+
+type Db = Prisma.TransactionClient | typeof prisma;
+
+/** «السجل»: who did what to the count, shown on the review page. */
+async function logEvent(
+  db: Db,
+  sessionId: string,
+  action: string,
+  userId?: string | null,
+  userName?: string | null,
+  detail?: Prisma.InputJsonValue,
+) {
+  await db.lineCountEvent.create({ data: { sessionId, action, userId: userId ?? null, userName: userName ?? null, detail } });
+}
+
+// ─── Worker drafts ──────────────────────────────────────────────────────────
+// The phone keeps every line locally and also sends them here while it is
+// online, so a dead battery or another phone doesn't lose the count and the
+// manager sees progress before the upload.
+type DraftEntry = { round: number; at: string; lines: SubmittedLine[] };
+
+function draftEntries(draft: Prisma.JsonValue | null): Record<string, DraftEntry> {
+  return draft && typeof draft === "object" && !Array.isArray(draft) ? (draft as unknown as Record<string, DraftEntry>) : {};
+}
+
+const currentRound = (s: { recountProductIds: string[]; recountRound: number }) => (s.recountProductIds.length > 0 ? s.recountRound : 0);
+
+/** The newest phone's draft for this round, plus how many phones sent one. */
+function latestDraft(draft: Prisma.JsonValue | null, round: number) {
+  const entries = Object.values(draftEntries(draft)).filter((e) => e.round === round && Array.isArray(e.lines));
+  if (entries.length === 0) return null;
+  const latest = entries.reduce((a, b) => (a.at > b.at ? a : b));
+  return { lines: latest.lines, at: latest.at, devices: entries.length };
+}
+
 function makeToken() {
   return `lct_${randomBytes(24).toString("base64url")}`;
 }
@@ -35,17 +81,26 @@ async function warehouseName(id: string) {
 
 // ─── Admin ──────────────────────────────────────────────────────────────────
 
-export async function createLineCount(createdBy: string, warehouseId?: string, notes?: string) {
+export async function createLineCount(createdBy: string, warehouseId?: string, notes?: string, createdByName?: string) {
   const wid = warehouseId ? await resolveWarehouseId(prisma, warehouseId) : await resolveShopWarehouseId(prisma);
   // One live count per warehouse — two would race to book the same variances.
   const live = await prisma.lineCountSession.findFirst({
     where: { warehouseId: wid, status: { in: ["OPEN", "SUBMITTED"] } },
     select: { id: true },
   });
-  if (live) throw new AppError("يوجد جرد بالسطور مفتوح لهذا المخزن — كمّله أو ألغِه أولاً", 409, "LINE_COUNT_EXISTS");
-  return prisma.lineCountSession.create({
-    data: { publicToken: makeToken(), warehouseId: wid, createdBy, notes: notes?.trim() || null },
-  });
+  const exists = () => new AppError("يوجد جرد بالسطور مفتوح لهذا المخزن — كمّله أو ألغِه أولاً", 409, "LINE_COUNT_EXISTS");
+  if (live) throw exists();
+  try {
+    const created = await prisma.lineCountSession.create({
+      data: { publicToken: makeToken(), warehouseId: wid, createdBy, notes: notes?.trim() || null },
+    });
+    await logEvent(prisma, created.id, "CREATE", createdBy, createdByName);
+    return created;
+  } catch (e) {
+    // Two clicks at once: the partial unique index lets only one through.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw exists();
+    throw e;
+  }
 }
 
 export async function listLineCounts(warehouseId?: string) {
@@ -71,7 +126,16 @@ export async function listLineCounts(warehouseId?: string) {
     finalizedAt: r.finalizedAt,
     lineCount: r._count.lines,
     productCount: r._count.results,
+    // Sent back for recount: the count is OPEN but still reviewable.
+    recountCount: r.recountProductIds.length,
+    // What the worker's phone has sent so far (before the upload).
+    progress: r.status === "OPEN" ? draftProgress(r) : null,
   }));
+}
+
+function draftProgress(r: { draft: Prisma.JsonValue | null; recountProductIds: string[]; recountRound: number }) {
+  const d = latestDraft(r.draft, currentRound(r));
+  return d ? { lines: d.lines.length, products: new Set(d.lines.map((l) => l.productId)).size, at: d.at, devices: d.devices } : null;
 }
 
 async function loadSession(id: string) {
@@ -121,9 +185,25 @@ export async function getLineCountReview(id: string) {
   const productIds = results.map((r) => r.productId);
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, name: true, itemNumber: true, category: true, pcsPerCarton: true, salePrice: true, costPrice: true, purchasePrice: true },
+    select: { id: true, name: true, itemNumber: true, category: true, pcsPerCarton: true, salePrice: true, costPrice: true, purchasePrice: true, deletedAt: true },
   });
   const pmap = new Map(products.map((p) => [p.id, p]));
+  const current = new Map(
+    (await prisma.productWarehouseStock.findMany({
+      where: { warehouseId: s.warehouseId, productId: { in: productIds } },
+      select: { productId: true, quantityPieces: true },
+    })).map((x) => [x.productId, x.quantityPieces]),
+  );
+  const events = await prisma.lineCountEvent.findMany({ where: { sessionId: id }, orderBy: { createdAt: "desc" }, take: 300 });
+  const userIds = [...new Set([
+    ...results.map((r) => r.decidedBy),
+    ...lines.map((l) => l.editedBy),
+    s.createdBy,
+    s.finalizedBy,
+  ].filter((x): x is string => !!x))];
+  const userName = new Map(
+    (await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]),
+  );
 
   // Movements on this warehouse after the product's first line: a sale or
   // transfer in that window means the snapshot no longer matches the shelf.
@@ -154,6 +234,8 @@ export async function getLineCountReview(id: string) {
     const delta = r.countedQty - r.systemQty;
     const salePrice = Math.round(Number(p?.salePrice ?? 0));
     const cost = Math.round(Number(p?.costPrice ?? 0) || Number(p?.purchasePrice ?? 0));
+    const first = r.systemQtyFirst ?? r.systemQty;
+    const ambiguous = r.systemQtyLast !== null && r.systemQtyLast !== first;
     return {
       productId: r.productId,
       productName: p?.name ?? "(مادة محذوفة)",
@@ -162,11 +244,28 @@ export async function getLineCountReview(id: string) {
       pcsPerCarton: p?.pcsPerCarton ?? 1,
       systemQty: r.systemQty,
       countedQty: r.countedQty,
+      // Warehouse stock right now, next to the at-count figure.
+      currentQty: current.get(r.productId) ?? 0,
       delta,
       decision: r.decision as LineCountDecision,
-      // Shortage valued at sale price (it becomes a sale), overage at cost.
-      unitPrice: delta < 0 ? salePrice : cost,
-      value: Math.abs(delta) * (delta < 0 ? salePrice : cost),
+      decidedBy: r.decidedBy ? (userName.get(r.decidedBy) ?? null) : null,
+      decidedAt: r.decidedAt,
+      // Both sides valued at cost — the real loss or gain. The shortage sale
+      // invoice is priced at sale price; that figure is `saleValue`.
+      unitPrice: cost,
+      value: Math.abs(delta) * cost,
+      saleValue: delta < 0 ? -delta * salePrice : 0,
+      // Finalize refuses these; the page filters them and quick-accept skips them.
+      noPrice: delta !== 0 && !(delta < 0 ? salePrice > 0 : cost > 0),
+      deleted: !p || p.deletedAt !== null,
+      firstWrittenAt: r.firstWrittenAt,
+      lastWrittenAt: r.lastWrittenAt,
+      // Stock moved between the product's first and last line: the system
+      // figure depends on which moment is the real count. The manager picks.
+      ambiguous,
+      systemQtyFirst: first,
+      systemQtyLast: r.systemQtyLast,
+      basis: ambiguous && r.systemQty === r.systemQtyLast ? "LAST" : "FIRST",
       movedAfterWriting: moved.has(r.productId),
       workerCountedQty: r.workerCountedQty,
       unitSuggestion: unitSuggestion(r.systemQty, r.countedQty, p?.pcsPerCarton ?? 1, (linesBy.get(r.productId) ?? []).filter((l) => !l.deletedAt)),
@@ -181,6 +280,7 @@ export async function getLineCountReview(id: string) {
         originalQty: l.originalQty,
         originalUnit: l.originalUnit,
         editedAt: l.editedAt,
+        editedBy: l.editedBy ? (userName.get(l.editedBy) ?? null) : null,
         deleted: l.deletedAt !== null,
       })),
     };
@@ -188,15 +288,32 @@ export async function getLineCountReview(id: string) {
   items.sort((a, b) => (a.delta === 0 ? 1 : 0) - (b.delta === 0 ? 1 : 0) || b.value - a.value || Math.abs(b.delta) - Math.abs(a.delta));
 
   // Products holding stock in this warehouse that no line touched — left as-is.
+  // A finalized count shows exactly what went into the watch list then, not a
+  // list rebuilt from today's stock.
   const counted = new Set(productIds);
-  const stocks = await prisma.productWarehouseStock.findMany({
-    where: { warehouseId: s.warehouseId, quantityPieces: { not: 0 }, product: { deletedAt: null } },
-    select: { productId: true, quantityPieces: true, product: { select: { name: true, itemNumber: true, pcsPerCarton: true } } },
-    orderBy: { product: { name: "asc" } },
-  });
-  const uncounted = stocks
-    .filter((x) => !counted.has(x.productId))
-    .map((x) => ({ productId: x.productId, productName: x.product.name, itemNumber: x.product.itemNumber, pcsPerCarton: x.product.pcsPerCarton, systemQty: x.quantityPieces }));
+  let uncounted: { productId: string; productName: string; itemNumber: string | null; pcsPerCarton: number; systemQty: number }[];
+  if (s.status === "FINALIZED") {
+    const watched = await prisma.lineCountWatch.findMany({ where: { sessionId: id }, select: { productId: true, systemQty: true } });
+    const wp = new Map(
+      (await prisma.product.findMany({ where: { id: { in: watched.map((w) => w.productId) } }, select: { id: true, name: true, itemNumber: true, pcsPerCarton: true } }))
+        .map((p) => [p.id, p]),
+    );
+    uncounted = watched
+      .map((w) => {
+        const p = wp.get(w.productId);
+        return { productId: w.productId, productName: p?.name ?? "(مادة محذوفة)", itemNumber: p?.itemNumber ?? null, pcsPerCarton: p?.pcsPerCarton ?? 1, systemQty: w.systemQty };
+      })
+      .sort((a, b) => a.productName.localeCompare(b.productName, "ar"));
+  } else {
+    const stocks = await prisma.productWarehouseStock.findMany({
+      where: { warehouseId: s.warehouseId, quantityPieces: { not: 0 }, product: { deletedAt: null } },
+      select: { productId: true, quantityPieces: true, product: { select: { name: true, itemNumber: true, pcsPerCarton: true } } },
+      orderBy: { product: { name: "asc" } },
+    });
+    uncounted = stocks
+      .filter((x) => !counted.has(x.productId))
+      .map((x) => ({ productId: x.productId, productName: x.product.name, itemNumber: x.product.itemNumber, pcsPerCarton: x.product.pcsPerCarton, systemQty: x.quantityPieces }));
+  }
 
   const invoiceNumbers = async (invId: string | null) => {
     if (!invId) return null;
@@ -218,49 +335,89 @@ export async function getLineCountReview(id: string) {
     purchaseInvoice: await invoiceNumbers(s.purchaseInvoiceId),
     lineCount: lines.filter((l) => !l.deletedAt).length,
     recountProductIds: s.recountProductIds,
+    recountRequestedAt: s.recountRequestedAt,
+    progress: s.status === "OPEN" ? draftProgress(s) : null,
+    createdByName: userName.get(s.createdBy) ?? null,
+    finalizedByName: s.finalizedBy ? (userName.get(s.finalizedBy) ?? null) : null,
     items,
     uncounted,
+    events: events.map((e) => ({ id: e.id, action: e.action, userName: e.userName, detail: e.detail, createdAt: e.createdAt })),
   };
 }
 
-export async function setLineCountDecision(id: string, decision: LineCountDecision, productId?: string, productIds?: string[]) {
+export async function setLineCountDecision(
+  id: string,
+  decision: LineCountDecision,
+  productId?: string,
+  productIds?: string[],
+  userId?: string,
+  userName?: string,
+) {
   await loadSession(id);
   // Locked against finalize/reopen so a decision can't slip in after the
   // invoices were computed.
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM line_count_sessions WHERE id = ${id}::uuid FOR UPDATE`;
     if (rows[0]?.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
-    // "All" only touches real variances; matched rows need no decision.
-    if (productIds && productIds.length > 0) {
-      // «اقبل المعروض»: exactly the rows the manager is looking at.
-      const r = await tx.lineCountResult.updateMany({
-        where: { sessionId: id, productId: { in: productIds } },
-        data: { decision },
-      });
-      return { updated: r.count };
-    }
+    const decidedBy = decision === "PENDING" ? null : (userId ?? null);
+    const decided = decision !== "PENDING";
+    // Bulk accept/reject («اقبل الكل»، «اقبل المعروض»، the quick groups) only
+    // decides rows still undecided — an earlier decision is never flipped by a
+    // bulk click. Only a single row, or a bulk reset to PENDING, changes a
+    // decided one. Matched rows never need a decision.
+    const list = productIds && productIds.length > 0 ? productIds : null;
+    const single = !list && productId ? productId : null;
+    const bulkOnlyPending = !single && decision !== "PENDING";
     const res = await tx.$executeRaw`
-      UPDATE line_count_results SET decision = ${decision}
+      UPDATE line_count_results SET decision = ${decision}, decided_by = ${decidedBy}::uuid,
+        decided_at = CASE WHEN ${decided} THEN (now() AT TIME ZONE 'UTC') ELSE NULL END
       WHERE session_id = ${id}::uuid
         AND counted_qty <> system_qty
-        AND (${productId ?? null}::uuid IS NULL OR product_id = ${productId ?? null}::uuid)`;
+        AND (${list}::uuid[] IS NULL OR product_id = ANY(${list}::uuid[]))
+        AND (${single}::uuid IS NULL OR product_id = ${single}::uuid)
+        AND (${bulkOnlyPending} = false OR decision = 'PENDING')`;
+    await logEvent(tx, id, "DECISION", userId, userName, {
+      decision,
+      updated: res,
+      ...(single ? { productId: single } : { bulk: list ? list.length : "ALL" }),
+    });
     return { updated: res };
   });
 }
 
-export async function cancelLineCount(id: string) {
+/** «احسب على وقت آخر سطر»: a product written at two moments with stock moving
+ * in between — the manager says which moment the shelf really stood at. */
+export async function setLineCountBasis(id: string, productId: string, basis: "FIRST" | "LAST", userId?: string, userName?: string) {
+  return underReviewLock(id, async (tx) => {
+    const r = await tx.lineCountResult.findUnique({ where: { sessionId_productId: { sessionId: id, productId } } });
+    if (!r) throw new AppError("المادة مو ضمن هذا الجرد", 404, "LINE_COUNT_ITEM_NOT_FOUND");
+    const first = r.systemQtyFirst ?? r.systemQty;
+    if (r.systemQtyLast === null || r.systemQtyLast === first)
+      throw new AppError("هاي المادة ما تحتاج اختيار وقت", 400, "LINE_COUNT_NOT_AMBIGUOUS");
+    const systemQty = basis === "LAST" ? r.systemQtyLast : first;
+    await tx.lineCountResult.update({
+      where: { id: r.id },
+      data: { systemQty, systemQtyFirst: first, decision: "PENDING", decidedBy: null, decidedAt: null },
+    });
+    await logEvent(tx, id, "BASIS", userId, userName, { productId, basis, systemQty });
+    return { systemQty };
+  });
+}
+
+export async function cancelLineCount(id: string, userId?: string, userName?: string) {
   await loadSession(id);
   // Conditional: a session finalized a moment ago keeps its invoices' status.
   const r = await prisma.lineCountSession.updateMany({
     where: { id, status: { in: ["OPEN", "SUBMITTED"] } },
-    data: { status: "CANCELLED" },
+    data: { status: "CANCELLED", draft: Prisma.DbNull },
   });
   if (r.count !== 1) throw new AppError("الجلسة معتمدة أو ملغاة مسبقاً", 400, "LINE_COUNT_FINALIZED");
+  await logEvent(prisma, id, "CANCEL", userId, userName);
   return { cancelled: true };
 }
 
 /** Sends a submitted count back to the worker (e.g. «أعد العدّ»). Lines stay. */
-export async function reopenLineCount(id: string) {
+export async function reopenLineCount(id: string, userId?: string, userName?: string) {
   await loadSession(id);
   await prisma.$transaction(async (tx) => {
     // Claim first — racing a finalize, only one of the two can win.
@@ -270,11 +427,12 @@ export async function reopenLineCount(id: string) {
     });
     if (r.count !== 1) throw new AppError("يمكن إعادة فتح جلسة مرفوعة فقط", 400, "LINE_COUNT_NOT_SUBMITTED");
     await tx.lineCountResult.deleteMany({ where: { sessionId: id } });
+    await logEvent(tx, id, "REOPEN", userId, userName);
   });
   return { reopened: true };
 }
 
-export async function finalizeLineCount(id: string, userId: string) {
+export async function finalizeLineCount(id: string, userId: string, userName?: string) {
   const s = await loadSession(id);
   if (s.status !== "SUBMITTED") throw new AppError("الجلسة ليست بانتظار المراجعة", 400, "LINE_COUNT_NOT_SUBMITTED");
   const results = await prisma.lineCountResult.findMany({ where: { sessionId: id } });
@@ -312,7 +470,11 @@ export async function finalizeLineCount(id: string, userId: string) {
     }
   }
   if (noPrice.length > 0)
-    throw new AppError(`هذه المواد ما تنعتمد — عدّلها أو ارفضها: ${noPrice.slice(0, 8).join("، ")}${noPrice.length > 8 ? "…" : ""}`, 400, "LINE_COUNT_NO_PRICE");
+    throw new AppError(
+      `${noPrice.length} مادة ما تنعتمد — عدّلها أو ارفضها (فلتر «بلا سعر أو محذوفة» يجمعها): ${noPrice.slice(0, 8).join("، ")}${noPrice.length > 8 ? "…" : ""}`,
+      400,
+      "LINE_COUNT_NO_PRICE",
+    );
 
   let supplierId = "";
   if (purchaseItems.length > 0) {
@@ -400,6 +562,7 @@ export async function finalizeLineCount(id: string, userId: string) {
           })),
           skipDuplicates: true,
         });
+      await logEvent(tx, id, "FINALIZE", userId, userName, { saleLines: saleItems.length, purchaseLines: purchaseItems.length, watched: watched.length });
       return { saleInvoiceId, purchaseInvoiceId, saleLines: saleItems.length, purchaseLines: purchaseItems.length, watched: watched.length };
     },
     { timeout: 120_000, maxWait: 10_000 },
@@ -412,6 +575,10 @@ export async function finalizeLineCount(id: string, userId: string) {
  * made after the count must not read as an overage (and become a purchase). */
 async function systemSnapshot(tx: Prisma.TransactionClient, warehouseId: string, firstAt: Map<string, Date>, now: Date) {
   const ids = [...firstAt.keys()];
+  // Lock the stock rows first: a sale committing between the stock read and
+  // the movements read would be undone without ever having been counted.
+  if (ids.length > 0)
+    await tx.$queryRaw`SELECT 1 FROM product_warehouse_stocks WHERE warehouse_id = ${warehouseId}::uuid AND product_id = ANY(${ids}::uuid[]) FOR UPDATE`;
   const stocks = await tx.productWarehouseStock.findMany({
     where: { warehouseId, productId: { in: ids } },
     select: { productId: true, quantityPieces: true },
@@ -470,6 +637,8 @@ async function recomputeResult(tx: Prisma.TransactionClient, sessionId: string, 
       countedQty: counted,
       workerCountedQty: result.workerCountedQty ?? result.countedQty,
       decision: "PENDING",
+      decidedBy: null,
+      decidedAt: null,
     },
   });
 }
@@ -480,7 +649,7 @@ async function liveLine(tx: Prisma.TransactionClient, sessionId: string, lineId:
   return line;
 }
 
-export async function editLineCountLine(id: string, lineId: string, qty: number, unit: LineCountUnit, userId: string) {
+export async function editLineCountLine(id: string, lineId: string, qty: number, unit: LineCountUnit, userId: string, userName?: string) {
   return underReviewLock(id, async (tx) => {
     const line = await liveLine(tx, id, lineId);
     const ppc = await productCartonSize(tx, line.productId);
@@ -498,20 +667,22 @@ export async function editLineCountLine(id: string, lineId: string, qty: number,
         editedAt: new Date(),
       },
     });
+    await logEvent(tx, id, "EDIT_LINE", userId, userName, { productId: line.productId, from: { qty: line.qty, unit: line.unit }, to: { qty, unit: u } });
     return recomputeResult(tx, id, line.productId);
   });
 }
 
-export async function deleteLineCountLine(id: string, lineId: string, userId: string) {
+export async function deleteLineCountLine(id: string, lineId: string, userId: string, userName?: string) {
   return underReviewLock(id, async (tx) => {
     const line = await liveLine(tx, id, lineId);
     await tx.lineCountLine.update({ where: { id: line.id }, data: { deletedAt: new Date(), editedBy: userId, editedAt: new Date() } });
+    await logEvent(tx, id, "DELETE_LINE", userId, userName, { productId: line.productId, qty: line.qty, unit: line.unit });
     return recomputeResult(tx, id, line.productId);
   });
 }
 
 /** «عدّل الكمية»: the manager's own total replaces the worker's lines (kept as a trace). */
-export async function setLineCountProductTotal(id: string, productId: string, qty: number, unit: LineCountUnit, userId: string) {
+export async function setLineCountProductTotal(id: string, productId: string, qty: number, unit: LineCountUnit, userId: string, userName?: string) {
   return underReviewLock(id, async (tx) => {
     const result = await tx.lineCountResult.findUnique({ where: { sessionId_productId: { sessionId: id, productId } } });
     if (!result) throw new AppError("المادة مو ضمن هذا الجرد", 404, "LINE_COUNT_ITEM_NOT_FOUND");
@@ -535,12 +706,13 @@ export async function setLineCountProductTotal(id: string, productId: string, qt
         editedAt: now,
       },
     });
+    await logEvent(tx, id, "SET_TOTAL", userId, userName, { productId, from: result.countedQty, qty, unit: u });
     return recomputeResult(tx, id, productId);
   });
 }
 
 /** «صحّح الوحدة»: flips piece↔carton on exactly the lines the manager approved. */
-export async function swapLineCountUnits(id: string, productId: string, lineIds: string[], userId: string) {
+export async function swapLineCountUnits(id: string, productId: string, lineIds: string[], userId: string, userName?: string) {
   return underReviewLock(id, async (tx) => {
     const ppc = await productCartonSize(tx, productId);
     if (ppc <= 1) throw new AppError("هاي المادة ما إلها كارتون", 400, "LINE_COUNT_NO_CARTON");
@@ -561,12 +733,13 @@ export async function swapLineCountUnits(id: string, productId: string, lineIds:
         },
       });
     }
+    await logEvent(tx, id, "SWAP_UNIT", userId, userName, { productId, lines: lines.length });
     return recomputeResult(tx, id, productId);
   });
 }
 
 /** «أعد عدّ المختار»: the same link reopens with only these products. */
-export async function requestLineCountRecount(id: string, productIds: string[]) {
+export async function requestLineCountRecount(id: string, productIds: string[], userId?: string, userName?: string) {
   return underReviewLock(id, async (tx) => {
     const ids = [...new Set(productIds)];
     const session = await tx.lineCountSession.findUniqueOrThrow({ where: { id }, select: { warehouseId: true } });
@@ -582,8 +755,9 @@ export async function requestLineCountRecount(id: string, productIds: string[]) 
       where: { id },
       // submittedAt stays: «إلغاء إعادة العدّ» returns to review with the same
       // upload time, so the snapshot and the moved-after-writing check hold.
-      data: { status: "OPEN", recountProductIds: ids, recountRound: { increment: 1 } },
+      data: { status: "OPEN", recountProductIds: ids, recountRound: { increment: 1 }, recountRequestedAt: new Date(), draft: Prisma.DbNull },
     });
+    await logEvent(tx, id, "RECOUNT", userId, userName, { products: ids.length, productIds: ids.slice(0, 200) });
     return { reopened: true, products: ids.length };
   });
 }
@@ -591,7 +765,7 @@ export async function requestLineCountRecount(id: string, productIds: string[]) 
 /** «إلغاء إعادة العدّ»: the worker can't or won't recount — back to review with
  * every earlier line, result and decision as it was. Without it the only way out
  * of a stalled recount was cancelling the whole count. */
-export async function cancelLineCountRecount(id: string) {
+export async function cancelLineCountRecount(id: string, userId?: string, userName?: string) {
   await loadSession(id);
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<{ status: string; recount: number; submitted_at: Date | null }[]>`
@@ -600,15 +774,16 @@ export async function cancelLineCountRecount(id: string) {
     if (r?.status !== "OPEN" || !(r.recount > 0)) throw new AppError("ماكو إعادة عدّ مفتوحة لهذا الجرد", 400, "LINE_COUNT_NO_RECOUNT");
     await tx.lineCountSession.update({
       where: { id },
-      data: { status: "SUBMITTED", recountProductIds: [], submittedAt: r.submitted_at ?? new Date() },
+      data: { status: "SUBMITTED", recountProductIds: [], submittedAt: r.submitted_at ?? new Date(), draft: Prisma.DbNull },
     });
+    await logEvent(tx, id, "CANCEL_RECOUNT", userId, userName);
     return { cancelled: true };
   });
 }
 
 /** «أكيد خلصانة»: an uncounted product is entered as counted at zero. Like any
  * other count it waits PENDING — nothing is booked until the manager accepts. */
-export async function markLineCountGone(id: string, productIds: string[], userId: string) {
+export async function markLineCountGone(id: string, productIds: string[], userId: string, userName?: string) {
   return underReviewLock(id, async (tx) => {
     const ids = [...new Set(productIds)];
     if (ids.length === 0) throw new AppError("اختر مواد", 400, "LINE_COUNT_ITEM_NOT_FOUND");
@@ -641,6 +816,7 @@ export async function markLineCountGone(id: string, productIds: string[], userId
     await tx.lineCountResult.createMany({
       data: ids.map((productId) => ({ sessionId: id, productId, systemQty: sys.get(productId) ?? 0, countedQty: 0, firstWrittenAt: at })),
     });
+    await logEvent(tx, id, "GONE", userId, userName, { products: ids.length, productIds: ids.slice(0, 200) });
     return { marked: ids.length };
   });
 }
@@ -673,13 +849,21 @@ export async function listLineCountWatch(days = 60) {
       AND NOT EXISTS (
         SELECT 1 FROM stocktake_items si JOIN stocktake_sessions ss ON ss.id = si.session_id
         WHERE si.product_id = w.product_id AND ss.branch_id = w.warehouse_id
-          AND si.actual_qty IS NOT NULL AND ss.created_at > w.counted_at)
+          AND si.actual_qty IS NOT NULL AND ss.created_at > w.counted_at
+          AND ss.status IN ('SUBMITTED', 'CLOSED'))
       AND NOT EXISTS (
         SELECT 1 FROM cycle_count_items ci JOIN cycle_count_sessions cs ON cs.id = ci.session_id
         WHERE ci.product_id = w.product_id AND cs.warehouse_id = w.warehouse_id
-          AND ci.actual_qty IS NOT NULL AND cs.submitted_at > w.counted_at)
+          AND ci.actual_qty IS NOT NULL AND cs.submitted_at > w.counted_at
+          AND cs.status IN ('SUBMITTED', 'CLOSED'))
+      -- Moved out to another warehouse: someone found it on the shelf.
+      AND NOT EXISTS (
+        SELECT 1 FROM transfer_items ti JOIN inventory_transfers t ON t.id = ti.transfer_id
+        WHERE ti.product_id = w.product_id AND t.from_branch_id = w.warehouse_id
+          AND t.status = 'COMPLETED' AND t.created_at > w.counted_at)
     GROUP BY w.product_id, w.warehouse_id, p.name, p.item_number, p.pcs_per_carton, b.name
-    HAVING MIN(w.counted_at) <= ${cutoff}
+    -- Nothing left in that warehouse: nothing left to look for.
+    HAVING MIN(w.counted_at) <= ${cutoff} AND COALESCE(MAX(pws.quantity_pieces), 0) <> 0
     ORDER BY MIN(w.counted_at) ASC, p.name ASC`;
   return {
     days,
@@ -740,13 +924,30 @@ export async function publicGetLineCount(token: string) {
     recountRound: recount.length > 0 ? s.recountRound : 0,
     products,
     lines,
+    // What a phone already sent for this round — another phone continues from it.
+    draft: s.status === "OPEN" ? (() => {
+      const d = latestDraft(s.draft, currentRound(s));
+      return d ? { lines: d.lines, at: d.at } : null;
+    })() : null,
   };
 }
 
-export async function publicSubmitLineCount(token: string, lines: SubmittedLine[]) {
+export async function publicSubmitLineCount(token: string, lines: SubmittedLine[], opts: SubmitOptions = {}) {
   const s = await sessionByToken(token);
-  // A retry after a dropped response lands here with the work already saved.
-  if (s.status === "SUBMITTED" || s.status === "FINALIZED") return { alreadySubmitted: true, status: s.status };
+  const submitId = opts.submitId?.trim() || null;
+  // A retry after a dropped response lands here with the work already saved —
+  // that is the same phone (same submit id). Any other phone, or a phone whose
+  // recount the manager cancelled meanwhile, is told plainly instead of seeing
+  // «انرفع» for lines that were never stored.
+  const refuseOrDone = (status: string) => {
+    if (!submitId || submitId === s.submitId) return { alreadySubmitted: true, status };
+    throw new AppError(
+      "الجرد انرفع أو انقفل قبل رفعك — سطورك باقية بموبايلك ولا تمسحها. كلّم المدير حتى يرجّعلك الجرد.",
+      409,
+      "LINE_COUNT_ALREADY_SUBMITTED",
+    );
+  };
+  if (s.status === "SUBMITTED" || s.status === "FINALIZED") return refuseOrDone(s.status);
   if (s.status !== "OPEN") throw new AppError("هذه الجلسة ملغاة", 400, "LINE_COUNT_CANCELLED");
   if (lines.length === 0) throw new AppError("ما مكتوب ولا سطر", 400, "LINE_COUNT_EMPTY");
 
@@ -754,42 +955,61 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
   const recount = new Set(s.recountProductIds);
   if (recount.size > 0 && ids.some((pid) => !recount.has(pid)))
     throw new AppError("المطلوب إعادة عدّ مواد محددة فقط — حدّث الصفحة", 400, "LINE_COUNT_NOT_IN_RECOUNT");
-  const products = await prisma.product.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, pcsPerCarton: true } });
+  const products = await prisma.product.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, name: true, pcsPerCarton: true } });
   const ppc = new Map(products.map((p) => [p.id, Math.max(1, p.pcsPerCarton)]));
+  const pname = new Map(products.map((p) => [p.id, p.name]));
   const missing = ids.filter((pid) => !ppc.has(pid));
   if (missing.length > 0) throw new AppError("بعض المواد انحذفت من النظام — حدّث الصفحة", 400, "LINE_COUNT_UNKNOWN_PRODUCT");
 
   const now = new Date();
+  // The phone's clock may be off by hours. Its own send time tells by how much;
+  // small gaps are just network delay and are left alone.
+  const sent = opts.sentAt ? new Date(opts.sentAt) : null;
+  const skew = sent && !Number.isNaN(sent.getTime()) ? now.getTime() - sent.getTime() : 0;
+  const shift = Math.abs(skew) > 2 * 60_000 ? skew : 0;
+  // No line can predate the count (or the recount) it belongs to.
+  const floor = (recount.size > 0 ? s.recountRequestedAt : null) ?? s.createdAt;
   const rows = lines.map((l, i) => {
-    const writtenAt = new Date(l.writtenAt);
-    return {
-      sessionId: s.id,
-      position: i + 1,
-      productId: l.productId,
-      qty: l.qty,
-      unit: l.unit,
-      // Carton size is read from the DB, never trusted from the phone.
-      qtyPieces: l.unit === "CARTON" ? l.qty * (ppc.get(l.productId) ?? 1) : l.qty,
-      writtenAt: Number.isNaN(writtenAt.getTime()) || writtenAt > now ? now : writtenAt,
-    };
+    const raw = new Date(l.writtenAt);
+    const t = Number.isNaN(raw.getTime()) ? now.getTime() : raw.getTime() + shift;
+    const writtenAt = new Date(Math.min(now.getTime(), Math.max(floor.getTime(), t)));
+    // Carton size is read from the DB, never trusted from the phone.
+    const qtyPieces = l.unit === "CARTON" ? l.qty * (ppc.get(l.productId) ?? 1) : l.qty;
+    if (qtyPieces > MAX_LINE_PIECES)
+      throw new AppError(
+        `السطر ${i + 1} («${pname.get(l.productId) ?? "مادة"}»): العدد ${l.qty} كبير جداً — يمكن انقرأ باركود بخانة العدد. صحّحه وارفع مرة ثانية.`,
+        400,
+        "LINE_COUNT_QTY_TOO_BIG",
+      );
+    return { sessionId: s.id, position: i + 1, productId: l.productId, qty: l.qty, unit: l.unit, qtyPieces, writtenAt };
   });
 
-  const sums = new Map<string, { qty: number; first: Date }>();
+  const sums = new Map<string, { qty: number; first: Date; last: Date }>();
   for (const r of rows) {
     const cur = sums.get(r.productId);
     if (cur) {
       cur.qty += r.qtyPieces;
       if (r.writtenAt < cur.first) cur.first = r.writtenAt;
-    } else sums.set(r.productId, { qty: r.qtyPieces, first: r.writtenAt });
+      if (r.writtenAt > cur.last) cur.last = r.writtenAt;
+    } else sums.set(r.productId, { qty: r.qtyPieces, first: r.writtenAt, last: r.writtenAt });
   }
 
   return prisma.$transaction(
     async (tx) => {
       const claim = await tx.lineCountSession.updateMany({
         where: { id: s.id, status: "OPEN" },
-        data: { status: "SUBMITTED", submittedAt: now, recountProductIds: [] },
+        data: { status: "SUBMITTED", submittedAt: now, recountProductIds: [], submitId, draft: Prisma.DbNull },
       });
-      if (claim.count !== 1) return { alreadySubmitted: true, status: "SUBMITTED" };
+      if (claim.count !== 1) {
+        // Lost the race to another upload a moment ago.
+        const fresh = await tx.lineCountSession.findUnique({ where: { id: s.id }, select: { submitId: true, status: true } });
+        if (!submitId || submitId === fresh?.submitId) return { alreadySubmitted: true, status: fresh?.status ?? "SUBMITTED" };
+        throw new AppError(
+          "الجرد انرفع أو انقفل قبل رفعك — سطورك باقية بموبايلك ولا تمسحها. كلّم المدير حتى يرجّعلك الجرد.",
+          409,
+          "LINE_COUNT_ALREADY_SUBMITTED",
+        );
+      }
       if (recount.size > 0) {
         // Partial recount: only the recounted products are replaced. Their old
         // lines stay as a trace; every other product keeps its result and decision.
@@ -803,18 +1023,62 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
         await tx.lineCountResult.deleteMany({ where: { sessionId: s.id } });
         await tx.lineCountLine.createMany({ data: rows });
       }
-      const sys = await systemSnapshot(tx, s.warehouseId, new Map([...sums].map(([k, v]) => [k, v.first])), now);
+      // Stock as it stood at the product's first line — and, when it was also
+      // written later, at its last line. If stock moved in between the two
+      // differ and the review asks the manager which moment is the real one;
+      // by default the first, as before.
+      const sysFirst = await systemSnapshot(tx, s.warehouseId, new Map([...sums].map(([k, v]) => [k, v.first])), now);
+      const spread = [...sums].filter(([, v]) => v.last > v.first);
+      const sysLast = spread.length > 0 ? await systemSnapshot(tx, s.warehouseId, new Map(spread.map(([k, v]) => [k, v.last])), now) : new Map<string, number>();
       await tx.lineCountResult.createMany({
-        data: [...sums.entries()].map(([productId, v]) => ({
-          sessionId: s.id,
-          productId,
-          systemQty: sys.get(productId) ?? 0,
-          countedQty: v.qty,
-          firstWrittenAt: v.first,
-        })),
+        data: [...sums.entries()].map(([productId, v]) => {
+          const first = sysFirst.get(productId) ?? 0;
+          return {
+            sessionId: s.id,
+            productId,
+            systemQty: first,
+            systemQtyFirst: first,
+            systemQtyLast: v.last > v.first ? (sysLast.get(productId) ?? 0) : null,
+            countedQty: v.qty,
+            firstWrittenAt: v.first,
+            lastWrittenAt: v.last,
+          };
+        }),
+      });
+      await logEvent(tx, s.id, "SUBMIT", null, null, {
+        lines: rows.length,
+        products: sums.size,
+        recount: recount.size > 0,
+        ...(shift !== 0 ? { clockShiftMinutes: Math.round(shift / 60_000) } : {}),
       });
       return { alreadySubmitted: false, status: "SUBMITTED", lines: rows.length, products: sums.size };
     },
     { timeout: 60_000, maxWait: 10_000 },
   );
+}
+
+/** The phone's lines while it counts. Stored per phone and per round; ignored
+ * once the count is no longer open or the round moved on. */
+export async function publicSaveLineCountDraft(token: string, deviceId: string, round: number, lines: SubmittedLine[]) {
+  const s = await sessionByToken(token);
+  if (s.status !== "OPEN") return { saved: false, status: s.status };
+  if (round !== currentRound(s)) return { saved: false, status: s.status, stale: true };
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ status: string; draft: Prisma.JsonValue | null; recount_round: number; recount: number }[]>`
+      SELECT status, draft, recount_round, cardinality(recount_product_ids)::int AS recount
+      FROM line_count_sessions WHERE id = ${s.id}::uuid FOR UPDATE`;
+    const r = rows[0];
+    if (!r || r.status !== "OPEN") return { saved: false, status: r?.status ?? s.status };
+    if (round !== (r.recount > 0 ? r.recount_round : 0)) return { saved: false, status: r.status, stale: true };
+    const entries = draftEntries(r.draft);
+    // Older rounds are over; keep the ten most recent phones at most.
+    const keep = Object.entries(entries)
+      .filter(([k, e]) => k !== deviceId && e.round === round)
+      .sort((a, b) => (a[1].at < b[1].at ? 1 : -1))
+      .slice(0, 9);
+    const next: Record<string, DraftEntry> = Object.fromEntries(keep);
+    next[deviceId] = { round, at: new Date().toISOString(), lines };
+    await tx.lineCountSession.update({ where: { id: s.id }, data: { draft: next as unknown as Prisma.InputJsonValue } });
+    return { saved: true, status: r.status };
+  });
 }

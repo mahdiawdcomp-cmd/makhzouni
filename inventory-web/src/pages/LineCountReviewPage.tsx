@@ -19,9 +19,11 @@ import {
   markLineCountGone,
   recountLineCount,
   reopenLineCount,
+  setLineCountBasis,
   setLineCountProductTotal,
   swapLineCountUnits,
   type LineCountDecision,
+  type LineCountEvent,
   type LineCountLine,
   type LineCountReview,
   type LineCountReviewItem,
@@ -49,6 +51,56 @@ function qtyText(pieces: number, ppc: number) {
 }
 
 const unitWord = (u: string | null) => (u === "CARTON" ? "كارتون" : "قطعة")
+
+const hhmm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("ar-IQ", { hour: "2-digit", minute: "2-digit" }) : "")
+const dayTime = (iso: string) => new Date(iso).toLocaleString("ar-IQ", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })
+
+/** Rows a bulk click never decides: the manager looks at these one by one. */
+const needsOwnLook = (it: LineCountReviewItem) => !!it.unitSuggestion || it.ambiguous || it.noPrice || it.deleted
+
+const EVENT_LABEL: Record<string, string> = {
+  CREATE: "بدأ الجرد",
+  SUBMIT: "العامل رفع الجرد",
+  DECISION: "قرار",
+  BASIS: "اختار وقت العدّ",
+  EDIT_LINE: "عدّل سطر",
+  DELETE_LINE: "حذف سطر",
+  SET_TOTAL: "كتب مجموع",
+  SWAP_UNIT: "صحّح الوحدة",
+  RECOUNT: "رجّع مواد لإعادة العدّ",
+  CANCEL_RECOUNT: "ألغى إعادة العدّ",
+  GONE: "أكيد خلصانة",
+  REOPEN: "رجّع الجرد كله للعامل",
+  CANCEL: "ألغى الجرد",
+  FINALIZE: "اعتمد الجرد",
+}
+
+function eventDetail(e: LineCountEvent, names: Map<string, string>) {
+  const d = (e.detail ?? {}) as Record<string, unknown>
+  const name = typeof d.productId === "string" ? names.get(d.productId) : undefined
+  switch (e.action) {
+    case "SUBMIT":
+      return `${d.lines ?? 0} سطر · ${d.products ?? 0} مادة${d.recount ? " (إعادة عدّ)" : ""}${typeof d.clockShiftMinutes === "number" ? ` · ساعة الموبايل كانت غلط ${Math.abs(d.clockShiftMinutes)} دقيقة وانصححت` : ""}`
+    case "DECISION": {
+      const what = d.decision === "ACCEPTED" ? "قبول" : d.decision === "REJECTED" ? "رفض" : "رجّع بلا قرار"
+      return `${what} ${name ? `«${name}»` : d.bulk === "ALL" ? "الكل" : `${d.updated ?? 0} مادة`}`
+    }
+    case "BASIS":
+      return `${name ? `«${name}» ` : ""}على وقت ${d.basis === "LAST" ? "آخر" : "أول"} سطر`
+    case "EDIT_LINE":
+    case "DELETE_LINE":
+    case "SET_TOTAL":
+    case "SWAP_UNIT":
+      return name ? `«${name}»` : ""
+    case "RECOUNT":
+    case "GONE":
+      return `${d.products ?? 0} مادة`
+    case "FINALIZE":
+      return `بيع ${d.saleLines ?? 0} سطر · شراء ${d.purchaseLines ?? 0} سطر · متابعة ${d.watched ?? 0} مادة`
+    default:
+      return ""
+  }
+}
 
 function digitsOnly(v: string) {
   return v
@@ -97,7 +149,7 @@ const SEV_STYLE: Record<Severity, { row: string; chip: string; label: string }> 
   yellow: { row: "border-r-8 border-r-yellow-300 bg-yellow-50/60 dark:bg-yellow-950/20", chip: "bg-yellow-300 text-yellow-900", label: "فرق صغير" },
 }
 
-type Filter = "all" | Severity | "unit" | "shortage" | "overage" | "pending" | "edited"
+type Filter = "all" | Severity | "unit" | "shortage" | "overage" | "pending" | "edited" | "ambiguous" | "noprice"
 
 // ── Excel ───────────────────────────────────────────────────────────────────
 
@@ -112,9 +164,12 @@ async function exportExcel(s: LineCountReview, th: Thresholds) {
     "المعدود (قطعة)": it.countedQty,
     "الفرق (قطعة)": it.delta,
     "الفرق": it.delta === 0 ? "مطابق" : `${it.delta < 0 ? "نقص" : "زيادة"} ${qtyText(Math.abs(it.delta), it.pcsPerCarton)}`,
-    "القيمة (د.ع)": it.delta === 0 ? 0 : it.value,
+    "القيمة بالكلفة (د.ع)": it.delta === 0 ? 0 : it.value,
+    "قيمة فاتورة البيع (د.ع)": it.saleValue,
+    "الرصيد هسه (قطعة)": it.currentQty,
     "الشدة": it.delta === 0 ? "" : SEV_STYLE[severityOf(it, th)].label,
     "القرار": it.delta === 0 ? "" : DECISION_LABEL[it.decision],
+    "منو قرر": it.decidedBy ?? "",
     "مشكوك بالوحدة": it.unitSuggestion ? `لو تبدّلت الوحدة يصير ${it.unitSuggestion.countedQty}` : "",
     "العامل كتب بالأصل": it.workerCountedQty ?? "",
     "عدد السطور": it.lines.filter((l) => !l.deleted).length,
@@ -168,6 +223,7 @@ export function LineCountReviewPage() {
   const readOnly = useReadOnly()
   const [showMatched, setShowMatched] = useState(false)
   const [showUncounted, setShowUncounted] = useState(true)
+  const [showLog, setShowLog] = useState(false)
   const [showThresholds, setShowThresholds] = useState(false)
   const [thresholds, setThresholds] = useState<Thresholds>(loadThresholds)
   const [filter, setFilter] = useState<Filter>("all")
@@ -219,10 +275,19 @@ export function LineCountReviewPage() {
     },
     onError: onErr("تعذر إلغاء إعادة العدّ"),
   })
+  const basisMut = useMutation({
+    mutationFn: (v: { productId: string; basis: "FIRST" | "LAST" }) => setLineCountBasis(id, v.productId, v.basis),
+    onSuccess: async () => {
+      toast({ title: "انحسب على الوقت اللي اخترته — المادة رجعت بلا قرار" })
+      await refresh()
+    },
+    onError: onErr("تعذر الحفظ"),
+  })
   const goneMut = useMutation({
     mutationFn: (productIds: string[]) => markLineCountGone(id, productIds),
-    onSuccess: async () => {
-      toast({ title: "انحسبت صفر — تنتظر قبولك مثل باقي الفروقات" })
+    onSuccess: async (r) => {
+      toast({ title: `${r.marked} مادة انحسبت صفر — تنتظر قبولك مثل باقي الفروقات` })
+      setSelected(new Set())
       await refresh()
     },
     onError: onErr("تعذر الحفظ"),
@@ -249,6 +314,8 @@ export function LineCountReviewPage() {
         case "overage": return it.delta > 0
         case "pending": return it.decision === "PENDING"
         case "edited": return it.workerCountedQty !== null
+        case "ambiguous": return it.ambiguous
+        case "noprice": return it.noPrice || it.deleted
         default: return sev === filter
       }
     })
@@ -261,7 +328,8 @@ export function LineCountReviewPage() {
   const matched = items.filter((i) => i.delta === 0)
   const accepted = diffs.filter((d) => d.it.decision === "ACCEPTED").map((d) => d.it)
   const pending = diffs.filter((d) => d.it.decision === "PENDING")
-  const saleTotal = accepted.filter((i) => i.delta < 0).reduce((t, i) => t + i.value, 0)
+  // The shortage sale invoice is priced at sale price; everything else on the page is at cost.
+  const saleTotal = accepted.filter((i) => i.delta < 0).reduce((t, i) => t + i.saleValue, 0)
   const purchaseTotal = accepted.filter((i) => i.delta > 0).reduce((t, i) => t + i.value, 0)
   const hasOverage = accepted.some((i) => i.delta > 0)
   const shortageAll = diffs.filter((d) => d.it.delta < 0).reduce((t, d) => t + d.it.value, 0)
@@ -273,23 +341,26 @@ export function LineCountReviewPage() {
       : f === "overage" ? diffs.filter((d) => d.it.delta > 0).length
       : f === "pending" ? pending.length
       : f === "edited" ? diffs.filter((d) => d.it.workerCountedQty !== null).length
+      : f === "ambiguous" ? diffs.filter((d) => d.it.ambiguous).length
+      : f === "noprice" ? diffs.filter((d) => d.it.noPrice || d.it.deleted).length
       : diffs.filter((d) => d.sev === f).length
-  // «قبول سريع»: only undecided rows, and never a suspected unit mix-up — those
+  // «قبول سريع»: only undecided rows, and never a suspected unit mix-up, a
+  // product sold between two of its lines, or one finalize would refuse — those
   // stay for the manager to look at one by one.
   const acceptGroup = (label: string, rows: typeof diffs) => {
     const open = rows.filter((d) => d.it.decision === "PENDING")
-    const take = open.filter((d) => !d.it.unitSuggestion)
+    const take = open.filter((d) => !needsOwnLook(d.it))
     const skipped = open.length - take.length
     const moved = take.filter((d) => d.it.movedAfterWriting).length
     if (take.length === 0) return
     const notes = [
-      skipped > 0 ? `${skipped} مادة مشكوك بوحدتها ما انقبلت — شوفها بنفسك.` : "",
+      skipped > 0 ? `${skipped} مادة ما انقبلت هنا (مشكوك بوحدتها، أو انباعت بين سطورها، أو بلا سعر) — شوفها بنفسك.` : "",
       moved > 0 ? `${moved} مادة صارت عليها حركة بعد ما انكتبت.` : "",
     ].filter(Boolean).join("\n")
     if (!confirm(`تقبل ${take.length} ${label}؟${notes ? `\n\n${notes}` : ""}\n\nما ينحسب شي إلا لما تضغط «اعتماد».`)) return
     decideMut.mutate({ decision: "ACCEPTED", productIds: take.map((d) => d.it.productId) })
   }
-  const quickCount = (rows: typeof diffs) => rows.filter((d) => d.it.decision === "PENDING" && !d.it.unitSuggestion).length
+  const quickCount = (rows: typeof diffs) => rows.filter((d) => d.it.decision === "PENDING" && !needsOwnLook(d.it)).length
   const QUICK: { label: string; rows: typeof diffs; cls: string }[] = [
     { label: "فرق صغير", rows: diffs.filter((d) => d.sev === "yellow"), cls: "border-yellow-300 bg-yellow-50 text-yellow-900" },
     { label: "فرق متوسط", rows: diffs.filter((d) => d.sev === "orange"), cls: "border-orange-300 bg-orange-50 text-orange-800" },
@@ -300,6 +371,16 @@ export function LineCountReviewPage() {
   ]
   const matchedOpen = matched.filter((i) => i.decision !== "ACCEPTED")
   const visibleIds = visible.map((v) => v.it.productId)
+  // Bulk accept/reject decides only rows still undecided — an earlier
+  // rejection is never flipped by «اقبل المعروض».
+  const visiblePending = visible.filter((v) => v.it.decision === "PENDING")
+  const visiblePendingIds = visiblePending.map((v) => v.it.productId)
+  const uncountedIds = s.uncounted.map((u) => u.productId)
+  const selectedUncounted = uncountedIds.filter((pid) => selected.has(pid))
+  const productNames = new Map<string, string>([
+    ...items.map((i) => [i.productId, i.productName] as [string, string]),
+    ...s.uncounted.map((u) => [u.productId, u.productName] as [string, string]),
+  ])
   const toggleSelect = (pid: string) =>
     setSelected((prev) => {
       const next = new Set(prev)
@@ -322,6 +403,8 @@ export function LineCountReviewPage() {
     { key: "overage", label: "زيادة" },
     { key: "pending", label: "بلا قرار" },
     { key: "edited", label: "معدّلة" },
+    { key: "ambiguous", label: "انباعت بين سطورها" },
+    { key: "noprice", label: "بلا سعر أو محذوفة" },
   ]
 
   return (
@@ -338,6 +421,11 @@ export function LineCountReviewPage() {
               <p className="text-sm text-slate-500">
                 {s.lineCount} سطر · {items.length} مادة محسوبة · <span className="font-semibold text-red-600">{diffs.length} فيها فرق</span> · {matched.length} مطابقة · {s.uncounted.length} ما انحسبت
               </p>
+              <p className="text-xs text-slate-400">
+                بدأه {s.createdByName ?? "—"} يوم {dayTime(s.createdAt)}
+                {s.submittedAt && ` · رفعه العامل ${dayTime(s.submittedAt)}`}
+                {s.finalizedAt && ` · اعتمده ${s.finalizedByName ?? "—"} ${dayTime(s.finalizedAt)}`}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={() => void exportEntryOrder(s).catch(onErr("تعذر التصدير"))}>
@@ -353,15 +441,15 @@ export function LineCountReviewPage() {
           {diffs.length > 0 && (
             <div className="grid gap-2 sm:grid-cols-3">
               <div className="rounded-lg bg-red-50 p-3 dark:bg-red-950/40">
-                <p className="text-xs text-red-700">مجموع النقص</p>
+                <p className="text-xs text-red-700">مجموع النقص بالكلفة</p>
                 <p className="text-lg font-bold text-red-700">{money(shortageAll)}</p>
               </div>
               <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/40">
-                <p className="text-xs text-emerald-700">مجموع الزيادة</p>
+                <p className="text-xs text-emerald-700">مجموع الزيادة بالكلفة</p>
                 <p className="text-lg font-bold text-emerald-700">{money(overageAll)}</p>
               </div>
               <div className="rounded-lg bg-slate-100 p-3 dark:bg-slate-800">
-                <p className="text-xs text-slate-600 dark:text-slate-300">الصافي</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300">الصافي بالكلفة</p>
                 <p className={cn("text-lg font-bold", overageAll - shortageAll < 0 ? "text-red-700" : "text-emerald-700")}>{money(overageAll - shortageAll)}</p>
               </div>
             </div>
@@ -392,6 +480,7 @@ export function LineCountReviewPage() {
             <p className="text-sm font-medium text-sky-700">
               الجرد عند العامل هسه — تكدر تراجعه بعد ما يرفعه.
               {pending.length > 0 && ` المواد اللي ما قررت عليها (${pending.length}) تبقى مقفولة بالمخزن.`}
+              {s.progress && ` · العامل كاتب ${s.progress.lines} سطر، آخر حفظ ${hhmm(s.progress.at)}.`}
             </p>
           )}
           {s.status === "OPEN" && s.recountProductIds.length > 0 && !readOnly && (
@@ -492,24 +581,32 @@ export function LineCountReviewPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={decideMut.isPending || visibleIds.length === 0}
+                  disabled={decideMut.isPending || visiblePendingIds.length === 0}
                   onClick={() => {
-                    const moved = visible.filter((v) => v.it.movedAfterWriting).length
-                    const unit = visible.filter((v) => v.it.unitSuggestion).length
-                    const warn = [moved > 0 ? `${moved} مادة صارت عليها حركة بعد ما انكتبت` : "", unit > 0 ? `${unit} مادة مشكوك بوحدتها` : ""].filter(Boolean).join("\n")
-                    if (!confirm(`تقبل ${visibleIds.length} فرق المعروضة؟${warn ? `\n\nانتبه:\n${warn}` : ""}`)) return
-                    decideMut.mutate({ decision: "ACCEPTED", productIds: visibleIds })
+                    const moved = visiblePending.filter((v) => v.it.movedAfterWriting).length
+                    const unit = visiblePending.filter((v) => v.it.unitSuggestion).length
+                    const amb = visiblePending.filter((v) => v.it.ambiguous).length
+                    const warn = [
+                      moved > 0 ? `${moved} مادة صارت عليها حركة بعد ما انكتبت` : "",
+                      unit > 0 ? `${unit} مادة مشكوك بوحدتها` : "",
+                      amb > 0 ? `${amb} مادة انباعت بين سطورها` : "",
+                    ].filter(Boolean).join("\n")
+                    if (!confirm(`تقبل ${visiblePendingIds.length} فرق بلا قرار من المعروض؟ المقبول والمرفوض قبل ما يتغيّر.${warn ? `\n\nانتبه:\n${warn}` : ""}`)) return
+                    decideMut.mutate({ decision: "ACCEPTED", productIds: visiblePendingIds })
                   }}
                 >
-                  <Check className="h-4 w-4" /> اقبل المعروض ({visibleIds.length})
+                  <Check className="h-4 w-4" /> اقبل المعروض ({visiblePendingIds.length})
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={decideMut.isPending || visibleIds.length === 0}
-                  onClick={() => { if (confirm(`ترفض ${visibleIds.length} فرق المعروضة؟`)) decideMut.mutate({ decision: "REJECTED", productIds: visibleIds }) }}
+                  disabled={decideMut.isPending || visiblePendingIds.length === 0}
+                  onClick={() => {
+                    if (confirm(`ترفض ${visiblePendingIds.length} فرق بلا قرار من المعروض؟ المقبول قبل ما يتغيّر.`))
+                      decideMut.mutate({ decision: "REJECTED", productIds: visiblePendingIds })
+                  }}
                 >
-                  <X className="h-4 w-4" /> ارفض المعروض
+                  <X className="h-4 w-4" /> ارفض المعروض ({visiblePendingIds.length})
                 </Button>
                 <Button
                   size="sm"
@@ -551,6 +648,8 @@ export function LineCountReviewPage() {
               selected={selected.has(it.productId)}
               onSelect={() => toggleSelect(it.productId)}
               onDecide={(d) => decideMut.mutate({ decision: d, productId: it.productId })}
+              onBasis={(basis) => basisMut.mutate({ productId: it.productId, basis })}
+              basisBusy={basisMut.isPending}
               onChanged={refresh}
             />
           ))
@@ -571,7 +670,20 @@ export function LineCountReviewPage() {
                     {it.productName}
                     {it.workerCountedQty !== null && <span className="mr-2 text-xs text-violet-700">(معدّلة — العامل كتب {qtyText(it.workerCountedQty, it.pcsPerCarton)})</span>}
                   </span>
-                  <span className="text-slate-500">{qtyText(it.countedQty, it.pcsPerCarton)}</span>
+                  <span className="flex flex-wrap items-center gap-2 text-slate-500">
+                    {qtyText(it.countedQty, it.pcsPerCarton)}
+                    {/* Matched only because it's counted at its last line's moment — keep the way back. */}
+                    {it.ambiguous && editable && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={basisMut.isPending}
+                        onClick={() => basisMut.mutate({ productId: it.productId, basis: it.basis === "LAST" ? "FIRST" : "LAST" })}
+                      >
+                        احسبها على {it.basis === "LAST" ? "أول" : "آخر"} سطر
+                      </Button>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -592,12 +704,65 @@ export function LineCountReviewPage() {
                   ? "دخلت المتابعة: إذا ما انباعت ولا انجردت خلال شهرين تطلع بالمواد الراكدة."
                   : "العامل ما كتبها. أرصدتها ما تتغيّر. اللي تتركها تدخل المتابعة بعد الاعتماد: إذا ما انباعت ولا انجردت خلال شهرين تطلع بالمواد الراكدة."}
               </p>
+              {editable && (
+                <div className="sticky top-0 z-10 mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setSelected((prev) =>
+                        selectedUncounted.length === uncountedIds.length
+                          ? new Set([...prev].filter((x) => !uncountedIds.includes(x)))
+                          : new Set([...prev, ...uncountedIds]),
+                      )
+                    }
+                  >
+                    {selectedUncounted.length === uncountedIds.length ? "إلغاء تحديد الكل" : `حدّد الكل (${uncountedIds.length})`}
+                  </Button>
+                  {selectedUncounted.length > 0 && (
+                    <>
+                      <Button
+                        size="sm"
+                        disabled={recountMut.isPending}
+                        onClick={() => {
+                          const all = [...selected]
+                          if (window.confirm(`ترجع ${all.length} مادة للعامل يعدّها؟ نفس الرابط، وبس هاي المواد. باقي القرارات تبقى.`)) recountMut.mutate(all)
+                        }}
+                      >
+                        <RefreshCw className="h-4 w-4" /> أعد عدّ المختار ({selected.size})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-300 text-red-700"
+                        disabled={goneMut.isPending}
+                        onClick={() => {
+                          if (window.confirm(`${selectedUncounted.length} مادة خلصانة؟ تنحسب صفر وتطلع فرق نقص، وما تنعتمد إلا بعد ما تقبلها.`)) goneMut.mutate(selectedUncounted)
+                        }}
+                      >
+                        أكيد خلصانة للمختار ({selectedUncounted.length})
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
               <ul className="mt-2 divide-y divide-amber-100 rounded-lg border border-amber-200 bg-white dark:divide-slate-800 dark:border-amber-900 dark:bg-slate-900">
                 {s.uncounted.map((u) => (
                   <li key={u.productId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
-                    <span>
-                      {u.productName}
-                      {u.itemNumber && <span className="ms-2 text-xs text-slate-400">{u.itemNumber}</span>}
+                    <span className="flex items-center gap-2">
+                      {editable && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(u.productId)}
+                          onChange={() => toggleSelect(u.productId)}
+                          aria-label={`حدّد ${u.productName}`}
+                          className="h-4 w-4 shrink-0"
+                        />
+                      )}
+                      <span>
+                        {u.productName}
+                        {u.itemNumber && <span className="ms-2 text-xs text-slate-400">{u.itemNumber}</span>}
+                      </span>
                     </span>
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="text-slate-500">بالنظام {qtyText(u.systemQty, u.pcsPerCarton)}</span>
@@ -635,11 +800,35 @@ export function LineCountReviewPage() {
         </section>
       )}
 
+      {/* Who did what */}
+      {s.events.length > 0 && (
+        <section>
+          <button type="button" onClick={() => setShowLog((v) => !v)} className="flex items-center gap-1 text-base font-bold text-slate-700 dark:text-slate-200">
+            <ChevronDown className={cn("h-4 w-4 transition", showLog && "rotate-180")} /> السجل ({s.events.length})
+          </button>
+          {showLog && (
+            <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900">
+              {s.events.map((e) => (
+                <li key={e.id} className="flex flex-wrap justify-between gap-2 px-4 py-2">
+                  <span>
+                    <b>{EVENT_LABEL[e.action] ?? e.action}</b>
+                    {eventDetail(e, productNames) && <span className="text-slate-600 dark:text-slate-300"> — {eventDetail(e, productNames)}</span>}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {e.userName ?? (e.action === "SUBMIT" ? "العامل" : "—")} · {dayTime(e.createdAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {editable && (
         <Card className="sticky bottom-2 border-2 border-slate-900 dark:border-slate-200">
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm">
-              <p>فاتورة بيع نقدية للنواقص المقبولة: <b>{money(saleTotal)}</b></p>
+              <p>فاتورة بيع نقدية للنواقص المقبولة (بسعر البيع): <b>{money(saleTotal)}</b></p>
               <p>فاتورة شراء نقدية للزيادات المقبولة: <b>{money(purchaseTotal)}</b></p>
               {pending.length > 0 && <p className="font-medium text-amber-700">باقي {pending.length} فرق بلا قرار</p>}
             </div>
@@ -702,6 +891,8 @@ function VarianceRow({
   selected,
   onSelect,
   onDecide,
+  onBasis,
+  basisBusy,
   onChanged,
 }: {
   sessionId: string
@@ -712,6 +903,8 @@ function VarianceRow({
   selected: boolean
   onSelect: () => void
   onDecide: (d: LineCountDecision) => void
+  onBasis: (basis: "FIRST" | "LAST") => void
+  basisBusy: boolean
   onChanged: () => Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
@@ -749,12 +942,42 @@ function VarianceRow({
               {it.itemNumber && <span dir="ltr" className="mr-2 font-mono text-xs text-slate-400">{it.itemNumber}</span>}
             </p>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <span className="text-slate-500">بالنظام: <b className="text-slate-800 dark:text-slate-100">{qtyText(it.systemQty, it.pcsPerCarton)}</b></span>
+              <span className="text-slate-500">
+                بالنظام وقت العدّ ({hhmm(it.basis === "LAST" ? it.lastWrittenAt : it.firstWrittenAt)}): <b className="text-slate-800 dark:text-slate-100">{qtyText(it.systemQty, it.pcsPerCarton)}</b>
+              </span>
               <span className="text-slate-500">المعدود: <b className="text-slate-800 dark:text-slate-100">{qtyText(it.countedQty, it.pcsPerCarton)}</b></span>
               <span className={cn("font-bold", sev === "yellow" ? "text-amber-700" : sev === "orange" ? "text-orange-700" : "text-red-700")}>
-                {shortage ? "نقص" : "زيادة"} {qtyText(Math.abs(it.delta), it.pcsPerCarton)} · {money(it.value)}
+                {shortage ? "نقص" : "زيادة"} {qtyText(Math.abs(it.delta), it.pcsPerCarton)} · {money(it.value)} بالكلفة
               </span>
+              {shortage && it.saleValue > 0 && <span className="text-xs text-slate-500">فاتورة البيع: {money(it.saleValue)}</span>}
+              {it.currentQty !== it.systemQty && (
+                <span className="text-xs text-slate-500">هسه بالمخزن: {qtyText(it.currentQty, it.pcsPerCarton)}</span>
+              )}
             </div>
+            {it.ambiguous && it.systemQtyLast !== null && (
+              <div className="mt-2 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm dark:border-sky-800 dark:bg-sky-950/40">
+                <p className="font-semibold text-sky-800 dark:text-sky-200">انكتبت على مرتين وبينهم صارت حركة</p>
+                <p className="text-sky-800 dark:text-sky-200">
+                  وقت أول سطر ({hhmm(it.firstWrittenAt)}) كان بالنظام {qtyText(it.systemQtyFirst, it.pcsPerCarton)}، ووقت آخر سطر ({hhmm(it.lastWrittenAt)}) صار {qtyText(it.systemQtyLast, it.pcsPerCarton)}.
+                  إذا اللي انباع طلع من رف انعدّ قبل، احسب على آخر سطر؛ وإذا طلع من رف انعدّ بعد، احسب على أول سطر.
+                </p>
+                {editable && (
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {(["FIRST", "LAST"] as const).map((b) => (
+                      <Button
+                        key={b}
+                        size="sm"
+                        variant={it.basis === b ? "default" : "outline"}
+                        disabled={basisBusy || it.basis === b}
+                        onClick={() => onBasis(b)}
+                      >
+                        على {b === "FIRST" ? "أول" : "آخر"} سطر — الفرق {(it.countedQty - (b === "FIRST" ? it.systemQtyFirst : it.systemQtyLast!))}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {it.workerCountedQty !== null && (
               <p className="mt-1 text-xs font-medium text-violet-700">معدّلة منك — العامل كتب بالأصل {qtyText(it.workerCountedQty, it.pcsPerCarton)}</p>
             )}
@@ -783,8 +1006,13 @@ function VarianceRow({
                 <AlertTriangle className="h-3.5 w-3.5" /> صارت حركة على هاي المادة بعد ما انكتبت — تأكد قبل القبول
               </p>
             )}
-            {it.unitPrice <= 0 && (
+            {it.deleted ? (
+              <p className="mt-1 text-xs font-bold text-red-700">مادة محذوفة من النظام — ارفضها، ما تنعتمد</p>
+            ) : it.noPrice ? (
               <p className="mt-1 text-xs font-medium text-amber-700">ما إلها {shortage ? "سعر بيع" : "كلفة"} — القبول راح يوكّف الاعتماد</p>
+            ) : null}
+            {it.decidedBy && it.decision !== "PENDING" && (
+              <p className="mt-1 text-xs text-slate-500">{it.decision === "ACCEPTED" ? "قبلها" : "رفضها"} {it.decidedBy} {it.decidedAt ? `· ${dayTime(it.decidedAt)}` : ""}</p>
             )}
             <div className="mt-1 flex gap-3">
               <button type="button" onClick={() => setOpen((v) => !v)} className="text-xs text-sky-700 underline">
@@ -803,7 +1031,9 @@ function VarianceRow({
                     سطر {l.position}: {l.qty} {unitWord(l.unit)} = {l.qtyPieces} قطعة
                     {l.source === "ADMIN" && " (مجموعك)"}
                     {l.originalQty !== null && ` — العامل كتب ${l.originalQty} ${unitWord(l.originalUnit)}`}
+                    {l.editedBy && ` — عدّلها ${l.editedBy}`}
                     {l.deleted && " — محذوف"}
+                    {` · ${hhmm(l.writtenAt)}`}
                   </li>
                 ))}
               </ul>

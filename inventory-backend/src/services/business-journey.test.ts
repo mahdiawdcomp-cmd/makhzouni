@@ -56,6 +56,8 @@ const bal = () => customer.currentBalance;
 // ── Faithful stock-engine mock ────────────────────────────────────────────────
 mock.module("./warehouse-stock.service", {
   exports: {
+    withNetLineCountCheck: async (_db: unknown, fn: () => Promise<unknown>) => fn(),
+    assertNoneUnderLineCount: async () => undefined,
     ensureLegacyWarehouseStock: async () => {},
     syncProductTotalStock: async () => {},
     resolveShopWarehouseId: async () => SHOP,

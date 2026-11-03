@@ -191,6 +191,8 @@ mock.module("../config/database", { exports: { default: fakePrisma } });
 // beforeEach just installed, without re-registering the mock every test.
 mock.module("./warehouse-stock.service", {
   exports: {
+    withNetLineCountCheck: async (_db: unknown, fn: () => Promise<unknown>) => fn(),
+    assertNoneUnderLineCount: async () => undefined,
     resolveShopWarehouseId:   async ()                       => SHOP_ID,
     resolveWarehouseId:       async (_: any, id?: string | null) => id ?? SHOP_ID,
     ensureLegacyWarehouseStock: async ()                     => {},

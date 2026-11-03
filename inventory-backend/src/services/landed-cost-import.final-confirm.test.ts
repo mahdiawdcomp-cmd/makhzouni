@@ -60,6 +60,8 @@ function withInvoiceItems(inv: any) {
 // ── Faithful stock-engine mock (same shape as business-journey.test.ts) ─────
 mock.module("./warehouse-stock.service", {
   exports: {
+    withNetLineCountCheck: async (_db: unknown, fn: () => Promise<unknown>) => fn(),
+    assertNoneUnderLineCount: async () => undefined,
     ensureLegacyWarehouseStock: async () => {},
     syncProductTotalStock: async () => {},
     resolveShopWarehouseId: async () => SHOP,
