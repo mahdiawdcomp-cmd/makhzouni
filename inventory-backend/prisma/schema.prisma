@@ -3247,6 +3247,9 @@ model LineCountSession {
   recountProductIds  String[]          @default([]) @map("recount_product_ids")
   // «خلّيها»: uncounted products the manager chose to leave as the system has them.
   keptProductIds     String[]          @default([]) @map("kept_product_ids")
+  // A count of chosen products only (empty = the whole warehouse): the link
+  // shows just these, and «غير مذكورة» / the watch cover just these.
+  scopeProductIds    String[]          @default([]) @map("scope_product_ids")
   recountRound       Int               @default(0) @map("recount_round")
   // When the current recount was asked for — the earliest a recount line can be.
   recountRequestedAt DateTime?         @map("recount_requested_at")

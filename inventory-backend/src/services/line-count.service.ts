@@ -9,7 +9,7 @@ import { randomBytes } from "crypto";
 import { InvoiceType, PaymentType, Prisma, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { resolveShopWarehouseId, resolveWarehouseId } from "./warehouse-stock.service";
+import { adjustWarehouseStock, resolveShopWarehouseId, resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
 import { createInvoice } from "./invoice.service";
 import { getOrCreateWalkInCustomer } from "./customer.service";
 import { getSettings } from "./settings.service";
@@ -81,7 +81,7 @@ async function warehouseName(id: string) {
 
 // ─── Admin ──────────────────────────────────────────────────────────────────
 
-export async function createLineCount(createdBy: string, warehouseId?: string, notes?: string, createdByName?: string) {
+export async function createLineCount(createdBy: string, warehouseId?: string, notes?: string, createdByName?: string, productIds?: string[]) {
   const wid = warehouseId ? await resolveWarehouseId(prisma, warehouseId) : await resolveShopWarehouseId(prisma);
   // One live count per warehouse — two would race to book the same variances.
   const live = await prisma.lineCountSession.findFirst({
@@ -92,9 +92,9 @@ export async function createLineCount(createdBy: string, warehouseId?: string, n
   if (live) throw exists();
   try {
     const created = await prisma.lineCountSession.create({
-      data: { publicToken: makeToken(), warehouseId: wid, createdBy, notes: notes?.trim() || null },
+      data: { publicToken: makeToken(), warehouseId: wid, createdBy, notes: notes?.trim() || null, scopeProductIds: [...new Set(productIds ?? [])] },
     });
-    await logEvent(prisma, created.id, "CREATE", createdBy, createdByName);
+    await logEvent(prisma, created.id, "CREATE", createdBy, createdByName, productIds?.length ? { scope: created.scopeProductIds.length } : undefined);
     return created;
   } catch (e) {
     // Two clicks at once: the partial unique index lets only one through.
@@ -128,6 +128,8 @@ export async function listLineCounts(warehouseId?: string) {
     productCount: r._count.results,
     // Sent back for recount: the count is OPEN but still reviewable.
     recountCount: r.recountProductIds.length,
+    // A count of chosen products only (0 = the whole warehouse).
+    scopeCount: r.scopeProductIds.length,
     // What the worker's phone has sent so far (before the upload).
     progress: r.status === "OPEN" ? draftProgress(r) : null,
   }));
@@ -310,8 +312,9 @@ export async function getLineCountReview(id: string) {
       select: { productId: true, quantityPieces: true, product: { select: { name: true, itemNumber: true, pcsPerCarton: true } } },
       orderBy: { product: { name: "asc" } },
     });
+    const scope = s.scopeProductIds.length > 0 ? new Set(s.scopeProductIds) : null;
     uncounted = stocks
-      .filter((x) => !counted.has(x.productId))
+      .filter((x) => !counted.has(x.productId) && (!scope || scope.has(x.productId)))
       .map((x) => ({ productId: x.productId, productName: x.product.name, itemNumber: x.product.itemNumber, pcsPerCarton: x.product.pcsPerCarton, systemQty: x.quantityPieces }));
   }
 
@@ -474,6 +477,7 @@ export async function finalizeLineCount(id: string, userId: string, userName?: s
   // stock on their own, so we never recompute against live stock here.
   const saleItems: { productId: string; quantity: number; unitPrice: number }[] = [];
   const purchaseItems: { productId: string; quantity: number; unitPrice: number }[] = [];
+  const zeroFix: { productId: string; quantity: number }[] = [];
   const noPrice: string[] = [];
   for (const r of accepted) {
     const p = pmap.get(r.productId);
@@ -488,7 +492,10 @@ export async function finalizeLineCount(id: string, userId: string, userName?: s
       else saleItems.push({ productId: p.id, quantity: -delta, unitPrice: price });
     } else {
       const cost = Math.round(Number(p.costPrice ?? 0) || Number(p.purchasePrice ?? 0));
-      if (!(cost > 0)) noPrice.push(`${p.name} (الكلفة)`);
+      // Zeroing a negative balance of a product with no cost: a purchase line
+      // can't carry a zero price, so the stock is corrected directly.
+      if (!(cost > 0) && r.countedQty === 0) zeroFix.push({ productId: p.id, quantity: delta });
+      else if (!(cost > 0)) noPrice.push(`${p.name} (الكلفة)`);
       else purchaseItems.push({ productId: p.id, quantity: delta, unitPrice: cost });
     }
   }
@@ -566,6 +573,28 @@ export async function finalizeLineCount(id: string, userId: string, userName?: s
         purchaseInvoiceId = inv.id;
       }
       await tx.lineCountSession.update({ where: { id }, data: { saleInvoiceId, purchaseInvoiceId } });
+      for (const z of zeroFix) {
+        const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
+          productId: z.productId,
+          warehouseId: s.warehouseId,
+          deltaPieces: z.quantity,
+          allowNegative: true,
+        });
+        await tx.stockMovement.create({
+          data: {
+            productId: z.productId,
+            branchId: s.warehouseId,
+            type: "IN",
+            quantity: z.quantity,
+            balanceBefore,
+            balanceAfter,
+            userId,
+            userName: userName ?? null,
+            note: `${label} — تصفير رصيد سالب بلا كلفة`,
+          },
+        });
+        await syncProductTotalStock(tx, z.productId);
+      }
       // Products with stock that nobody counted are left untouched but watched:
       // no sale and no later count within two months → «المواد الراكدة».
       const counted = new Set(now.map((r) => r.productId));
@@ -573,7 +602,8 @@ export async function finalizeLineCount(id: string, userId: string, userName?: s
         where: { warehouseId: s.warehouseId, quantityPieces: { not: 0 }, product: { deletedAt: null } },
         select: { productId: true, quantityPieces: true },
       });
-      const watched = left.filter((x) => !counted.has(x.productId));
+      const scope = s.scopeProductIds.length > 0 ? new Set(s.scopeProductIds) : null;
+      const watched = left.filter((x) => !counted.has(x.productId) && (!scope || scope.has(x.productId)));
       if (watched.length > 0)
         await tx.lineCountWatch.createMany({
           data: watched.map((x) => ({
@@ -586,7 +616,7 @@ export async function finalizeLineCount(id: string, userId: string, userName?: s
           skipDuplicates: true,
         });
       await logEvent(tx, id, "FINALIZE", userId, userName, { saleLines: saleItems.length, purchaseLines: purchaseItems.length, watched: watched.length });
-      return { saleInvoiceId, purchaseInvoiceId, saleLines: saleItems.length, purchaseLines: purchaseItems.length, watched: watched.length };
+      return { saleInvoiceId, purchaseInvoiceId, saleLines: saleItems.length, purchaseLines: purchaseItems.length, zeroFixed: zeroFix.length, watched: watched.length };
     },
     { timeout: 120_000, maxWait: 10_000 },
   );
@@ -991,8 +1021,9 @@ export async function publicGetLineCount(token: string) {
   // The whole catalogue is served only while the count is open — a finished
   // link must not keep exposing it to whoever still holds the URL.
   const recount = s.recountProductIds;
+  const scoped = recount.length > 0 ? recount : s.scopeProductIds;
   const products = s.status !== "OPEN" ? [] : await prisma.product.findMany({
-    where: { deletedAt: null, ...(recount.length > 0 ? { id: { in: recount } } : {}) },
+    where: { deletedAt: null, ...(scoped.length > 0 ? { id: { in: scoped } } : {}) },
     select: { id: true, name: true, itemNumber: true, qrCode: true, cartonQrCode: true, category: true, pcsPerCarton: true },
     orderBy: { name: "asc" },
   });
@@ -1056,6 +1087,11 @@ export async function publicSubmitLineCount(token: string, lines: SubmittedLine[
   // During a recount the manager may have settled some products himself after
   // the worker wrote them — those lines are dropped, the rest go through.
   const recount = new Set(s.recountProductIds);
+  if (recount.size === 0 && s.scopeProductIds.length > 0) {
+    const scope = new Set(s.scopeProductIds);
+    lines = lines.filter((l) => scope.has(l.productId));
+    if (lines.length === 0) throw new AppError("ماكو سطر من مواد هذا الجرد", 400, "LINE_COUNT_EMPTY");
+  }
   if (recount.size > 0) {
     lines = lines.filter((l) => recount.has(l.productId));
     if (lines.length === 0)
@@ -1195,7 +1231,8 @@ export async function publicSaveLineCountDraft(token: string, deviceId: string, 
 async function openLinkScope(token: string) {
   const s = await sessionByToken(token);
   if (s.status !== "OPEN") return null;
-  return s.recountProductIds.length > 0 ? new Set(s.recountProductIds) : "ALL";
+  if (s.recountProductIds.length > 0) return new Set(s.recountProductIds);
+  return s.scopeProductIds.length > 0 ? new Set(s.scopeProductIds) : "ALL";
 }
 
 /** Small pictures for the worker link, a batch at a time; the phone keeps them

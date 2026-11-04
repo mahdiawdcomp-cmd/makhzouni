@@ -661,6 +661,23 @@ describe("line count hardening", () => {
     await svc.cancelLineCount(s.id);
   });
 
+  it("a count of chosen products shows and watches only them; a no-cost negative is zeroed directly", async () => {
+    const inScope = await mk(5);
+    const neg = await mk(-3);
+    await db.product.update({ where: { id: neg }, data: { costPrice: 0, purchasePrice: 0 } });
+    const s = await svc.createLineCount(ids.admin, ids.shop, undefined, "المالك", [inScope, neg]);
+    assert.deepEqual((await svc.publicGetLineCount(s.publicToken)).products.map((p) => p.id).sort(), [inScope, neg].sort());
+    await svc.publicSubmitLineCount(s.publicToken, [line(inScope, 5), line(ids.a, 1)]);
+    const rev = await svc.getLineCountReview(s.id);
+    assert.ok(!rev.items.some((x) => x.productId === ids.a), "a line outside the scope is dropped");
+    assert.deepEqual(rev.uncounted.map((u) => u.productId), [neg], "only the scope is «غير مذكورة»");
+    await svc.markLineCountGone(s.id, [neg], ids.admin, "المالك");
+    const out = await svc.finalizeLineCount(s.id, ids.admin, "المالك");
+    assert.equal(out.zeroFixed, 1);
+    assert.equal(await stock(neg), 0, "negative balance zeroed with no purchase invoice");
+    assert.equal(out.purchaseInvoiceId, null);
+  });
+
   it("two clicks at once open one count only", async () => {
     const results = await Promise.allSettled([svc.createLineCount(ids.admin, ids.shop), svc.createLineCount(ids.admin, ids.shop)]);
     assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);

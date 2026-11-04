@@ -36,8 +36,8 @@ export const listLineCountSessions = asyncHandler(async (req, res) => {
 });
 
 export const createLineCountSession = asyncHandler(async (req, res) => {
-  const { warehouseId, notes } = req.body as { warehouseId?: string; notes?: string };
-  res.status(201).json({ success: true, data: await createLineCount(who(req).id, warehouseId, notes, who(req).name) });
+  const { warehouseId, notes, productIds } = req.body as { warehouseId?: string; notes?: string; productIds?: string[] };
+  res.status(201).json({ success: true, data: await createLineCount(who(req).id, warehouseId, notes, who(req).name, productIds) });
 });
 
 export const getLineCountSession = asyncHandler(async (req, res) => {

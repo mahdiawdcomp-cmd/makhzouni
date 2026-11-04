@@ -1910,6 +1910,8 @@ export const lineCountCreateSchema = z.object({
   body: z.object({
     warehouseId: z.string().uuid().optional(),
     notes: z.string().trim().max(500).optional(),
+    // Count only these products (empty / missing = the whole warehouse).
+    productIds: z.array(z.string().uuid()).max(20_000).optional(),
   }),
 });
 
