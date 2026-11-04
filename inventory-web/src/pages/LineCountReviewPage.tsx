@@ -72,6 +72,7 @@ const EVENT_LABEL: Record<string, string> = {
   CANCEL_RECOUNT: "ألغى إعادة العدّ",
   GONE: "خلصانة",
   KEEP: "خلّيها مثل ما هي",
+  ZERO_NEGATIVE: "صفّر الرصيد السالب",
   UNKEEP: "رجّعها بلا قرار",
   REOPEN: "رجّع الجرد كله للعامل",
   CANCEL: "ألغى الجرد",
