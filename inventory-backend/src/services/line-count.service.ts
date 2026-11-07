@@ -486,16 +486,16 @@ export async function finalizeLineCount(id: string, userId: string, userName?: s
       continue;
     }
     const delta = r.countedQty - r.systemQty;
+    // An accepted product with no price (no sale price for a shortage, no cost
+    // for an overage) can't go on an invoice line — its stock is set to the
+    // count directly, with the reason on the movement (owner's rule 2026-11-07).
     if (delta < 0) {
       const price = Math.round(Number(p.salePrice ?? 0));
-      if (!(price > 0)) noPrice.push(`${p.name} (سعر البيع)`);
+      if (!(price > 0)) zeroFix.push({ productId: p.id, quantity: delta });
       else saleItems.push({ productId: p.id, quantity: -delta, unitPrice: price });
     } else {
       const cost = Math.round(Number(p.costPrice ?? 0) || Number(p.purchasePrice ?? 0));
-      // Zeroing a negative balance of a product with no cost: a purchase line
-      // can't carry a zero price, so the stock is corrected directly.
-      if (!(cost > 0) && r.countedQty === 0) zeroFix.push({ productId: p.id, quantity: delta });
-      else if (!(cost > 0)) noPrice.push(`${p.name} (الكلفة)`);
+      if (!(cost > 0)) zeroFix.push({ productId: p.id, quantity: delta });
       else purchaseItems.push({ productId: p.id, quantity: delta, unitPrice: cost });
     }
   }
@@ -584,13 +584,13 @@ export async function finalizeLineCount(id: string, userId: string, userName?: s
           data: {
             productId: z.productId,
             branchId: s.warehouseId,
-            type: "IN",
-            quantity: z.quantity,
+            type: z.quantity > 0 ? "IN" : "OUT",
+            quantity: Math.abs(z.quantity),
             balanceBefore,
             balanceAfter,
             userId,
             userName: userName ?? null,
-            note: `${label} — تصفير رصيد سالب بلا كلفة`,
+            note: `${label} — تسوية مادة بلا سعر`,
           },
         });
         await syncProductTotalStock(tx, z.productId);

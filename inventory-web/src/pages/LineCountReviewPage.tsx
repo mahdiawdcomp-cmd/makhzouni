@@ -1144,7 +1144,7 @@ function VarianceRow({
             {it.deleted ? (
               <p className="mt-1 text-xs font-bold text-red-700">مادة محذوفة من النظام — ارفضها، ما تنعتمد</p>
             ) : it.noPrice ? (
-              <p className="mt-1 text-xs font-medium text-amber-700">ما إلها {shortage ? "سعر بيع" : "كلفة"} — القبول راح يوكّف الاعتماد</p>
+              <p className="mt-1 text-xs font-medium text-amber-700">ما إلها {shortage ? "سعر بيع" : "كلفة"} — إذا قبلتها بدون سعر، رصيدها ينصحح بحركة مخزن بدون فاتورة</p>
             ) : null}
             {it.decidedBy && it.decision !== "PENDING" && (
               <p className="mt-1 text-xs text-slate-500">{it.decision === "ACCEPTED" ? "قبلها" : "رفضها"} {it.decidedBy} {it.decidedAt ? `· ${dayTime(it.decidedAt)}` : ""}</p>
