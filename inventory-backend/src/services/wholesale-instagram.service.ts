@@ -474,7 +474,9 @@ export async function runWholesalePublish(postId: string): Promise<void> {
       await prisma.wholesaleInstagramPost.update({ where: { id: postId }, data: { igCreationId: creationId } });
     }
 
-    if (post.postType === "CAROUSEL") await waitForContainer(creationId, token, 5 * 60 * 1000);
+    // A single image needs a moment too: publishing before Meta finished
+    // fetching it fails with "media is not ready" (code 9007).
+    await waitForContainer(creationId, token, post.postType === "CAROUSEL" ? 5 * 60 * 1000 : 2 * 60 * 1000);
 
     const published = await graphFetch<{ id: string }>(`${igUserId}/media_publish`, {
       access_token: token,
@@ -485,8 +487,16 @@ export async function runWholesalePublish(postId: string): Promise<void> {
     await prisma.wholesaleInstagramPost.update({ where: { id: postId }, data: { igMediaId: published.id } });
     await finalizeSuccess(postId, published.id, token);
   } catch (error) {
-    const message = error instanceof AppError ? error.message : error instanceof Error ? `خطأ غير متوقع: ${error.message}` : "فشل غير معروف";
-    await markFailed(postId, message);
+    const raw = error instanceof AppError ? error.message : error instanceof Error ? `خطأ غير متوقع: ${error.message}` : "فشل غير معروف";
+    // Code 190 = the account's token expired or was revoked: say so plainly
+    // and flag the account so every screen shows it needs reconnecting.
+    const expired = /code=190\b/.test(raw);
+    if (expired) {
+      await prisma.instagramAccount
+        .update({ where: { id: post.accountId }, data: { status: "error", lastError: "انتهى ربط الحساب — أعد الربط" } })
+        .catch(() => undefined);
+    }
+    await markFailed(postId, expired ? "انتهى ربط حساب إنستغرام — افتح «إدارة إنستغرام» وأعد الربط، وبعدها اضغط «انشر الآن»" : raw);
   }
 }
 

@@ -139,6 +139,9 @@ function installFetchStub() {
     if (url.includes("/media?") || (init?.method === "POST" && url.endsWith("/media"))) {
       return new Response(JSON.stringify({ id: "ig-container-1" }), { status: 200 });
     }
+    if (url.includes("fields=status_code")) {
+      return new Response(JSON.stringify({ status_code: "FINISHED" }), { status: 200 });
+    }
     if (url.includes("fields=permalink")) {
       return new Response(JSON.stringify({ permalink: "https://www.instagram.com/p/fake/" }), { status: 200 });
     }

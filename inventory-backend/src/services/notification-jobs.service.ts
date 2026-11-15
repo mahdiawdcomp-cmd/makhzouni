@@ -22,6 +22,7 @@ import { runNoReplyFollowUpJob, runRegisteredNoOrderFollowUpJob, runInactiveFoll
 import { runAbandonedCartCheckJob } from "./catalog-tracking.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
 import { runWholesaleInstagramQueueTick } from "./wholesale-instagram-queue.service";
+import { refreshInstagramTokens } from "./instagram.service";
 import { closeExpiredAuctions } from "./auction.service";
 import {
   runTelegramChannelSyncTick,
@@ -509,6 +510,14 @@ export function startNotificationJobs() {
   cron.schedule("* * * * *", () => {
     runWholesaleInstagramQueueTick().catch((error) => {
       reportCronFailure("WHOLESALE_INSTAGRAM_QUEUE_TICK", error);
+    });
+  }, CRON_OPTIONS);
+
+  // Instagram connections expire after 60 days unless renewed — renew daily
+  // anything expiring within 20 days (both retail and wholesale use them).
+  cron.schedule("40 4 * * *", () => {
+    refreshInstagramTokens().catch((error) => {
+      reportCronFailure("INSTAGRAM_TOKEN_REFRESH", error);
     });
   }, CRON_OPTIONS);
 

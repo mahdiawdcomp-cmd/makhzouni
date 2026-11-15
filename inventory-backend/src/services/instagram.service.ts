@@ -527,7 +527,9 @@ export async function publishPost(postId: string): Promise<void> {
     }
 
     if (post.postType === "REEL") await waitForContainer(creationId, token, 10 * 60 * 1000);
-    if (post.postType === "CAROUSEL") await waitForContainer(creationId, token, 5 * 60 * 1000);
+    else if (post.postType === "CAROUSEL") await waitForContainer(creationId, token, 5 * 60 * 1000);
+    // A single image needs a moment too ("media is not ready", code 9007).
+    else await waitForContainer(creationId, token, 2 * 60 * 1000);
 
     const published = await graphFetch<{ id: string }>(`${igUserId}/media_publish`, {
       access_token: token,
@@ -634,4 +636,40 @@ export async function retryPost(postId: string) {
   if (post.status !== "FAILED") throw new AppError("إعادة المحاولة متاحة فقط للمنشورات الفاشلة", 400, "NOT_FAILED");
   await prisma.instagramPost.update({ where: { id: postId }, data: { status: "PREPARING", errorMessage: null } });
   void publishPost(postId);
+}
+
+/** Long-lived Instagram tokens last 60 days and can be renewed while still
+ * valid (and at least a day old). Run daily: renew anything expiring within
+ * 20 days, so a connection never lapses unnoticed again. */
+export async function refreshInstagramTokens() {
+  const soon = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
+  const accounts = await prisma.instagramAccount.findMany({
+    where: { status: { in: ["connected", "error"] }, tokenExpiresAt: { not: null, lte: soon } },
+  });
+  for (const a of accounts) {
+    if (a.tokenExpiresAt && a.tokenExpiresAt.getTime() <= Date.now()) {
+      await prisma.instagramAccount.update({ where: { id: a.id }, data: { status: "error", lastError: "انتهى ربط الحساب — أعد الربط" } });
+      continue;
+    }
+    try {
+      const q = new URLSearchParams({ grant_type: "ig_refresh_token", access_token: decryptSecret(a.accessTokenEnc) });
+      const res = await fetch(`https://graph.instagram.com/refresh_access_token?${q}`);
+      const json = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: { message?: string } };
+      if (!res.ok || !json.access_token) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+      await prisma.instagramAccount.update({
+        where: { id: a.id },
+        data: {
+          accessTokenEnc: encryptSecret(json.access_token),
+          tokenExpiresAt: new Date(Date.now() + (json.expires_in ?? 60 * 24 * 60 * 60) * 1000),
+          status: "connected",
+          lastError: null,
+        },
+      });
+    } catch (error) {
+      await prisma.instagramAccount.update({
+        where: { id: a.id },
+        data: { lastError: `تعذّر تجديد الربط تلقائياً: ${error instanceof Error ? error.message : "خطأ"}` },
+      });
+    }
+  }
 }
